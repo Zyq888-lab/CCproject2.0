@@ -7,6 +7,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -59,6 +60,12 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> handleDuplicateKey(DuplicateKeyException ex) {
         log.warn("数据重复: {}", ex.getMessage());
         return ApiResponse.error(409, "数据已存在，请检查后重试");
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    @ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
+    public ApiResponse<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        return ApiResponse.error(405, "请求方法不允许: " + ex.getMethod());
     }
 
     @ExceptionHandler(Exception.class)
