@@ -11,20 +11,16 @@ spring:
     active: dev
 
 ---
-# ========== 开发环境 (H2 内存数据库，零安装) ==========
+# ========== 开发环境 (PostgreSQL 本地) ==========
 spring:
   config:
     activate:
       on-profile: dev
   datasource:
-    url: jdbc:h2:mem:assessment;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
+    url: jdbc:postgresql://localhost:5432/jifeng_assessment
+    driver-class-name: org.postgresql.Driver
+    username: postgres
+    password: postgres
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -51,23 +47,20 @@ logging:
     org.flywaydb: DEBUG
 
 ---
-# ========== 生产环境 (MySQL) ==========
+# ========== 生产环境 (PostgreSQL) ==========
 spring:
   config:
     activate:
       on-profile: prod
   datasource:
-    url: jdbc:mysql://localhost:3306/jifeng_assessment?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&useSSL=false
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    username: ${DB_USERNAME:root}
+    url: jdbc:postgresql://localhost:5432/jifeng_assessment?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:}
   flyway:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
-  h2:
-    console:
-      enabled: false
 
 mybatis-plus:
   configuration:

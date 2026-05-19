@@ -34,3 +34,4 @@ target/
 # Logs
 *.log
 logs/
+.gstack/
