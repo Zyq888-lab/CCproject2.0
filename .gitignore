@@ -28,5 +28,9 @@ build/
 .env.local
 .env.*.local
 
+# Maven
+target/
+
 # Logs
 *.log
+logs/
