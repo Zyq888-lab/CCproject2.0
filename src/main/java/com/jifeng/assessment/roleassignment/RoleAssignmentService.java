@@ -13,6 +13,7 @@ import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.projectrole.ProjectRole;
 import com.jifeng.assessment.projectrole.ProjectRoleMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -40,13 +41,13 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
                 .orderByAsc(ProjectRoleAssignment::getId);
         List<ProjectRoleAssignment> assignments = baseMapper.selectList(wrapper);
 
-        Map<String, String> employeeNameMap = assignments.stream()
+        List<String> employeeIds = assignments.stream()
                 .map(ProjectRoleAssignment::getEmployeeId)
                 .distinct()
-                .collect(Collectors.toMap(eid -> eid, eid -> {
-                    Employee emp = employeeMapper.selectById(eid);
-                    return emp != null ? emp.getName() : null;
-                }, (a, b) -> a));
+                .toList();
+        Map<String, String> employeeNameMap = employeeIds.isEmpty() ? Map.of() :
+                employeeMapper.selectBatchIds(employeeIds).stream()
+                        .collect(Collectors.toMap(Employee::getEmployeeId, Employee::getName, (a, b) -> a));
 
         return assignments.stream()
                 .map(a -> toDTO(a, employeeNameMap.get(a.getEmployeeId())))
@@ -94,7 +95,12 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         assignment.setProjectRoleCode(roleCode);
         assignment.setEmployeeId(employeeId);
         assignment.setIsPrimaryPd(false);
-        baseMapper.insert(assignment);
+        try {
+            baseMapper.insert(assignment);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException(409,
+                    "员工" + employeeId + "已被分配到项目" + projectCode + "的角色" + roleCode);
+        }
 
         return toDTO(assignment, employee.getName());
     }
@@ -105,6 +111,9 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         ProjectRoleAssignment assignment = baseMapper.selectById(assignmentId);
         if (assignment == null) {
             throw new BusinessException(404, "分配记录不存在: " + assignmentId);
+        }
+        if (!"PD".equals(assignment.getProjectRoleCode())) {
+            throw new BusinessException(400, "仅PD角色的分配可标记为PD负责人");
         }
 
         // 取消同项目内已有的PD负责人标记
