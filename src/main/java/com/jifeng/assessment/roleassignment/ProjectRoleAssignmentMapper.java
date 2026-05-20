@@ -1,4 +1,4 @@
-package com.jifeng.assessment.employee;
+package com.jifeng.assessment.roleassignment;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;

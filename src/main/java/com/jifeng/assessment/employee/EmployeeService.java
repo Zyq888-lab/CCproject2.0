@@ -8,6 +8,8 @@ import com.jifeng.assessment.common.BaseService;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.common.PageQuery;
 import com.jifeng.assessment.common.PageResult;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
