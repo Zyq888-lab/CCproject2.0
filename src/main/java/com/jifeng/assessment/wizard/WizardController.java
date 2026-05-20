@@ -1,11 +1,12 @@
 // 模块用途：配置向导REST接口——7步分步保存、进度查询、断点续配、重置
 // 依赖文件：WizardService.java, 各业务模块Service, BaseController.java
-// 修改注意：每步完成后自动推进currentStep，第7步完成后标记completed=true
+// 修改注意：每步完成后自动推进currentStep，全部7步去重完成后标记completed=true
 package com.jifeng.assessment.wizard;
 
 import com.jifeng.assessment.common.ApiResponse;
 import com.jifeng.assessment.common.BaseController;
-import com.jifeng.assessment.kpi.*;
+import com.jifeng.assessment.kpi.KpiConfigService;
+import com.jifeng.assessment.kpi.ProjectKpiConfig;
 import com.jifeng.assessment.period.AssessmentPeriod;
 import com.jifeng.assessment.period.PeriodService;
 import com.jifeng.assessment.position.PositionAssessmentConfig;
@@ -16,13 +17,20 @@ import com.jifeng.assessment.projectrole.ProjectRole;
 import com.jifeng.assessment.projectrole.ProjectRoleService;
 import com.jifeng.assessment.roleassignment.RoleAssignmentService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -186,6 +194,7 @@ public class WizardController extends BaseController {
         @NotBlank
         private String kpiName;
         @NotNull
+        @DecimalMin("0.00") @DecimalMax("100.00")
         private BigDecimal weight;
     }
 
@@ -198,9 +207,12 @@ public class WizardController extends BaseController {
         @NotNull
         private Boolean isProjectBased;
         @NotNull
+        @DecimalMin("0.00") @DecimalMax("100.00")
         private BigDecimal projectWeight;
         @NotNull
+        @DecimalMin("0.00") @DecimalMax("100.00")
         private BigDecimal funcWeight;
+        @Size(max = 50)
         private String funcAssessMode;
     }
 
