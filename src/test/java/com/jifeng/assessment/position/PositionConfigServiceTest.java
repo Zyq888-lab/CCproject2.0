@@ -206,4 +206,19 @@ class PositionConfigServiceTest {
                 () -> positionConfigService.createConfig(config));
         assertTrue(ex.getMessage().contains("不能为空"));
     }
+
+    // 功能：职能考核方式为非有效值时抛出400
+    @Test
+    void shouldRejectInvalidFuncAssessMode() {
+        PositionAssessmentConfig config = new PositionAssessmentConfig();
+        config.setCategory("研发技术类");
+        config.setPosition("整椅研发岗");
+        config.setProjectWeight(new BigDecimal("0.7000"));
+        config.setFuncWeight(new BigDecimal("0.3000"));
+        config.setFuncAssessMode("INVALID_MODE");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> positionConfigService.createConfig(config));
+        assertTrue(ex.getMessage().contains("无效的职能考核方式"));
+    }
 }

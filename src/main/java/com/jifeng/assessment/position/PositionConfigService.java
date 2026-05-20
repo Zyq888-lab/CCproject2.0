@@ -11,6 +11,7 @@ import com.jifeng.assessment.common.PageResult;
 import com.jifeng.assessment.projectrole.ProjectRole;
 import com.jifeng.assessment.projectrole.ProjectRoleMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -18,6 +19,7 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +30,7 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
 
     private static final BigDecimal TOLERANCE = new BigDecimal("0.001");
     private static final BigDecimal ONE = BigDecimal.ONE;
+    private static final Set<String> VALID_FUNC_ASSESS_MODES = Set.of("DIRECT_LEADER", "ORG_LEADER");
 
     // 功能：分页查询岗位配置列表，支持按岗位分类和岗位名称筛选
     public PageResult<PositionAssessmentConfig> listConfigs(int pageNum, int pageSize, String category, String position) {
@@ -57,6 +60,7 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
     @Transactional
     public PositionAssessmentConfig createConfig(PositionAssessmentConfig config) {
         validateWeights(config);
+        validateFuncAssessMode(config.getFuncAssessMode());
         config.setCreatedAt(LocalDateTime.now());
         config.setUpdatedAt(LocalDateTime.now());
         baseMapper.insert(config);
@@ -84,6 +88,7 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
             existing.setDefaultProjectRole(request.getDefaultProjectRole());
         }
         if (request.getFuncAssessMode() != null) {
+            validateFuncAssessMode(request.getFuncAssessMode());
             existing.setFuncAssessMode(request.getFuncAssessMode());
         }
         if (request.getProjectWeight() != null) {
@@ -99,7 +104,7 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
         return baseMapper.selectById(id);
     }
 
-    // 功能：删除岗位配置——逻辑删除，同时删除关联的考核人角色
+    // 功能：删除岗位配置——逻辑删除
     @Transactional
     public void deleteConfig(Long id) {
         PositionAssessmentConfig existing = baseMapper.selectById(id);
@@ -141,7 +146,11 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
         assoc.setRoleCode(roleCode);
         assoc.setCreatedAt(LocalDateTime.now());
         assoc.setUpdatedAt(LocalDateTime.now());
-        assessorRoleMapper.insert(assoc);
+        try {
+            assessorRoleMapper.insert(assoc);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException(409, "该岗位配置已关联角色" + roleCode);
+        }
         return assoc;
     }
 
@@ -153,6 +162,14 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
             throw new BusinessException(404, "考核人角色关联不存在");
         }
         assessorRoleMapper.deleteById(assessorRoleId);
+    }
+
+    // 功能：职能考核方式校验——仅允许 DIRECT_LEADER / ORG_LEADER
+    private void validateFuncAssessMode(String mode) {
+        if (mode != null && !VALID_FUNC_ASSESS_MODES.contains(mode)) {
+            throw new BusinessException(400,
+                    "无效的职能考核方式: " + mode + "，有效值: " + VALID_FUNC_ASSESS_MODES);
+        }
     }
 
     // 功能：权重校验——项目权重+职能权重之和必须为1.0（容差±0.001，应对BigDecimal浮点精度问题）
