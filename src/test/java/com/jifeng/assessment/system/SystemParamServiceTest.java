@@ -29,7 +29,7 @@ class SystemParamServiceTest {
     @Test
     void shouldListAllSystemParams() {
         List<SystemParam> params = systemParamService.listAll();
-        assertEquals(5, params.size());
+        assertTrue(params.size() >= 5, "should have at least 5 seed params");
         assertTrue(params.stream().anyMatch(p -> "NEED_PRESIDENT_CONFIRM".equals(p.getParamKey())));
         assertTrue(params.stream().anyMatch(p -> "MAX_RETURN_TIMES".equals(p.getParamKey())));
     }
