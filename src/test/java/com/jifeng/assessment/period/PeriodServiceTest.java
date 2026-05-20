@@ -127,4 +127,18 @@ class PeriodServiceTest {
         assertNotNull(second.getPeriodId());
         assertEquals("INIT", second.getStatus());
     }
+
+    // 功能：开始日期晚于结束日期时拒绝创建
+    @Test
+    void shouldRejectStartDateAfterEndDate() {
+        AssessmentPeriod period = new AssessmentPeriod();
+        period.setPeriodName("日期错误周期");
+        period.setStartDate(LocalDate.of(2026, 12, 31));
+        period.setEndDate(LocalDate.of(2026, 1, 1));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> periodService.createPeriod(period));
+        assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("开始日期不能晚于结束日期"));
+    }
 }

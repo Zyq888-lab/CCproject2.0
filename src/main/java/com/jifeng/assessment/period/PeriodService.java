@@ -36,6 +36,10 @@ public class PeriodService {
     // 功能：创建考核周期——自动生成periodId，校验无活跃周期
     @Transactional
     public AssessmentPeriod createPeriod(AssessmentPeriod period) {
+        if (period.getStartDate() != null && period.getEndDate() != null
+                && period.getStartDate().isAfter(period.getEndDate())) {
+            throw new BusinessException(400, "开始日期不能晚于结束日期");
+        }
         // 活跃周期唯一约束：不能存在非COMPLETED的周期
         long activeCount = periodMapper.selectCount(
                 new LambdaQueryWrapper<AssessmentPeriod>().ne(AssessmentPeriod::getStatus, COMPLETED));
