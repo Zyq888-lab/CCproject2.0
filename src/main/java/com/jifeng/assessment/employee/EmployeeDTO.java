@@ -1,15 +1,13 @@
+// 模块用途：员工信息返回对象——不含逻辑删除标记deleted字段，用于前端展示
+// 依赖文件：Employee.java
+// 修改注意：增减字段时需同步更新 EmployeeService 中的 toDTO 转换方法
 package com.jifeng.assessment.employee;
 
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
-import com.baomidou.mybatisplus.annotation.Version;
 import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("employee")
-public class Employee {
-    @TableId
+public class EmployeeDTO {
     private String employeeId;
     private String name;
     private String email;
@@ -18,9 +16,6 @@ public class Employee {
     private String orgName;
     private String directLeaderId;
     private String status;
-    private Integer deleted;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
-    @Version
-    private Long version;
 }
