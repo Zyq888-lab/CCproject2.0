@@ -490,7 +490,7 @@ Greenfield项目，无已有代码。设计文档 `design-绩效考核系统-202
 
 ### 6.3 前端页面
 
-- [ ] **T18 (P1, ~2h / ~15min)** — 公共组件：AppLayout + EmptyState + PageHeader + ConfirmModal
+- [x] **T18 (P1, ~2h / ~15min)** — 公共组件：AppLayout + EmptyState + PageHeader + ConfirmModal
   - 文件: `components/` 全部4个文件
   - 验证: EmptyState在新系统首次访问时正确显示
 
