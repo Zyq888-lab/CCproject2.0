@@ -494,7 +494,7 @@ Greenfield项目，无已有代码。设计文档 `design-绩效考核系统-202
   - 文件: `components/` 全部4个文件
   - 验证: EmptyState在新系统首次访问时正确显示
 
-- [ ] **T19 (P1, ~1h / ~10min)** — Login + Dashboard 页面
+- [x] **T19 (P1, ~1h / ~10min)** — Login + Dashboard 页面
   - 文件: `pages/Login/`, `pages/Dashboard/`
   - 验证: 登录 → 仪表盘显示配置进度 → 点击"开始配置"进入向导
 
