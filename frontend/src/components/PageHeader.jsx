@@ -23,8 +23,8 @@ function PageHeader({ title, breadcrumb, actions }) {
         {/* 功能：面包屑导航——点击可跳转到上级页面 */}
         {breadcrumb && breadcrumb.length > 0 && (
           <Breadcrumb style={{ marginBottom: 4 }}>
-            {breadcrumb.map((item, idx) => (
-              <Breadcrumb.Item key={idx}>
+            {breadcrumb.map((item) => (
+              <Breadcrumb.Item key={item.title || item.path}>
                 {item.path ? (
                   <a onClick={() => navigate(item.path)}>{item.title}</a>
                 ) : (

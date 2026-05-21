@@ -55,4 +55,3 @@ export function showConfirm({ title, content, okText = '确定', okType = 'prima
   });
 }
 
-export default { showDeleteConfirm, showConflictWarning, showConfirm };

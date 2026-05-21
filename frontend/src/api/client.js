@@ -3,17 +3,13 @@
 // 修改注意：BASE_URL根据环境变量切换，401时自动跳转登录页
 import axios from 'axios';
 
+const REQUEST_TIMEOUT_MS = 15_000;
+
 const client = axios.create({
   baseURL: '/api/v1',
-  timeout: 15000,
+  timeout: REQUEST_TIMEOUT_MS,
   headers: { 'Content-Type': 'application/json' },
 });
-
-// 功能：请求拦截器——自动附带token（JSESSIONID由浏览器Cookie自动发送）
-client.interceptors.request.use(
-  (config) => config,
-  (error) => Promise.reject(error)
-);
 
 // 功能：响应拦截器——统一处理401未登录跳转、403无权限提示
 client.interceptors.response.use(
