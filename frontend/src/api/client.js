@@ -1,6 +1,6 @@
-{/* 模块用途：Axios HTTP客户端——统一封装请求拦截、响应拦截、错误处理 */}
-{/* 依赖组件：无 */}
-{/* 修改注意：BASE_URL根据环境变量切换，401时自动跳转登录页 */}
+// 模块用途：Axios HTTP客户端——统一封装请求拦截、响应拦截、错误处理
+// 依赖组件：无
+// 修改注意：BASE_URL根据环境变量切换，401时自动跳转登录页
 import axios from 'axios';
 
 const client = axios.create({
