@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import LoginPage from './pages/Login/LoginPage';
 import DashboardPage from './pages/Dashboard/DashboardPage';
+import SetupWizardPage from './pages/SetupWizard/SetupWizardPage';
 
 // 功能：临时占位页——T20-T32实现各页面后逐一替换
 function PlaceholderPage({ title }) {
@@ -30,7 +31,7 @@ function App() {
         {/* 功能：所有需登录页面——由AppLayout包裹，通过<Outlet />渲染子路由 */}
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/setup-wizard" element={<PlaceholderPage title="配置向导" />} />
+          <Route path="/setup-wizard" element={<SetupWizardPage />} />
           <Route path="/employee/list" element={<PlaceholderPage title="员工管理" />} />
           <Route path="/project-role" element={<PlaceholderPage title="项目角色" />} />
           <Route path="/project/list" element={<PlaceholderPage title="项目管理" />} />
