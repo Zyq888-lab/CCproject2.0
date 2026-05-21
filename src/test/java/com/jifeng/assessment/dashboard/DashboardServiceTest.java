@@ -54,15 +54,15 @@ class DashboardServiceTest {
         List<DashboardService.ConfigProgressItem> items = dashboardService.configProgress();
         assertEquals(5, items.size());
         assertEquals(1, getCount(items, "employee"), "seed admin employee");
-        assertEquals("已配置", getStatus(items, "employee"));
+        assertEquals(DashboardService.STATUS_CONFIGURED, getStatus(items, "employee"));
         assertEquals(0, getCount(items, "projectRole"));
-        assertEquals("待配置", getStatus(items, "projectRole"));
+        assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "projectRole"));
         assertEquals(0, getCount(items, "project"));
-        assertEquals("待配置", getStatus(items, "project"));
+        assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "project"));
         assertEquals(0, getCount(items, "positionConfig"));
-        assertEquals("待配置", getStatus(items, "positionConfig"));
+        assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "positionConfig"));
         assertEquals(0, getCount(items, "kpi"));
-        assertEquals("待配置", getStatus(items, "kpi"));
+        assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "kpi"));
     }
 
     // 功能：有数据时count反映实际数量且status="已配置"
@@ -121,7 +121,7 @@ class DashboardServiceTest {
         assertEquals(1, getCount(items, "kpi"));
 
         for (DashboardService.ConfigProgressItem item : items) {
-            assertEquals("已配置", item.status(), item.key() + " should be 已配置");
+            assertEquals(DashboardService.STATUS_CONFIGURED, item.status(), item.key() + " should be " + DashboardService.STATUS_CONFIGURED);
         }
     }
 
@@ -142,14 +142,15 @@ class DashboardServiceTest {
 
         // 1 seed admin + 1 test employee = 2
         assertEquals(2, getCount(items, "employee"));
-        assertEquals("已配置", getStatus(items, "employee"));
+        assertEquals(DashboardService.STATUS_CONFIGURED, getStatus(items, "employee"));
         assertEquals(0, getCount(items, "projectRole"));
-        assertEquals("待配置", getStatus(items, "projectRole"));
+        assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "projectRole"));
         assertEquals(0, getCount(items, "project"));
-        assertEquals("待配置", getStatus(items, "project"));
+        assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "project"));
     }
 
     // 功能：diffReport在阶段1返回空列表
+    // 阶段2：补充非空diffReport测试——包含缺岗位配置的员工、无考核人的员工、缺少上级等异常项
     @Test
     void shouldReturnEmptyDiffReport() {
         List<String> report = dashboardService.diffReport();

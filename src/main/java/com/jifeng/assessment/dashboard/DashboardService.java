@@ -26,6 +26,9 @@ public class DashboardService {
     private final ProjectKpiMapper projectKpiMapper;
     private final FuncKpiMapper funcKpiMapper;
 
+    public static final String STATUS_CONFIGURED = "已配置";
+    public static final String STATUS_PENDING = "待配置";
+
     public record ConfigProgressItem(String key, String label, long count, String status, String link) {}
 
     // 功能：统计各配置模块的数据量，count=0时status为"待配置"
@@ -52,6 +55,6 @@ public class DashboardService {
     }
 
     private ConfigProgressItem item(String key, String label, long count, String link) {
-        return new ConfigProgressItem(key, label, count, count > 0 ? "已配置" : "待配置", link);
+        return new ConfigProgressItem(key, label, count, count > 0 ? STATUS_CONFIGURED : STATUS_PENDING, link);
     }
 }
