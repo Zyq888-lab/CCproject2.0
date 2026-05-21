@@ -11,13 +11,25 @@ const client = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// 功能：响应拦截器——统一处理401未登录跳转、403无权限提示
+// 功能：请求拦截器——从Cookie读取XSRF-TOKEN并设置到请求头，Spring Security CSRF校验需要
+client.interceptors.request.use((config) => {
+  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
+  if (match) {
+    config.headers['X-XSRF-TOKEN'] = match[1];
+  }
+  return config;
+});
+
+// 功能：响应拦截器——统一处理401未登录跳转、403无权限提示、409冲突
 client.interceptors.response.use(
   (response) => response.data,
   (error) => {
     if (error.response) {
       const { status, data } = error.response;
       if (status === 401) {
+        if (window.location.pathname === '/login') {
+          return Promise.reject({ code: 401, message: data?.message || '用户名或密码错误' });
+        }
         window.location.href = '/login';
       } else if (status === 403) {
         return Promise.reject({ code: 403, message: '无权访问' });

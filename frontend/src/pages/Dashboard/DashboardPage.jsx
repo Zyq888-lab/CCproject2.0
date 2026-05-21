@@ -1,7 +1,7 @@
 {/* 模块用途：DashboardPage——仪表盘页，首次访问显示欢迎引导，已有数据显示配置进度卡片 */}
 {/* 依赖组件：EmptyState, PageHeader, Ant Design Card/Progress/Badge/Spin, react-router-dom, client.js */}
 {/* 修改注意：阶段2添加差异报告红点Badge；config-progress API返回5项数据 */}
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Progress, Spin, Result, Button, Tag } from 'antd';
 import {
@@ -9,7 +9,6 @@ import {
   TeamOutlined,
   AimOutlined,
   FolderOutlined,
-  LinkOutlined,
   SettingOutlined,
   LineChartOutlined,
   RocketOutlined,
@@ -36,26 +35,42 @@ const COLOR_MAP = {
   kpi: '#EB2F96',
 };
 
+// 功能：卡片网格样式——2行×3列
+const GRID_STYLE = { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 };
+
 function DashboardPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
 
-  // 功能：挂载时调用GET /api/v1/dashboard/config-progress获取配置进度
-  useEffect(() => {
-    const fetchProgress = async () => {
-      try {
-        const res = await client.get('/dashboard/config-progress');
+  const mountedRef = useRef(true);
+
+  // 功能：获取配置进度——挂载时调用，出错后可重试
+  const fetchProgress = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await client.get('/dashboard/config-progress');
+      if (mountedRef.current) {
         setItems(res.data || []);
-      } catch (err) {
+      }
+    } catch (err) {
+      if (mountedRef.current) {
         setError(err?.message || '加载失败');
-      } finally {
+      }
+    } finally {
+      if (mountedRef.current) {
         setLoading(false);
       }
-    };
-    fetchProgress();
+    }
   }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchProgress();
+    return () => { mountedRef.current = false; };
+  }, [fetchProgress]);
 
   // 功能：加载中——显示Spin旋转加载
   if (loading) {
@@ -79,7 +94,7 @@ function DashboardPage() {
         title="加载失败"
         subTitle={error}
         extra={
-          <Button type="primary" onClick={() => window.location.reload()}>
+          <Button type="primary" onClick={fetchProgress}>
             重试
           </Button>
         }
@@ -110,9 +125,7 @@ function DashboardPage() {
         />
         {/* 功能：配置进度预览卡片——2行×3列，显示6个待配置模块 */}
         <div id="dashboard-preview-cards" style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 16,
+          ...GRID_STYLE,
           maxWidth: 720,
           margin: '0 auto',
           marginTop: 32,
@@ -160,11 +173,7 @@ function DashboardPage() {
       </Card>
 
       {/* 功能：配置进度卡片——2行×3列CSS Grid，已配置项绿色左边框+绿色对勾 */}
-      <div id="dashboard-config-cards" style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: 16,
-      }}>
+      <div id="dashboard-config-cards" style={GRID_STYLE}>
         {items.map((item) => {
           const isConfigured = item.count > 0;
           return (
