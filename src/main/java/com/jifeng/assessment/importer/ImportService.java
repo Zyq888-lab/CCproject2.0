@@ -1,15 +1,17 @@
 // 模块用途：导入业务逻辑——Excel解析、字段映射、逐行校验、批量创建员工
-// 依赖文件：EmployeeService.java, Employee.java, EmployeeValidator.java, ImportResultDTO.java
+// 依赖文件：EmployeeMapper.java, Employee.java, EmployeeValidator.java, ImportResultDTO.java
 // 修改注意：校验规则与 EmployeeService.validateOnCreate 保持一致，新增字段需同步更新 FIELD_MAPPING
 package com.jifeng.assessment.importer;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.employee.EmployeeValidator;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -18,7 +20,9 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.InputStream;
 import java.util.*;
 import java.util.function.BiConsumer;
+import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ImportService {
@@ -86,86 +90,97 @@ public class ImportService {
     public ImportResultDTO.PreviewResult preview(MultipartFile file) {
         try (InputStream is = file.getInputStream();
              Workbook workbook = WorkbookFactory.create(is)) {
-            Sheet sheet = workbook.getSheetAt(0);
-            if (sheet.getLastRowNum() < 1) {
-                throw new BusinessException(400, "文件为空或仅包含表头");
-            }
-
-            List<String> headers = readHeaders(sheet);
-            Map<Integer, String> columnMapping = buildColumnMapping(headers);
-
-            int totalRows = sheet.getLastRowNum(); // 不含表头
-            if (totalRows > MAX_ROWS) {
-                throw new BusinessException(400, "单次导入不能超过" + MAX_ROWS + "行，当前: " + totalRows);
-            }
+            ParsedSheet parsed = parseSheet(workbook.getSheetAt(0));
 
             List<Map<String, String>> sampleRows = new ArrayList<>();
-            int sampleSize = Math.min(PREVIEW_ROWS, totalRows);
+            int sampleSize = Math.min(PREVIEW_ROWS, parsed.rawRows);
             for (int i = 0; i < sampleSize; i++) {
-                Row row = sheet.getRow(i + 1);
+                Row row = parsed.sheet.getRow(i + 1);
                 if (row == null) continue;
-                Map<String, String> rowData = readDataRow(row, columnMapping);
+                Map<String, String> rowData = readDataRow(row, parsed.columnMapping);
                 if (!rowData.isEmpty()) {
                     sampleRows.add(rowData);
                 }
             }
 
-            return new ImportResultDTO.PreviewResult(headers, sampleRows, totalRows);
+            return new ImportResultDTO.PreviewResult(parsed.headers, sampleRows, parsed.rawRows);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new BusinessException(400, "文件解析失败: " + e.getMessage());
+            log.error("预览文件解析失败", e);
+            throw new BusinessException(400, "文件解析失败，请检查文件格式");
         }
     }
 
-    // 功能：执行导入——解析Excel全部数据行，逐行校验后创建员工，返回导入报告
+    // 功能：执行导入——批量预取已有工号和上级工号，逐行校验后插入，返回导入报告
     @Transactional
     public ImportResultDTO.ExecuteResult execute(MultipartFile file) {
         try (InputStream is = file.getInputStream();
              Workbook workbook = WorkbookFactory.create(is)) {
-            Sheet sheet = workbook.getSheetAt(0);
-            if (sheet.getLastRowNum() < 1) {
-                throw new BusinessException(400, "文件为空或仅包含表头");
+            ParsedSheet parsed = parseSheet(workbook.getSheetAt(0));
+
+            // 第一遍扫描：收集所有工号和直属上级工号
+            Set<String> allEmployeeIds = new HashSet<>();
+            Set<String> allLeaderIds = new HashSet<>();
+            int empIdCol = getColumnIndex(parsed.columnMapping, "employeeId");
+            int leaderCol = getColumnIndex(parsed.columnMapping, "directLeaderId");
+            for (int i = 0; i < parsed.rawRows; i++) {
+                Row row = parsed.sheet.getRow(i + 1);
+                if (row == null || isRowEmpty(row)) continue;
+                String empId = readCell(row.getCell(empIdCol));
+                if (!empId.isEmpty()) allEmployeeIds.add(empId);
+                if (leaderCol >= 0) {
+                    String leaderId = readCell(row.getCell(leaderCol));
+                    if (!leaderId.isEmpty()) allLeaderIds.add(leaderId);
+                }
             }
 
-            List<String> headers = readHeaders(sheet);
-            Map<Integer, String> columnMapping = buildColumnMapping(headers);
+            // 批量查询已有员工（内存set替代N次selectById）
+            Set<String> existingIds = allEmployeeIds.isEmpty() ? Set.of() :
+                    employeeMapper.selectList(new LambdaQueryWrapper<Employee>()
+                                    .in(Employee::getEmployeeId, allEmployeeIds))
+                            .stream().map(Employee::getEmployeeId).collect(Collectors.toSet());
 
-            int totalRows = sheet.getLastRowNum();
-            if (totalRows > MAX_ROWS) {
-                throw new BusinessException(400, "单次导入不能超过" + MAX_ROWS + "行，当前: " + totalRows);
-            }
+            // 批量查询已有上级
+            Set<String> existingLeaders = allLeaderIds.isEmpty() ? Set.of() :
+                    employeeMapper.selectList(new LambdaQueryWrapper<Employee>()
+                                    .in(Employee::getEmployeeId, allLeaderIds))
+                            .stream().map(Employee::getEmployeeId).collect(Collectors.toSet());
 
             int successCount = 0;
+            int dataRowCount = 0;
             List<ImportResultDTO.ImportError> errors = new ArrayList<>();
 
-            for (int i = 0; i < totalRows; i++) {
-                Row row = sheet.getRow(i + 1);
+            for (int i = 0; i < parsed.rawRows; i++) {
+                Row row = parsed.sheet.getRow(i + 1);
                 int rowNum = i + 2; // 1-based, 表头行=1
 
                 if (row == null || isRowEmpty(row)) continue;
+                dataRowCount++;
 
                 try {
-                    Employee emp = buildEmployee(row, rowNum, columnMapping);
+                    Employee emp = buildEmployee(row, rowNum, parsed.columnMapping,
+                            existingIds, existingLeaders);
                     employeeMapper.insert(emp);
                     successCount++;
                 } catch (BusinessException e) {
                     errors.add(new ImportResultDTO.ImportError(
                             rowNum, readCell(row.getCell(0)), e.getMessage()));
+                } catch (DuplicateKeyException e) {
+                    String empId = readCell(row.getCell(0));
+                    log.warn("Row {}: duplicate employeeId {}", rowNum, empId, e);
+                    errors.add(new ImportResultDTO.ImportError(
+                            rowNum, empId, "工号" + empId + "已存在"));
                 } catch (Exception e) {
                     String empId = readCell(row.getCell(0));
-                    if (e.getMessage() != null && e.getMessage().contains("duplicate")) {
-                        errors.add(new ImportResultDTO.ImportError(
-                                rowNum, empId, "工号" + empId + "已存在"));
-                    } else {
-                        errors.add(new ImportResultDTO.ImportError(
-                                rowNum, empId, "系统错误: " + e.getMessage()));
-                    }
+                    log.error("Row {} import failed", rowNum, e);
+                    errors.add(new ImportResultDTO.ImportError(
+                            rowNum, empId, "系统错误，请联系管理员"));
                 }
             }
 
             ImportResultDTO.ExecuteResult result = new ImportResultDTO.ExecuteResult();
-            result.setTotalRows(totalRows);
+            result.setTotalRows(dataRowCount);
             result.setSuccessCount(successCount);
             result.setFailCount(errors.size());
             if (!errors.isEmpty()) {
@@ -175,13 +190,40 @@ public class ImportService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new BusinessException(400, "文件解析失败: " + e.getMessage());
+            log.error("执行导入文件解析失败", e);
+            throw new BusinessException(400, "文件解析失败，请检查文件格式");
         }
     }
 
     // ========================================
     // 辅助方法
     // ========================================
+
+    // 解析结果记录——存放parseSheet的输出
+    private record ParsedSheet(Sheet sheet, List<String> headers,
+                               Map<Integer, String> columnMapping, int rawRows) {}
+
+    // 辅助：解析Sheet——空文件检查、表头读取、列映射构建、行数上限检查
+    private ParsedSheet parseSheet(Sheet sheet) {
+        if (sheet.getLastRowNum() < 1) {
+            throw new BusinessException(400, "文件为空或仅包含表头");
+        }
+        List<String> headers = readHeaders(sheet);
+        Map<Integer, String> columnMapping = buildColumnMapping(headers);
+        int rawRows = sheet.getLastRowNum();
+        if (rawRows > MAX_ROWS) {
+            throw new BusinessException(400, "单次导入不能超过" + MAX_ROWS + "行，当前: " + rawRows);
+        }
+        return new ParsedSheet(sheet, headers, columnMapping, rawRows);
+    }
+
+    // 辅助：根据字段名反查列索引
+    private int getColumnIndex(Map<Integer, String> columnMapping, String fieldName) {
+        for (Map.Entry<Integer, String> entry : columnMapping.entrySet()) {
+            if (fieldName.equals(entry.getValue())) return entry.getKey();
+        }
+        return -1;
+    }
 
     // 辅助：读取表头行，返回列名列表
     private List<String> readHeaders(Sheet sheet) {
@@ -206,10 +248,12 @@ public class ImportService {
             if (field != null) {
                 mapping.put(i, field);
                 mappedFields.add(field);
-            } else if (FIELD_MAPPING.containsKey(raw.toLowerCase())) {
-                // 大小写不敏感fallback
-                mapping.put(i, FIELD_MAPPING.get(raw.toLowerCase()));
-                mappedFields.add(FIELD_MAPPING.get(raw.toLowerCase()));
+            } else {
+                String lowerRaw = raw.toLowerCase();
+                if (FIELD_MAPPING.containsKey(lowerRaw)) {
+                    mapping.put(i, FIELD_MAPPING.get(lowerRaw));
+                    mappedFields.add(FIELD_MAPPING.get(lowerRaw));
+                }
             }
         }
         // 必须包含工号/employeeId 列
@@ -258,8 +302,9 @@ public class ImportService {
         return rowData;
     }
 
-    // 辅助：根据列映射构建Employee对象并校验
-    private Employee buildEmployee(Row row, int rowNum, Map<Integer, String> columnMapping) {
+    // 辅助：根据列映射构建Employee对象并校验（使用预取的Set替代selectById）
+    private Employee buildEmployee(Row row, int rowNum, Map<Integer, String> columnMapping,
+                                   Set<String> existingEmployeeIds, Set<String> existingLeaderIds) {
         Employee emp = new Employee();
         for (Map.Entry<Integer, String> entry : columnMapping.entrySet()) {
             String value = readCell(row.getCell(entry.getKey()));
@@ -300,16 +345,15 @@ public class ImportService {
             emp.setStatus("ACTIVE");
         }
 
-        // 直属上级存在校验
+        // 直属上级存在校验（内存Set查找替代selectById）
         if (StringUtils.hasText(emp.getDirectLeaderId())) {
-            Employee leader = employeeMapper.selectById(emp.getDirectLeaderId());
-            if (leader == null) {
+            if (!existingLeaderIds.contains(emp.getDirectLeaderId())) {
                 throw new BusinessException(400, "第" + rowNum + "行：直属上级工号不存在: " + emp.getDirectLeaderId());
             }
         }
 
-        // 工号唯一校验
-        if (employeeMapper.selectById(emp.getEmployeeId()) != null) {
+        // 工号唯一校验（内存Set查找替代selectById）
+        if (existingEmployeeIds.contains(emp.getEmployeeId())) {
             throw new BusinessException(409, "第" + rowNum + "行：工号" + emp.getEmployeeId() + "已存在");
         }
 

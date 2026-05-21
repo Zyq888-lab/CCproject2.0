@@ -222,4 +222,156 @@ class ImportServiceTest {
         assertEquals(0, result.getFailCount());
         assertNotNull(employeeMapper.selectById(empId));
     }
+
+    // ========================================
+    // 补充测试（审查新增）
+    // ========================================
+
+    // 功能：execute超1000行时拒绝
+    @Test
+    void shouldRejectExecuteExceedsMaxRows() throws Exception {
+        String[] headers = {"工号", "姓名", "邮箱"};
+        String[][] data = new String[1001][3];
+        for (int i = 0; i < 1001; i++) {
+            data[i][0] = id();
+            data[i][1] = "员工" + i;
+            data[i][2] = "emp" + i + "@test.com";
+        }
+        MockMultipartFile file = mockFile("large.xlsx", headers, data);
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> importService.execute(file));
+        assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("1000"));
+    }
+
+    // 功能：恰好1000行边界值通过
+    @Test
+    void shouldAcceptExactlyMaxRows() throws Exception {
+        String[] headers = {"工号", "姓名", "邮箱"};
+        String[][] data = new String[1000][3];
+        for (int i = 0; i < 1000; i++) {
+            data[i][0] = id();
+            data[i][1] = "员工" + i;
+            data[i][2] = "emp" + i + "@test.com";
+        }
+        MockMultipartFile file = mockFile("max.xlsx", headers, data);
+        ImportResultDTO.PreviewResult result = importService.preview(file);
+        assertEquals(1000, result.getTotalRows());
+    }
+
+    // 功能：非Excel文件解析失败
+    @Test
+    void shouldRejectNonExcelFileInPreview() {
+        MockMultipartFile file = new MockMultipartFile("file", "fake.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "this is not an excel file".getBytes());
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> importService.preview(file));
+        assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("文件解析失败"));
+    }
+
+    // 功能：工号格式无效（太短/含特殊字符）
+    @Test
+    void shouldReportInvalidEmployeeIdFormat() throws Exception {
+        String[] headers = {"工号", "姓名", "邮箱"};
+        String[][] data = {
+                {"AB", "太短工号", "short@test.com"},
+                {"E@001", "特殊字符", "special@test.com"},
+        };
+        MockMultipartFile file = mockFile("badid.xlsx", headers, data);
+        ImportResultDTO.ExecuteResult result = importService.execute(file);
+        assertEquals(2, result.getFailCount());
+        assertTrue(result.getErrors().stream()
+                .anyMatch(e -> e.getReason().contains("工号格式不正确")));
+    }
+
+    // 功能：状态值无效时计入错误
+    @Test
+    void shouldRejectInvalidStatus() throws Exception {
+        String[] headers = {"工号", "姓名", "邮箱", "状态"};
+        String[][] data = {{id(), "测试", "test@test.com", "DELETED"}};
+        MockMultipartFile file = mockFile("badstatus.xlsx", headers, data);
+        ImportResultDTO.ExecuteResult result = importService.execute(file);
+        assertEquals(1, result.getFailCount());
+        assertTrue(result.getErrors().get(0).getReason().contains("员工状态无效"));
+    }
+
+    // 功能：缺少category/position/orgName列时应用默认值
+    @Test
+    void shouldApplyDefaultValuesWhenColumnsAbsent() throws Exception {
+        String empId = id();
+        String[] headers = {"工号", "姓名", "邮箱"};
+        String[][] data = {{empId, "默认值测试", "default@test.com"}};
+        MockMultipartFile file = mockFile("minimal.xlsx", headers, data);
+        importService.execute(file);
+        Employee emp = employeeMapper.selectById(empId);
+        assertEquals("未分类", emp.getCategory());
+        assertEquals("未定义", emp.getPosition());
+        assertEquals("未分配", emp.getOrgName());
+    }
+
+    // 功能：无status列时默认为ACTIVE
+    @Test
+    void shouldDefaultStatusToActive() throws Exception {
+        String empId = id();
+        String[] headers = {"工号", "姓名", "邮箱"};
+        String[][] data = {{empId, "默认状态", "status@test.com"}};
+        MockMultipartFile file = mockFile("nostatus.xlsx", headers, data);
+        importService.execute(file);
+        assertEquals("ACTIVE", employeeMapper.selectById(empId).getStatus());
+    }
+
+    // 功能：大小写不敏感英文表头映射
+    @Test
+    void shouldMapCaseInsensitiveEnglishHeaders() throws Exception {
+        String empId = id();
+        String[] headers = {"EMPLOYEE_ID", "NAME", "EMAIL"};
+        String[][] data = {{empId, "CaseTest", "case@test.com"}};
+        MockMultipartFile file = mockFile("case.xlsx", headers, data);
+        ImportResultDTO.PreviewResult result = importService.preview(file);
+        assertTrue(result.getSampleRows().get(0).containsKey("employeeId"));
+        assertTrue(result.getSampleRows().get(0).containsKey("name"));
+    }
+
+    // 功能：NUMERIC单元格类型自动转字符串（整数无小数点）
+    @Test
+    void shouldHandleNumericCells() throws Exception {
+        try (Workbook wb = new XSSFWorkbook()) {
+            Sheet sheet = wb.createSheet();
+            Row header = sheet.createRow(0);
+            header.createCell(0).setCellValue("工号");
+            header.createCell(1).setCellValue("姓名");
+            header.createCell(2).setCellValue("邮箱");
+            Row data = sheet.createRow(1);
+            data.createCell(0).setCellValue(1001.0);
+            data.createCell(1).setCellValue("数字工号");
+            data.createCell(2).setCellValue("num@test.com");
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            wb.write(bos);
+            MockMultipartFile file = new MockMultipartFile("file", "num.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    bos.toByteArray());
+            ImportResultDTO.ExecuteResult result = importService.execute(file);
+            assertEquals(1, result.getSuccessCount());
+            assertEquals("1001", employeeMapper.selectById("1001").getEmployeeId());
+        }
+    }
+
+    // 功能：execute空行不计入totalRows
+    @Test
+    void shouldCountOnlyDataRowsInExecuteResult() throws Exception {
+        String empId = id();
+        String[] headers = {"工号", "姓名", "邮箱"};
+        String[][] data = {
+                {empId, "唯一数据", "only@test.com"},
+                {null, null, null},
+                {null, null, null},
+        };
+        MockMultipartFile file = mockFile("count.xlsx", headers, data);
+        ImportResultDTO.ExecuteResult result = importService.execute(file);
+        assertEquals(1, result.getTotalRows());
+        assertEquals(1, result.getSuccessCount());
+        assertNotNull(employeeMapper.selectById(empId));
+    }
 }
