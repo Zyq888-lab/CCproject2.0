@@ -1,0 +1,37 @@
+{/* 模块用途：Axios HTTP客户端——统一封装请求拦截、响应拦截、错误处理 */}
+{/* 依赖组件：无 */}
+{/* 修改注意：BASE_URL根据环境变量切换，401时自动跳转登录页 */}
+import axios from 'axios';
+
+const client = axios.create({
+  baseURL: '/api/v1',
+  timeout: 15000,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+// 功能：请求拦截器——自动附带token（JSESSIONID由浏览器Cookie自动发送）
+client.interceptors.request.use(
+  (config) => config,
+  (error) => Promise.reject(error)
+);
+
+// 功能：响应拦截器——统一处理401未登录跳转、403无权限提示
+client.interceptors.response.use(
+  (response) => response.data,
+  (error) => {
+    if (error.response) {
+      const { status, data } = error.response;
+      if (status === 401) {
+        window.location.href = '/login';
+      } else if (status === 403) {
+        return Promise.reject({ code: 403, message: '无权访问' });
+      } else if (status === 409) {
+        return Promise.reject({ code: 409, message: data?.message || '数据已被他人修改', data });
+      }
+      return Promise.reject({ code: status, message: data?.message || '请求失败' });
+    }
+    return Promise.reject({ code: 0, message: '网络异常，请点击重试' });
+  }
+);
+
+export default client;

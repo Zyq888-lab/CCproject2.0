@@ -1,0 +1,55 @@
+/* 设计Token速查卡 — 来自eng-plan 13.1 */
+/* 字体：中文 -apple-system,PingFang SC,Microsoft YaHei | 英文数字 Inter,-apple-system */
+/* 标题20px/500 | 正文14px/400 | 辅助12px/400 */
+/* 主操作#1890FF | 成功#52C41A | 警告#FAAD14 | 危险#FF4D4F | 中性#8C8C8C */
+/* 页面背景#F5F5F5 | 卡片/表格背景#FFFFFF */
+/* 圆角：按钮6px 输入框/标签4px 卡片8px */
+/* 阴影：卡片0 1px 2px rgba(0,0,0,0.06) | 弹窗0 4px 12px rgba(0,0,0,0.12) */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Inter, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  color: #333333;
+  background: #F5F5F5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Ant Design 主题覆盖 — 与设计Token对齐 */
+.ant-btn-primary {
+  border-radius: 6px;
+}
+
+.ant-input,
+.ant-select-selector,
+.ant-picker {
+  border-radius: 4px;
+}
+
+.ant-card {
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.ant-modal-content {
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+/* 表格斑马纹 */
+.ant-table-tbody > tr:nth-child(even) > td {
+  background: #FAFAFA;
+}
+
+/* AI痕迹禁止清单：无紫色渐变、无彩色圆圈布局、无波浪线装饰、无统一大圆角、无卡片左边框彩色竖线 */
