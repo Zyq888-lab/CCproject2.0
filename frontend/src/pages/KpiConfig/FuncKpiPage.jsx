@@ -3,7 +3,7 @@
 {/* 修改注意：创建时权重发送整数(0-100)，更新时发送小数(0-1)；GET返回小数，显示时×100 */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Tag, Space, Modal, Form, Input, Select, InputNumber, Switch, message, Card, Spin, Result,
+  Table, Button, Space, Modal, Form, Input, Select, InputNumber, Switch, message, Card, Spin, Result,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, LineChartOutlined, ReloadOutlined,
