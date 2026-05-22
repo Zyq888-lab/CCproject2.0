@@ -14,18 +14,29 @@ function LoginPage() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  // 功能：提交登录表单——调用POST /api/v1/auth/login，成功后跳转仪表盘
+  // 功能：提交登录表单——调用POST /api/v1/auth/login，403时自动重试（CSRF token首次加载场景）
   const handleSubmit = async (values) => {
     setLoading(true);
     setError('');
-    try {
+    const doLogin = async () => {
       await client.post('/auth/login', {
         username: values.username,
         password: values.password,
       });
       navigate('/dashboard');
+    };
+    try {
+      await doLogin();
     } catch (err) {
-      setError(err?.message || '用户名或密码错误');
+      if (err?.code === 403) {
+        try {
+          await doLogin();
+        } catch (retryErr) {
+          setError(retryErr?.message || '用户名或密码错误');
+        }
+      } else {
+        setError(err?.message || '用户名或密码错误');
+      }
     } finally {
       setLoading(false);
     }
@@ -55,7 +66,7 @@ function LoginPage() {
         {/* 功能：登录错误提示——红色Alert，type=error，按钮上方 */}
         {error && (
           <Alert
-            message={error}
+            title={error}
             type="error"
             showIcon
             closable
