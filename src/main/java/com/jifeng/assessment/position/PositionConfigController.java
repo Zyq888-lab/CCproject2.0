@@ -22,6 +22,7 @@ import java.util.List;
 public class PositionConfigController extends BaseController {
 
     private final PositionConfigService positionConfigService;
+    private static final BigDecimal HUNDRED = new BigDecimal("100");
 
     // 功能：分页查询岗位配置，支持按岗位分类和岗位名称筛选
     @GetMapping("/api/v1/position-configs")
@@ -45,8 +46,8 @@ public class PositionConfigController extends BaseController {
         config.setIsProjectBased(request.getIsProjectBased());
         config.setDefaultProjectRole(request.getDefaultProjectRole());
         config.setFuncAssessMode(request.getFuncAssessMode());
-        config.setProjectWeight(request.getProjectWeight());
-        config.setFuncWeight(request.getFuncWeight());
+        config.setProjectWeight(request.getProjectWeight().divide(HUNDRED));
+        config.setFuncWeight(request.getFuncWeight().divide(HUNDRED));
         return ok(positionConfigService.createConfig(config));
     }
 
@@ -62,8 +63,8 @@ public class PositionConfigController extends BaseController {
         config.setIsProjectBased(request.getIsProjectBased());
         config.setDefaultProjectRole(request.getDefaultProjectRole());
         config.setFuncAssessMode(request.getFuncAssessMode());
-        config.setProjectWeight(request.getProjectWeight());
-        config.setFuncWeight(request.getFuncWeight());
+        config.setProjectWeight(request.getProjectWeight().divide(HUNDRED));
+        config.setFuncWeight(request.getFuncWeight().divide(HUNDRED));
         return ok(positionConfigService.updateConfig(id, config));
     }
 

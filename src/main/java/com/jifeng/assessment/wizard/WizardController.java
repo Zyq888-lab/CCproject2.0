@@ -46,6 +46,7 @@ public class WizardController extends BaseController {
     private final KpiConfigService kpiConfigService;
     private final PositionConfigService positionConfigService;
     private final PeriodService periodService;
+    private static final BigDecimal HUNDRED = new BigDecimal("100");
 
     private String currentUserId() {
         return SecurityContextHolder.getContext().getAuthentication().getName();
@@ -107,7 +108,7 @@ public class WizardController extends BaseController {
         projectKpi.setProjectRoleCode(request.getProjectRoleCode());
         projectKpi.setProjectStage(request.getProjectStage());
         projectKpi.setKpiName(request.getKpiName());
-        projectKpi.setWeight(request.getWeight());
+        projectKpi.setWeight(request.getWeight().divide(HUNDRED));
         kpiConfigService.createProjectKpi(projectKpi);
         return ok(advance(5));
     }
@@ -120,8 +121,8 @@ public class WizardController extends BaseController {
         config.setCategory(request.getCategory());
         config.setPosition(request.getPosition());
         config.setIsProjectBased(request.getIsProjectBased());
-        config.setProjectWeight(request.getProjectWeight());
-        config.setFuncWeight(request.getFuncWeight());
+        config.setProjectWeight(request.getProjectWeight().divide(HUNDRED));
+        config.setFuncWeight(request.getFuncWeight().divide(HUNDRED));
         config.setFuncAssessMode(request.getFuncAssessMode());
         positionConfigService.createConfig(config);
         return ok(advance(6));

@@ -125,6 +125,7 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
         EmployeeValidator.validateEmployeeId(employee.getEmployeeId());
         EmployeeValidator.validateEmail(employee.getEmail());
         EmployeeValidator.validateStatus(employee.getStatus());
+        employee.setStatus(EmployeeValidator.mapStatus(employee.getStatus()));
         if (!StringUtils.hasText(employee.getName())) {
             throw new BusinessException(400, "姓名不能为空");
         }

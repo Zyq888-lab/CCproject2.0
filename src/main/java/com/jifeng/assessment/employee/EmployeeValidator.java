@@ -33,13 +33,25 @@ public final class EmployeeValidator {
         }
     }
 
-    // 功能：校验员工状态值是否为系统预定义的有效值
+    private static final java.util.Map<String, String> STATUS_MAP = java.util.Map.of(
+        "在职", "ACTIVE",
+        "离职", "INACTIVE"
+    );
+
     public static void validateStatus(String status) {
         if (!StringUtils.hasText(status)) {
             return;
         }
-        if (!status.equals("ACTIVE") && !status.equals("INACTIVE")) {
-            throw new BusinessException(400, "员工状态无效，仅支持 ACTIVE 或 INACTIVE");
+        if (STATUS_MAP.containsKey(status)) {
+            return;
         }
+        if (!status.equals("ACTIVE") && !status.equals("INACTIVE")) {
+            throw new BusinessException(400, "员工状态无效，仅支持 ACTIVE、INACTIVE、在职、离职");
+        }
+    }
+
+    public static String mapStatus(String status) {
+        if (status == null) return null;
+        return STATUS_MAP.getOrDefault(status, status);
     }
 }

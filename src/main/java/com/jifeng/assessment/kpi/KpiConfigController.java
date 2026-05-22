@@ -21,6 +21,7 @@ import java.util.List;
 public class KpiConfigController extends BaseController {
 
     private final KpiConfigService kpiConfigService;
+    private static final BigDecimal HUNDRED = new BigDecimal("100");
 
     // ========================================
     // 项目KPI
@@ -46,7 +47,7 @@ public class KpiConfigController extends BaseController {
         config.setProjectStage(request.getProjectStage());
         config.setKpiName(request.getKpiName());
         config.setEvaluationCriteria(request.getEvaluationCriteria());
-        config.setWeight(request.getWeight());
+        config.setWeight(request.getWeight().divide(HUNDRED));
         config.setSortOrder(request.getSortOrder());
         return ok(kpiConfigService.createProjectKpi(config));
     }
@@ -103,7 +104,7 @@ public class KpiConfigController extends BaseController {
         config.setPosition(request.getPosition());
         config.setKpiName(request.getKpiName());
         config.setEvaluationCriteria(request.getEvaluationCriteria());
-        config.setWeight(request.getWeight());
+        config.setWeight(request.getWeight().divide(HUNDRED));
         config.setSortOrder(request.getSortOrder());
         return ok(kpiConfigService.createFuncKpi(config));
     }

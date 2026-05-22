@@ -22,7 +22,12 @@ client.interceptors.request.use((config) => {
 
 // 功能：响应拦截器——统一处理401未登录跳转、403无权限提示、409冲突
 client.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    if (response.data && response.data.code && response.data.code !== 200) {
+      return Promise.reject({ code: response.data.code, message: response.data.message || '请求失败', data: response.data.data });
+    }
+    return response.data;
+  },
   (error) => {
     if (error.response) {
       const { status, data } = error.response;

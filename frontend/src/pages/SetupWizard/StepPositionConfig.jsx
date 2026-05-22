@@ -6,9 +6,8 @@ import { SettingOutlined, TagsOutlined, PercentageOutlined } from '@ant-design/i
 import client from '../../api/client';
 
 const FUNC_MODE_OPTIONS = [
-  { label: '职能上级评分', value: '职能上级评分' },
-  { label: '职能矩阵评分', value: '职能矩阵评分' },
-  { label: '职能委员会评分', value: '职能委员会评分' },
+  { label: '直接上级评分', value: 'DIRECT_LEADER' },
+  { label: '组织负责人评分', value: 'ORG_LEADER' },
 ];
 
 function StepPositionConfig({ onNext, onError, submitting, setSubmitting }) {
