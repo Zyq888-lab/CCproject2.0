@@ -1,12 +1,12 @@
-{/* 模块用途：LeaderConfigPage——直属上级配置页，搜索筛选+分页表格+行内编辑上级 */}
-{/* 依赖组件：PageHeader, EmptyState, client.js, Ant Design Table/Select/Input */}
-{/* 修改注意：逐行保存调用PUT /employees/{id}携带version；上级下拉仅显示在职员工 */}
+{/* 模块用途：LeaderConfigPage——直属上级配置页，搜索筛选+分页表格+批量编辑上级 */}
+{/* 依赖组件：PageHeader, EmptyState, ConfirmModal, client.js, Ant Design Table/Modal/Form/Select/Input */}
+{/* 修改注意：批量选中行后统一分配上级，逐行PUT /employees/{id}携带version；上级下拉仅显示在职员工 */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Input, Select, Space, Tag, message, Card,
+  Table, Button, Input, Select, Space, Tag, Modal, Form, message, Card,
 } from 'antd';
 import {
-  SearchOutlined, ReloadOutlined, TeamOutlined,
+  SearchOutlined, ReloadOutlined, TeamOutlined, EditOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
@@ -30,11 +30,13 @@ function LeaderConfigPage() {
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
   const [filters, setFilters] = useState({ keyword: '', category: '', status: '' });
   const [allEmployees, setAllEmployees] = useState([]);
-  const [editingId, setEditingId] = useState(null);
-  const [savingId, setSavingId] = useState(null);
-  const [leaderValues, setLeaderValues] = useState({});
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const [batchModalVisible, setBatchModalVisible] = useState(false);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
+  const [batchForm] = Form.useForm();
   const mountedRef = useRef(true);
 
+  // 功能：分页获取员工列表——支持关键字、岗位分类、状态筛选，用于主表格展示
   const fetchEmployees = useCallback(async (page, size, filterParams) => {
     setLoading(true);
     setError(null);
@@ -60,6 +62,7 @@ function LeaderConfigPage() {
     }
   }, []);
 
+  // 功能：获取全部员工列表（不分页）——用于上级候选人下拉数据源
   const fetchAllEmployees = useCallback(async () => {
     try {
       const res = await client.get('/employees', { params: { page: 1, size: 9999 } });
@@ -67,7 +70,7 @@ function LeaderConfigPage() {
         const pageData = res.data || {};
         setAllEmployees(pageData.list || []);
       }
-    } catch (_) { /* 非关键数据 */ }
+    } catch (_) { /* 非关键数据，失败不影响主流程 */ }
   }, []);
 
   useEffect(() => {
@@ -77,75 +80,101 @@ function LeaderConfigPage() {
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleSearch = () => { setEditingId(null); fetchEmployees(1, pagination.pageSize, filters); };
+  // 功能：搜索——重置到第一页并清空已选行
+  const handleSearch = () => {
+    setSelectedRowKeys([]);
+    fetchEmployees(1, pagination.pageSize, filters);
+  };
+
+  // 功能：重置筛选——清空筛选条件、已选行，重新加载数据
   const handleReset = () => {
-    setEditingId(null);
+    setSelectedRowKeys([]);
     const empty = { keyword: '', category: '', status: '' };
     setFilters(empty);
     fetchEmployees(1, pagination.pageSize, empty);
   };
 
+  // 功能：翻页/每页条数变化——清空已选行后加载新页数据
   const handleTableChange = (pag) => {
-    setEditingId(null);
+    setSelectedRowKeys([]);
     const newPage = pag.current;
     const newSize = pag.pageSize;
     setPagination((prev) => ({ ...prev, current: newPage, pageSize: newSize }));
     fetchEmployees(newPage, newSize, filters);
   };
 
-  const handleStartEdit = (record) => {
-    setEditingId(record.employeeId);
-    setLeaderValues((prev) => ({ ...prev, [record.employeeId]: record.directLeaderId || undefined }));
+  // 功能：打开批量编辑弹窗——重置表单，显示已选行数
+  const handleBatchEdit = () => {
+    batchForm.resetFields();
+    setBatchModalVisible(true);
   };
 
-  const handleCancelEdit = () => {
-    setEditingId(null);
-    setSavingId(null);
-  };
-
-  const handleLeaderChange = (employeeId, value) => {
-    setLeaderValues((prev) => ({ ...prev, [employeeId]: value }));
-  };
-
-  const handleSave = async (record) => {
-    const newLeaderId = leaderValues[record.employeeId];
-    setSavingId(record.employeeId);
+  // 功能：提交批量编辑——逐行PUT更新选中员工的直属上级，统计成功/失败数
+  const handleBatchSubmit = async () => {
     try {
-      await client.put(`/employees/${record.employeeId}`, {
-        name: record.name,
-        employeeId: record.employeeId,
-        email: record.email,
-        category: record.category,
-        position: record.position,
-        orgName: record.orgName,
-        status: record.status,
-        directLeaderId: newLeaderId || null,
-        version: record.version,
-      });
-      message.success({ content: '保存成功', duration: 2 });
-      setEditingId(null);
-      fetchEmployees(pagination.current, pagination.pageSize, filters);
-    } catch (err) {
-      if (err?.code === 409) {
-        showConflictWarning('其他用户', '几');
-      } else if (err?.message) {
-        message.error({ content: err.message });
+      const values = await batchForm.validateFields();
+      setBatchSubmitting(true);
+      const newLeaderId = values.leaderId || null;
+      let success = 0;
+      let fail = 0;
+      for (const key of selectedRowKeys) {
+        const record = data.find((d) => d.employeeId === key);
+        if (!record) { fail++; continue; }
+        try {
+          await client.put(`/employees/${record.employeeId}`, {
+            name: record.name,
+            employeeId: record.employeeId,
+            email: record.email,
+            category: record.category,
+            position: record.position,
+            orgName: record.orgName,
+            status: record.status,
+            directLeaderId: newLeaderId,
+            version: record.version,
+          });
+          success++;
+        } catch (err) {
+          fail++;
+          if (err?.code === 409) {
+            showConflictWarning('其他用户', '几');
+          }
+        }
       }
+      if (success > 0) {
+        message.success({ content: `已更新 ${success} 人` + (fail > 0 ? `，${fail} 人失败` : ''), duration: 3 });
+      }
+      setBatchModalVisible(false);
+      setSelectedRowKeys([]);
+      fetchEmployees(pagination.current, pagination.pageSize, filters);
+    } catch (_) {
+      // validateFields rejected — form validation error, Ant Design shows inline message
     } finally {
-      if (mountedRef.current) setSavingId(null);
+      if (mountedRef.current) setBatchSubmitting(false);
     }
   };
 
   const activeEmployees = allEmployees.filter((e) => e.status === '在职');
-  const leaderOptions = activeEmployees.map((e) => ({
-    label: `${e.employeeId} — ${e.name}`,
-    value: e.employeeId,
-  }));
 
+  // 功能：构建上级候选人下拉选项——排除已选行中的员工，防止自我指派
+  const selectedIds = new Set(selectedRowKeys);
+  const leaderOptions = activeEmployees
+    .filter((e) => !selectedIds.has(e.employeeId))
+    .map((e) => ({
+      label: `${e.employeeId} — ${e.name}`,
+      value: e.employeeId,
+    }));
+
+  // 功能：根据直属上级工号解析显示名称——"工号 — 姓名"格式
   const getLeaderName = (leaderId) => {
     if (!leaderId) return '-';
     const leader = allEmployees.find((e) => e.employeeId === leaderId);
     return leader ? `${leader.employeeId} — ${leader.name}` : leaderId;
+  };
+
+  // 功能：表格行选择配置——checkbox列，用于批量选中员工
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (keys) => setSelectedRowKeys(keys),
   };
 
   const columns = [
@@ -155,47 +184,12 @@ function LeaderConfigPage() {
     { title: '岗位', dataIndex: 'position', key: 'position', width: 140 },
     { title: '部门', dataIndex: 'orgName', key: 'orgName', width: 140, ellipsis: true },
     {
-      title: '直属上级', dataIndex: 'directLeaderId', key: 'directLeaderId', width: 220,
-      render: (v, record) => {
-        if (editingId === record.employeeId) {
-          return (
-            <Select
-              value={leaderValues[record.employeeId]}
-              onChange={(val) => handleLeaderChange(record.employeeId, val)}
-              options={leaderOptions.filter((o) => o.value !== record.employeeId)}
-              showSearch
-              optionFilterProp="label"
-              allowClear
-              placeholder="选择上级"
-              style={{ width: 200 }}
-            />
-          );
-        }
-        return getLeaderName(v);
-      },
+      title: '直属上级', dataIndex: 'directLeaderId', key: 'directLeaderId', width: 200,
+      render: (v) => getLeaderName(v),
     },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 80,
       render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{s || '-'}</Tag>,
-    },
-    {
-      title: '操作', key: 'action', width: 120,
-      render: (_, record) => {
-        if (editingId === record.employeeId) {
-          return (
-            <Space size="small">
-              <Button type="link" size="small" loading={savingId === record.employeeId}
-                onClick={() => handleSave(record)}>保存</Button>
-              <Button type="link" size="small" disabled={savingId === record.employeeId}
-                onClick={handleCancelEdit}>取消</Button>
-            </Space>
-          );
-        }
-        return (
-          <Button type="link" size="small" onClick={() => handleStartEdit(record)}
-            disabled={editingId !== null}>编辑</Button>
-        );
-      },
     },
   ];
 
@@ -208,6 +202,7 @@ function LeaderConfigPage() {
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
       />
 
+      {/* 功能：搜索筛选栏——关键字搜索+岗位分类+状态下拉+搜索/重置/批量编辑按钮 */}
       <Card id="leader-config-search-bar" style={{ marginBottom: 16, borderRadius: 8 }}>
         <Space wrap size="middle">
           <Input
@@ -242,6 +237,10 @@ function LeaderConfigPage() {
           />
           <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>搜索</Button>
           <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
+          <Button type="primary" icon={<EditOutlined />} onClick={handleBatchEdit}
+            disabled={selectedRowKeys.length === 0}>
+            批量编辑上级 ({selectedRowKeys.length})
+          </Button>
         </Space>
       </Card>
 
@@ -261,6 +260,7 @@ function LeaderConfigPage() {
         />
       )}
 
+      {/* 功能：数据表格——带checkbox行选择，选中后点击"批量编辑上级"统一分配 */}
       {!isEmpty && (
         <Card id="leader-config-table-card" style={{ borderRadius: 8 }}>
           {error && data.length > 0 && (
@@ -270,6 +270,7 @@ function LeaderConfigPage() {
             </div>
           )}
           <Table
+            rowSelection={rowSelection}
             columns={columns}
             dataSource={data}
             rowKey="employeeId"
@@ -285,10 +286,35 @@ function LeaderConfigPage() {
               pageSizeOptions: [10, 20, 50],
               showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
             }}
-            scroll={{ x: 1030 }}
+            scroll={{ x: 950 }}
           />
         </Card>
       )}
+
+      {/* 功能：批量编辑弹窗——选择上级后确认，逐行PUT更新所有选中员工 */}
+      <Modal
+        title={`批量编辑直属上级 — 已选 ${selectedRowKeys.length} 人`}
+        open={batchModalVisible}
+        onOk={handleBatchSubmit}
+        onCancel={() => setBatchModalVisible(false)}
+        confirmLoading={batchSubmitting}
+        okText="保存"
+        cancelText="取消"
+        destroyOnHidden
+        width={440}
+      >
+        <Form form={batchForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="leaderId" label="直属上级" rules={[{ required: true, message: '请选择直属上级' }]}>
+            <Select
+              placeholder="选择上级（可选留空表示清空）"
+              options={leaderOptions}
+              showSearch
+              optionFilterProp="label"
+              allowClear
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

@@ -289,8 +289,32 @@ function ProjectKpiPage() {
               <InputNumber min={0} max={999} precision={0} style={{ width: '100%' }} placeholder="0" />
             </Form.Item>
           </div>
+          <WeightSumHint data={data} editingRecord={editingRecord} form={form} />
         </Form>
       </Modal>
+    </div>
+  );
+}
+
+function WeightSumHint({ data, editingRecord, form }) {
+  const watchedWeight = Form.useWatch('weight', form);
+  const watchedRoleCode = Form.useWatch('projectRoleCode', form);
+  const watchedStage = Form.useWatch('projectStage', form);
+  const roleCode = editingRecord ? editingRecord.projectRoleCode : watchedRoleCode;
+  const stage = editingRecord ? editingRecord.projectStage : watchedStage;
+  const weight = watchedWeight;
+  if (weight == null || !roleCode || !stage) return null;
+  const otherSum = data
+    .filter((d) => d.projectRoleCode === roleCode && d.projectStage === stage && d.id !== (editingRecord?.id || ''))
+    .reduce((s, d) => s + Math.round(d.weight * 100), 0);
+  const total = otherSum + weight;
+  const ok = total <= 100;
+  return (
+    <div style={{ color: ok ? '#52C41A' : '#FF4D4F', fontSize: 13, marginTop: -8, marginBottom: 16 }}>
+      {editingRecord
+        ? `该组合下其他指标权重之和 ${otherSum}% + 当前 ${weight}% = ${total}%`
+        : `该组合下已有指标权重之和 ${otherSum}%，加上当前 ${weight}% = ${total}%`}
+      {ok ? ' ✓' : ` ⚠ 超出 100%`}
     </div>
   );
 }
