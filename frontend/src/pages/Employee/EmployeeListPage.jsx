@@ -111,7 +111,7 @@ function EmployeeListPage() {
         form.setFieldsValue(emp);
       }
     } catch (err) {
-      message.error(err?.message || '获取员工信息失败');
+      message.error({ content: err?.message || '获取员工信息失败' });
       setModalVisible(false);
     }
   };
@@ -126,10 +126,10 @@ function EmployeeListPage() {
           ...values,
           version: editingEmployee.version,
         });
-        message.success('保存成功', 3);
+        message.success({ content: '保存成功', duration: 3 });
       } else {
         await client.post('/employees', values);
-        message.success('保存成功', 3);
+        message.success({ content: '保存成功', duration: 3 });
       }
       setModalVisible(false);
       fetchEmployees(pagination.current, pagination.pageSize, filters);
@@ -137,7 +137,7 @@ function EmployeeListPage() {
       if (err?.code === 409) {
         showConflictWarning('其他用户', '几');
       } else if (err?.message) {
-        message.error(err.message);
+        message.error({ content: err.message });
       }
     } finally {
       setSubmitting(false);
@@ -149,10 +149,10 @@ function EmployeeListPage() {
     showDeleteConfirm(async () => {
       try {
         await client.delete(`/employees/${employeeId}`);
-        message.success('已删除', 3);
+        message.success({ content: '已删除', duration: 3 });
         fetchEmployees(pagination.current, pagination.pageSize, filters);
       } catch (err) {
-        message.error(err?.message || '删除失败');
+        message.error({ content: err?.message || '删除失败' });
       }
     }, `员工 ${employeeId}`);
   };
@@ -235,7 +235,7 @@ function EmployeeListPage() {
           image={<TeamOutlined style={{ fontSize: 72, color: '#1890FF' }} />}
           title="还没有任何员工数据"
           description="导入继峰现有员工Excel或手动新增"
-          primaryAction={{ label: '批量导入Excel', onClick: () => message.info('导入功能请在员工管理中使用') }}
+          primaryAction={{ label: '批量导入Excel', onClick: () => message.info({ content: '导入功能请在员工管理中使用' }) }}
           secondaryAction={{ label: '手动新增', onClick: handleAdd }}
         />
       )}
@@ -279,7 +279,7 @@ function EmployeeListPage() {
         confirmLoading={submitting}
         okText="保存"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
         width={560}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>

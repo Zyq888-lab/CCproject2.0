@@ -122,7 +122,9 @@ function SetupWizardPage() {
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <Spin size="large" tip="加载中…" />
+        <Spin size="large">
+          <div style={{ padding: 50, textAlign: 'center', color: '#8C8C8C' }}>加载中…</div>
+        </Spin>
       </div>
     );
   }

@@ -13,7 +13,7 @@ export function showDeleteConfirm(onOk, itemName = '该记录') {
     icon: <ExclamationCircleOutlined style={{ color: '#FF4D4F' }} />,
     content: '此操作不可撤销。',
     okText: '确认删除',
-    okType: 'danger',
+    okButtonProps: { danger: true },
     cancelText: '取消',
     centered: true,
     onOk,

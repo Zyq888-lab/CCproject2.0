@@ -22,17 +22,17 @@ function PageHeader({ title, breadcrumb, actions }) {
       <div id="page-header-left">
         {/* 功能：面包屑导航——点击可跳转到上级页面 */}
         {breadcrumb && breadcrumb.length > 0 && (
-          <Breadcrumb style={{ marginBottom: 4 }}>
-            {breadcrumb.map((item) => (
-              <Breadcrumb.Item key={item.title || item.path}>
-                {item.path ? (
-                  <a onClick={() => navigate(item.path)}>{item.title}</a>
-                ) : (
-                  item.title
-                )}
-              </Breadcrumb.Item>
-            ))}
-          </Breadcrumb>
+          <Breadcrumb
+            style={{ marginBottom: 4 }}
+            items={breadcrumb.map((item) => ({
+              key: item.title || item.path,
+              title: item.path ? (
+                <a onClick={() => navigate(item.path)}>{item.title}</a>
+              ) : (
+                item.title
+              ),
+            }))}
+          />
         )}
         {/* 功能：页面标题——20px字号，字重500 */}
         <Title level={4} style={{ margin: 0, fontSize: 20, fontWeight: 500 }}>
