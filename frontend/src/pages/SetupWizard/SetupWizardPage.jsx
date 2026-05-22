@@ -166,7 +166,7 @@ function SetupWizardPage() {
       {/* 功能：网络错误横幅——可关闭的红色Alert */}
       {error && (
         <Alert
-          message={error}
+          title={error}
           type="error"
           showIcon
           closable
@@ -178,7 +178,7 @@ function SetupWizardPage() {
       {/* 功能：断点续配提示——检测到上次进度，显示蓝色Info横幅 */}
       {resumeBannerVisible && (
         <Alert
-          message={`检测到上次配置进度，已自动恢复到第${currentStep}步`}
+          title={`检测到上次配置进度，已自动恢复到第${currentStep}步`}
           type="info"
           showIcon
           closable

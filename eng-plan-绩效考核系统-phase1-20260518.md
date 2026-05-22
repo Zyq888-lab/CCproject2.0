@@ -498,23 +498,23 @@ Greenfield项目，无已有代码。设计文档 `design-绩效考核系统-202
   - 文件: `pages/Login/`, `pages/Dashboard/`
   - 验证: 登录 → 仪表盘显示配置进度 → 点击"开始配置"进入向导
 
-- [ ] **T20 (P1, ~3h / ~20min)** — SetupWizard 页面(7步向导)
+- [x] **T20 (P1, ~3h / ~20min)** — SetupWizard 页面(7步向导)
   - 文件: `pages/SetupWizard/` 全部8个文件
   - 验证: 首次登录 → 仪表盘点击"开始配置" → 7步走通
 
-- [ ] **T21 (P1, ~30min / ~5min)** — EmployeeList 页面
+- [x] **T21 (P1, ~30min / ~5min)** — EmployeeList 页面
   - 文件: `pages/Employee/`
   - 验证: 表格分页 → 搜索 → 新增 → 编辑 → 删除
 
-- [ ] **T22 (P2, ~30min / ~5min)** — UserRole 页面
+- [x] **T22 (P2, ~30min / ~5min)** — UserRole 页面
   - 文件: `pages/UserRole/`
   - 验证: 用户列表 → 勾选角色 → 保存
 
-- [ ] **T23 (P2, ~30min / ~5min)** — ProjectRole 页面
+- [x] **T23 (P2, ~30min / ~5min)** — ProjectRole 页面
   - 文件: `pages/ProjectRole/`
   - 验证: 角色卡片 → 新增 → 停用
 
-- [ ] **T24 (P2, ~30min / ~5min)** — ProjectList 页面
+- [x] **T24 (P2, ~30min / ~5min)** — ProjectList 页面
   - 文件: `pages/Project/`
   - 验证: 项目表格 → PM确认阶段 → ADMIN重置
 
