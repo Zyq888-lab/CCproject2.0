@@ -252,7 +252,6 @@ function FuncKpiPage() {
         confirmLoading={submitting}
         okText="保存"
         cancelText="取消"
-        destroyOnHidden
         width={520}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>

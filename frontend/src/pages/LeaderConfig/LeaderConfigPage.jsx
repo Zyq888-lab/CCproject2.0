@@ -300,7 +300,6 @@ function LeaderConfigPage() {
         confirmLoading={batchSubmitting}
         okText="保存"
         cancelText="取消"
-        destroyOnHidden
         width={440}
       >
         <Form form={batchForm} layout="vertical" style={{ marginTop: 16 }}>

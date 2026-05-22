@@ -39,6 +39,8 @@ function EmployeeListPage() {
   const fetchEmployees = useCallback(async (page, size, filterParams) => {
     setLoading(true);
     setError(null);
+
+
     try {
       const params = { page, size };
       if (filterParams?.keyword) params.keyword = filterParams.keyword;
@@ -67,7 +69,10 @@ function EmployeeListPage() {
 
   useEffect(() => {
     mountedRef.current = true;
-    fetchEmployees(pagination.current, pagination.pageSize, filters);
+    setFilters({ keyword: '', category: '', status: '' });
+    setPagination({ current: 1, pageSize: 20, total: 0 });
+    setData([]);
+    fetchEmployees(1, 20, { keyword: '', category: '', status: '' });
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -279,7 +284,6 @@ function EmployeeListPage() {
         confirmLoading={submitting}
         okText="保存"
         cancelText="取消"
-        destroyOnHidden
         width={560}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>

@@ -358,7 +358,6 @@ function PositionConfigPage() {
         confirmLoading={submitting}
         okText="保存"
         cancelText="取消"
-        destroyOnHidden
         width={520}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
@@ -402,7 +401,6 @@ function PositionConfigPage() {
         open={assessorModalVisible}
         onCancel={() => setAssessorModalVisible(false)}
         footer={null}
-        destroyOnHidden
         width={500}
       >
         <div style={{ marginBottom: 16 }}>

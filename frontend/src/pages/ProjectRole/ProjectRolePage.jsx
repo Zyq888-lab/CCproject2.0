@@ -243,7 +243,6 @@ function ProjectRolePage() {
         confirmLoading={submitting}
         okText="保存"
         cancelText="取消"
-        destroyOnHidden
         width={480}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
