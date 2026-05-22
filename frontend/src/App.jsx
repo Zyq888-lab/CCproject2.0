@@ -12,6 +12,8 @@ import ProjectRolePage from './pages/ProjectRole/ProjectRolePage';
 import ProjectListPage from './pages/Project/ProjectListPage';
 import RoleAssignmentPage from './pages/RoleAssignment/RoleAssignmentPage';
 import PositionConfigPage from './pages/PositionConfig/PositionConfigPage';
+import ProjectKpiPage from './pages/KpiConfig/ProjectKpiPage';
+import FuncKpiPage from './pages/KpiConfig/FuncKpiPage';
 
 // 功能：临时占位页——T20-T32实现各页面后逐一替换
 function PlaceholderPage({ title }) {
@@ -43,8 +45,8 @@ function App() {
           <Route path="/project/list" element={<ProjectListPage />} />
           <Route path="/project/:id/roles" element={<RoleAssignmentPage />} />
           <Route path="/position-config" element={<PositionConfigPage />} />
-          <Route path="/kpi-config/project" element={<PlaceholderPage title="项目KPI" />} />
-          <Route path="/kpi-config/functional" element={<PlaceholderPage title="职能KPI" />} />
+          <Route path="/kpi-config/project" element={<ProjectKpiPage />} />
+          <Route path="/kpi-config/functional" element={<FuncKpiPage />} />
           <Route path="/period-config" element={<PlaceholderPage title="考核周期" />} />
           <Route path="/user-role" element={<UserRolePage />} />
           <Route path="/system-param" element={<PlaceholderPage title="系统参数" />} />
