@@ -43,6 +43,7 @@ function PositionConfigPage() {
   const [assessorConfig, setAssessorConfig] = useState(null);
   const [assessorRoles, setAssessorRoles] = useState([]);
   const [assessorLoading, setAssessorLoading] = useState(false);
+  const [assessorSubmitting, setAssessorSubmitting] = useState(false);
   const [assessorForm] = Form.useForm();
 
   const mountedRef = useRef(true);
@@ -196,6 +197,7 @@ function PositionConfigPage() {
   const handleAddAssessor = async () => {
     try {
       const values = await assessorForm.validateFields();
+      setAssessorSubmitting(true);
       await client.post(`/position-configs/${assessorConfig.id}/assessor-roles`, { roleCode: values.roleCode });
       message.success({ content: '已添加', duration: 2 });
       assessorForm.resetFields();
@@ -206,6 +208,8 @@ function PositionConfigPage() {
       } else if (err?.message) {
         message.error({ content: err.message });
       }
+    } finally {
+      setAssessorSubmitting(false);
     }
   };
 
@@ -374,7 +378,15 @@ function PositionConfigPage() {
             <Form.Item name="projectWeight" label="项目考核权重(%)" rules={[{ required: true, message: '请输入' }]} style={{ flex: 1 }}>
               <InputNumber min={0} max={100} precision={0} style={{ width: '100%' }} placeholder="如 70" />
             </Form.Item>
-            <Form.Item name="funcWeight" label="职能考核权重(%)" rules={[{ required: true, message: '请输入' }]} style={{ flex: 1 }}>
+            <Form.Item name="funcWeight" label="职能考核权重(%)" rules={[{ required: true, message: '请输入' }, ({ getFieldValue }) => ({
+              validator(_, value) {
+                const pw = getFieldValue('projectWeight');
+                if (value != null && pw != null && pw + value !== 100) {
+                  return Promise.reject(new Error(`项目权重(${pw}) + 职能权重(${value}) 应等于 100`));
+                }
+                return Promise.resolve();
+              },
+            })]} style={{ flex: 1 }}>
               <InputNumber min={0} max={100} precision={0} style={{ width: '100%' }} placeholder="如 30" />
             </Form.Item>
           </div>
@@ -407,7 +419,7 @@ function PositionConfigPage() {
                 />
               </Form.Item>
             </Form>
-            <Button type="primary" onClick={handleAddAssessor}>添加</Button>
+            <Button type="primary" onClick={handleAddAssessor} loading={assessorSubmitting}>添加</Button>
           </Space.Compact>
         </div>
 
@@ -422,7 +434,7 @@ function PositionConfigPage() {
               { title: '角色名称', dataIndex: 'roleCode', key: 'roleName', width: 150, render: (code) => getRoleName(code) },
               { title: '操作', key: 'action', width: 80,
                 render: (_, record) => (
-                  <Button type="link" size="small" danger onClick={() => handleRemoveAssessor(record.id)}>移除</Button>
+                  <Button type="link" size="small" danger onClick={() => handleRemoveAssessor(record.id)} disabled={assessorSubmitting}>移除</Button>
                 ),
               },
             ]}
