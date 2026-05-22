@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.NoHandlerFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -66,6 +67,12 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
     public ApiResponse<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
         return ApiResponse.error(405, "请求方法不允许: " + ex.getMethod());
+    }
+
+    @ExceptionHandler(NoHandlerFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiResponse<Void> handleNoHandlerFound(NoHandlerFoundException ex) {
+        return ApiResponse.error(404, "接口不存在: " + ex.getRequestURL());
     }
 
     @ExceptionHandler(Exception.class)

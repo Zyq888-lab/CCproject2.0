@@ -31,6 +31,25 @@ public class DashboardService {
 
     public record ConfigProgressItem(String key, String label, long count, String status, String link) {}
 
+    public record DashboardSummary(long employeeCount, long projectRoleCount, long projectCount,
+                                   long positionConfigCount, long kpiCount, long configuredCount,
+                                   long totalModules, int completionPercent) {}
+
+    // 功能：仪表盘摘要——聚合所有配置模块的数据量
+    public DashboardSummary summary() {
+        List<ConfigProgressItem> items = configProgress();
+        long total = items.size();
+        long configured = items.stream().filter(i -> i.count > 0).count();
+        int pct = total > 0 ? (int) Math.round((double) configured / total * 100) : 0;
+        return new DashboardSummary(
+                items.stream().filter(i -> "employee".equals(i.key)).findFirst().map(ConfigProgressItem::count).orElse(0L),
+                items.stream().filter(i -> "projectRole".equals(i.key)).findFirst().map(ConfigProgressItem::count).orElse(0L),
+                items.stream().filter(i -> "project".equals(i.key)).findFirst().map(ConfigProgressItem::count).orElse(0L),
+                items.stream().filter(i -> "positionConfig".equals(i.key)).findFirst().map(ConfigProgressItem::count).orElse(0L),
+                items.stream().filter(i -> "kpi".equals(i.key)).findFirst().map(ConfigProgressItem::count).orElse(0L),
+                configured, total, pct);
+    }
+
     // 功能：统计各配置模块的数据量，count=0时status为"待配置"
     public List<ConfigProgressItem> configProgress() {
         long employeeCount = employeeMapper.selectCount(new LambdaQueryWrapper<>());

@@ -45,6 +45,7 @@ function App() {
           <Route path="/project-role" element={<ProjectRolePage />} />
           <Route path="/project/list" element={<ProjectListPage />} />
           <Route path="/project/:id/roles" element={<RoleAssignmentPage />} />
+          <Route path="/role-assignment" element={<Navigate to="/project/list" replace />} />
           <Route path="/position-config" element={<PositionConfigPage />} />
           <Route path="/kpi-config/project" element={<ProjectKpiPage />} />
           <Route path="/kpi-config/functional" element={<FuncKpiPage />} />

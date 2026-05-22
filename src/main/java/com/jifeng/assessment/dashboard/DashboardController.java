@@ -18,6 +18,13 @@ public class DashboardController extends BaseController {
 
     private final DashboardService dashboardService;
 
+    // 功能：仪表盘摘要——聚合所有配置模块的统计数据和完成百分比
+    @GetMapping("/api/v1/dashboard")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<DashboardService.DashboardSummary> dashboard() {
+        return ok(dashboardService.summary());
+    }
+
     // 功能：返回各配置模块的数据量和配置状态
     @GetMapping("/api/v1/dashboard/config-progress")
     @PreAuthorize("hasRole('ADMIN')")
