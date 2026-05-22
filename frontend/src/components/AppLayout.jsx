@@ -48,9 +48,13 @@ function AppLayout() {
     (item) => item.key && location.pathname.startsWith(item.key.split('/:')[0])
   )?.key || '/dashboard';
 
-  // 功能：点击菜单项跳转到对应页面
+  // 功能：点击菜单项跳转到对应页面，参数化路径（含:id）跳转到列表页
   const handleMenuClick = ({ key }) => {
-    navigate(key);
+    if (key.includes('/:id')) {
+      navigate(key.replace(/\/:id.*$/, '/list'));
+    } else {
+      navigate(key);
+    }
   };
 
   return (

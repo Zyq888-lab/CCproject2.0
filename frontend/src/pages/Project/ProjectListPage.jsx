@@ -6,7 +6,7 @@ import {
   Table, Button, Tag, Space, Modal, Form, Input, Select, message, Card,
 } from 'antd';
 import {
-  PlusOutlined, FolderOutlined, CheckCircleOutlined, RollbackOutlined, ReloadOutlined,
+  PlusOutlined, FolderOutlined, CheckCircleOutlined, RollbackOutlined, ReloadOutlined, LinkOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -191,9 +191,12 @@ function ProjectListPage() {
     },
     { title: '确认人', dataIndex: 'confirmedBy', key: 'confirmedBy', width: 100, render: (v) => v || '-' },
     {
-      title: '操作', key: 'action', width: 180,
+      title: '操作', key: 'action', width: 260,
       render: (_, record) => (
         <Space size="small">
+          <Button type="link" size="small" icon={<LinkOutlined />} onClick={() => navigate(`/project/${record.projectCode}/roles`)}>
+            角色分配
+          </Button>
           {!record.stageConfirmed ? (
             <Button type="link" size="small" icon={<CheckCircleOutlined />} onClick={() => handleConfirmStage(record)}>
               确认阶段
@@ -279,7 +282,7 @@ function ProjectListPage() {
               pageSizeOptions: [10, 20, 50],
               showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
             }}
-            scroll={{ x: 850 }}
+            scroll={{ x: 950 }}
           />
         </Card>
       )}

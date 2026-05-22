@@ -1,5 +1,5 @@
 {/* 模块用途：应用根组件——路由配置，AppLayout包裹所有需登录页面 */}
-{/* 依赖组件：AppLayout, LoginPage, DashboardPage, react-router-dom */}
+{/* 依赖组件：AppLayout, LoginPage, DashboardPage, RoleAssignmentPage, react-router-dom */}
 {/* 修改注意：新增页面时在此添加Route + lazy import，公开页面(login)不走AppLayout */}
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
@@ -10,6 +10,7 @@ import EmployeeListPage from './pages/Employee/EmployeeListPage';
 import UserRolePage from './pages/UserRole/UserRolePage';
 import ProjectRolePage from './pages/ProjectRole/ProjectRolePage';
 import ProjectListPage from './pages/Project/ProjectListPage';
+import RoleAssignmentPage from './pages/RoleAssignment/RoleAssignmentPage';
 
 // 功能：临时占位页——T20-T32实现各页面后逐一替换
 function PlaceholderPage({ title }) {
@@ -39,7 +40,7 @@ function App() {
           <Route path="/employee/list" element={<EmployeeListPage />} />
           <Route path="/project-role" element={<ProjectRolePage />} />
           <Route path="/project/list" element={<ProjectListPage />} />
-          <Route path="/project/:id/roles" element={<PlaceholderPage title="角色分配" />} />
+          <Route path="/project/:id/roles" element={<RoleAssignmentPage />} />
           <Route path="/position-config" element={<PlaceholderPage title="岗位配置" />} />
           <Route path="/kpi-config/project" element={<PlaceholderPage title="项目KPI" />} />
           <Route path="/kpi-config/functional" element={<PlaceholderPage title="职能KPI" />} />
