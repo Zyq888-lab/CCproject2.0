@@ -7,6 +7,9 @@ import LoginPage from './pages/Login/LoginPage';
 import DashboardPage from './pages/Dashboard/DashboardPage';
 import SetupWizardPage from './pages/SetupWizard/SetupWizardPage';
 import EmployeeListPage from './pages/Employee/EmployeeListPage';
+import UserRolePage from './pages/UserRole/UserRolePage';
+import ProjectRolePage from './pages/ProjectRole/ProjectRolePage';
+import ProjectListPage from './pages/Project/ProjectListPage';
 
 // 功能：临时占位页——T20-T32实现各页面后逐一替换
 function PlaceholderPage({ title }) {
@@ -34,14 +37,14 @@ function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/setup-wizard" element={<SetupWizardPage />} />
           <Route path="/employee/list" element={<EmployeeListPage />} />
-          <Route path="/project-role" element={<PlaceholderPage title="项目角色" />} />
-          <Route path="/project/list" element={<PlaceholderPage title="项目管理" />} />
+          <Route path="/project-role" element={<ProjectRolePage />} />
+          <Route path="/project/list" element={<ProjectListPage />} />
           <Route path="/project/:id/roles" element={<PlaceholderPage title="角色分配" />} />
           <Route path="/position-config" element={<PlaceholderPage title="岗位配置" />} />
           <Route path="/kpi-config/project" element={<PlaceholderPage title="项目KPI" />} />
           <Route path="/kpi-config/functional" element={<PlaceholderPage title="职能KPI" />} />
           <Route path="/period-config" element={<PlaceholderPage title="考核周期" />} />
-          <Route path="/user-role" element={<PlaceholderPage title="用户管理" />} />
+          <Route path="/user-role" element={<UserRolePage />} />
           <Route path="/system-param" element={<PlaceholderPage title="系统参数" />} />
           <Route path="/leader-config" element={<PlaceholderPage title="直属上级" />} />
         </Route>
