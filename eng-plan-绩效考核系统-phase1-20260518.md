@@ -518,19 +518,19 @@ Greenfield项目，无已有代码。设计文档 `design-绩效考核系统-202
   - 文件: `pages/Project/`
   - 验证: 项目表格 → PM确认阶段 → ADMIN重置
 
-- [ ] **T25 (P2, ~30min / ~5min)** — RoleAssignment 页面
+- [x] **T25 (P2, ~30min / ~5min)** — RoleAssignment 页面
   - 文件: `pages/RoleAssignment/`
   - 验证: 选择角色 → 添加人员 → 标记PD负责人
 
-- [ ] **T26 (P1, ~30min / ~5min)** — PositionConfig 页面
+- [x] **T26 (P1, ~30min / ~5min)** — PositionConfig 页面
   - 文件: `pages/PositionConfig/`
   - 验证: 权重滑块 → 考核人角色多选 → 保存校验
 
-- [ ] **T27 (P2, ~1h / ~10min)** — ProjectKpiConfig + FuncKpiConfig 页面
+- [x] **T27 (P2, ~1h / ~10min)** — ProjectKpiConfig + FuncKpiConfig 页面
   - 文件: `pages/KpiConfig/`
   - 验证: 指标表格 → 权重校验实时提示 → 排序拖拽
 
-- [ ] **T28 (P2, ~30min / ~5min)** — LeaderConfig 页面
+- [x] **T28 (P2, ~30min / ~5min)** — LeaderConfig 页面
   - 文件: `pages/LeaderConfig/`
   - 验证: 直属上级关系表格 → 批量编辑
 
