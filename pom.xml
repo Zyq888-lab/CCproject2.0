@@ -68,10 +68,23 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- H2 (test only) -->
+        <!-- Testcontainers (test only) — PostgreSQL 16 真实引擎，消除 H2 兼容性差异 -->
         <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>1.19.7</version>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>commons-compress</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>1.19.7</version>
             <scope>test</scope>
         </dependency>
 

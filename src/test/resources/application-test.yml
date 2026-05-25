@@ -1,10 +1,10 @@
-# ========== 测试环境 (H2 内存数据库) ==========
+# ========== 测试环境 (本地 PostgreSQL 16) ==========
 spring:
   datasource:
-    url: jdbc:h2:mem:assessment_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    url: jdbc:postgresql://localhost:5432/jifeng_assessment_test
+    driver-class-name: org.postgresql.Driver
+    username: postgres
+    password: postgres
   flyway:
     enabled: true
     locations: classpath:db/migration
