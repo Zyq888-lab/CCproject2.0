@@ -9,6 +9,11 @@ spring:
     name: jifeng-assessment
   profiles:
     active: dev
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
   servlet:
     multipart:
       max-file-size: 10MB

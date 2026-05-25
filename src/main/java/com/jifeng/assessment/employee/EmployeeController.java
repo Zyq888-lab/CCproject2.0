@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/v1/employees")
 @RequiredArgsConstructor
@@ -64,5 +66,11 @@ public class EmployeeController extends BaseController {
     public ApiResponse<Void> delete(@PathVariable String employeeId) {
         employeeService.deleteEmployee(employeeId);
         return ok("已删除", null);
+    }
+
+    // 功能：批量导入员工——接收员工列表，逐条校验入库，返回成功/失败明细
+    @PostMapping("/import")
+    public ApiResponse<EmployeeService.ImportResult> importEmployees(@RequestBody List<Employee> employees) {
+        return ok(employeeService.importEmployees(employees));
     }
 }

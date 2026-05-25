@@ -11,13 +11,18 @@ import com.jifeng.assessment.common.PageResult;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -118,6 +123,79 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
         dto.setCreatedAt(emp.getCreatedAt());
         dto.setUpdatedAt(emp.getUpdatedAt());
         return dto;
+    }
+
+    // 功能：批量导入员工——逐行校验，有效记录入库，返回各行的导入结果
+    @Transactional
+    public ImportResult importEmployees(List<Employee> employees) {
+        List<ImportResult.RowError> errors = new ArrayList<>();
+        int successCount = 0;
+
+        // 批量预加载现有工号和上级工号，避免逐行N+1查询
+        Set<String> inputIds = employees.stream()
+                .map(Employee::getEmployeeId)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        Set<String> existingIds = inputIds.isEmpty() ? Collections.emptySet()
+                : baseMapper.selectBatchIds(inputIds).stream()
+                        .map(Employee::getEmployeeId)
+                        .collect(Collectors.toSet());
+
+        Set<String> leaderIds = employees.stream()
+                .map(Employee::getDirectLeaderId)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        leaderIds.removeAll(inputIds); // 已在existingIds中的无需重复查询
+        Set<String> existingLeaderIds = leaderIds.isEmpty() ? Collections.emptySet()
+                : baseMapper.selectBatchIds(leaderIds).stream()
+                        .map(Employee::getEmployeeId)
+                        .collect(Collectors.toSet());
+        existingLeaderIds.addAll(existingIds); // 上级也可以是本次导入的员工
+
+        int rowNum = 0;
+        for (Employee emp : employees) {
+            rowNum++;
+            try {
+                EmployeeValidator.validateEmployeeId(emp.getEmployeeId());
+                EmployeeValidator.validateEmail(emp.getEmail());
+                EmployeeValidator.validateStatus(emp.getStatus());
+                emp.setStatus(EmployeeValidator.mapStatus(emp.getStatus()));
+                if (!StringUtils.hasText(emp.getName())) {
+                    errors.add(new ImportResult.RowError(rowNum, emp.getEmployeeId(), "姓名不能为空"));
+                    continue;
+                }
+                if (existingIds.contains(emp.getEmployeeId())) {
+                    errors.add(new ImportResult.RowError(rowNum, emp.getEmployeeId(), "工号已存在"));
+                    continue;
+                }
+                if (StringUtils.hasText(emp.getDirectLeaderId())
+                        && !existingLeaderIds.contains(emp.getDirectLeaderId())) {
+                    errors.add(new ImportResult.RowError(rowNum, emp.getEmployeeId(),
+                            "直属上级工号不存在: " + emp.getDirectLeaderId()));
+                    continue;
+                }
+                baseMapper.insert(emp);
+                existingIds.add(emp.getEmployeeId()); // 防同一批次内重复工号
+                successCount++;
+            } catch (DuplicateKeyException e) {
+                errors.add(new ImportResult.RowError(rowNum,
+                        emp.getEmployeeId() != null ? emp.getEmployeeId() : "空",
+                        "工号已存在（并发冲突）"));
+            } catch (DataAccessException e) {
+                errors.add(new ImportResult.RowError(rowNum,
+                        emp.getEmployeeId() != null ? emp.getEmployeeId() : "空",
+                        "数据写入失败: " + e.getMessage()));
+            } catch (Exception e) {
+                errors.add(new ImportResult.RowError(rowNum,
+                        emp.getEmployeeId() != null ? emp.getEmployeeId() : "空",
+                        e.getMessage()));
+            }
+        }
+        return new ImportResult(employees.size(), successCount, errors);
+    }
+
+    public record ImportResult(int totalRows, int successCount, List<RowError> errors) {
+        public record RowError(int row, String employeeId, String message) {}
     }
 
     // 功能：新增员工前的业务校验——工号格式、必填字段、唯一性、直属上级存在
