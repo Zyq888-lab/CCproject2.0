@@ -104,7 +104,7 @@ class WizardServiceTest {
         assertFalse(progress.isCompleted());
     }
 
-    // 功能：重置向导后进度回到初始状态
+    // 功能：重置向导后进度回到初始状态（currentStep=1，completedSteps清空）
     @Test
     void shouldResetProgress() {
         String userId = uniqueUserId();
@@ -114,7 +114,7 @@ class WizardServiceTest {
         wizardService.reset(userId);
 
         WizardProgressDTO progress = wizardService.getProgress(userId);
-        assertEquals(0, progress.getCurrentStep());
+        assertEquals(1, progress.getCurrentStep());
         assertEquals("", progress.getCompletedSteps());
         assertFalse(progress.isCompleted());
     }

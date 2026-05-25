@@ -50,6 +50,8 @@ function PageHeader({ title, breadcrumb, actions }) {
                 type={action.type || 'default'}
                 icon={action.icon}
                 danger={action.danger}
+                disabled={action.disabled}
+                loading={action.loading}
                 onClick={action.onClick}
               >
                 {action.label}
