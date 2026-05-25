@@ -52,4 +52,9 @@ body {
   background: #FAFAFA;
 }
 
+/* 批量导入预览表格——无效行红色背景 */
+.import-row-invalid td {
+  background: #FFF1F0 !important;
+}
+
 /* AI痕迹禁止清单：无紫色渐变、无彩色圆圈布局、无波浪线装饰、无统一大圆角、无卡片左边框彩色竖线 */

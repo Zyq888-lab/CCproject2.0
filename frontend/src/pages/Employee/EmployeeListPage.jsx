@@ -6,11 +6,12 @@ import {
   Table, Button, Input, Select, Space, Tag, Modal, Form, message, Card,
 } from 'antd';
 import {
-  SearchOutlined, PlusOutlined, ReloadOutlined, TeamOutlined,
+  SearchOutlined, PlusOutlined, ReloadOutlined, TeamOutlined, DownloadOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
+import EmployeeImportModal from './EmployeeImportModal';
 import client from '../../api/client';
 
 const STATUS_OPTIONS = [
@@ -30,6 +31,7 @@ function EmployeeListPage() {
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
   const [filters, setFilters] = useState({ keyword: '', category: '', status: '' });
   const [modalVisible, setModalVisible] = useState(false);
+  const [importModalVisible, setImportModalVisible] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
@@ -193,7 +195,10 @@ function EmployeeListPage() {
       <PageHeader
         title="员工管理"
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
-        actions={[{ label: '新增员工', icon: <PlusOutlined />, type: 'primary', onClick: handleAdd }]}
+        actions={[
+          { label: '新增员工', icon: <PlusOutlined />, type: 'primary', onClick: handleAdd },
+          { label: '批量导入', icon: <DownloadOutlined />, onClick: () => setImportModalVisible(true) },
+        ]}
       />
 
       {/* 功能：搜索筛选栏——关键字搜索+岗位分类下拉+状态下拉+搜索/重置按钮 */}
@@ -240,7 +245,7 @@ function EmployeeListPage() {
           image={<TeamOutlined style={{ fontSize: 72, color: '#1890FF' }} />}
           title="还没有任何员工数据"
           description="导入继峰现有员工Excel或手动新增"
-          primaryAction={{ label: '批量导入Excel', onClick: () => message.info({ content: '导入功能请在员工管理中使用' }) }}
+          primaryAction={{ label: '批量导入Excel', onClick: () => setImportModalVisible(true) }}
           secondaryAction={{ label: '手动新增', onClick: handleAdd }}
         />
       )}
@@ -318,6 +323,13 @@ function EmployeeListPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 功能：批量导入弹窗——Excel上传+预览+校验+确认导入 */}
+      <EmployeeImportModal
+        open={importModalVisible}
+        onClose={() => setImportModalVisible(false)}
+        onSuccess={() => fetchEmployees(pagination.current, pagination.pageSize, filters)}
+      />
     </div>
   );
 }
