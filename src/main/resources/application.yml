@@ -62,10 +62,10 @@ spring:
     activate:
       on-profile: prod
   datasource:
-    url: jdbc:postgresql://localhost:5432/jifeng_assessment?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai
-    driver-class-name: org.postgresql.Driver
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:}
+    url: ${DATASOURCE_URL}
+    driver-class-name: ${DATASOURCE_DRIVER:org.postgresql.Driver}
+    username: ${DATASOURCE_USERNAME}
+    password: ${DATASOURCE_PASSWORD}
   flyway:
     enabled: true
     locations: classpath:db/migration
