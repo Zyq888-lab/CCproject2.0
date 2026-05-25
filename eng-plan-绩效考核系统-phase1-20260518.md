@@ -536,21 +536,22 @@ Greenfield项目，无已有代码。设计文档 `design-绩效考核系统-202
 
 ### 6.4 测试
 
-- [ ] **T29 (P1, ~2h / ~15min)** — 后端Service单元测试：所有模块核心方法
+- [x] **T29 (P1, ~2h / ~15min)** — 后端Service单元测试：所有模块核心方法
   - 文件: `src/test/java/com/jifeng/assessment/*/`
-  - 验证: `mvn test` → 30+用例通过
+  - 验证: `mvn test` → 185用例通过（远超30+要求）
 
-- [ ] **T30 (P1, ~1h / ~10min)** — 后端集成测试：乐观锁行为 + 唯一约束
+- [x] **T30 (P1, ~1h / ~10min)** — 后端集成测试：乐观锁行为 + 唯一约束
   - 文件: `src/test/java/com/jifeng/assessment/integration/`
-  - 验证: 并发更新 → 409冲突；重复工号 → 约束异常
+  - 验证: 并发更新 → 409冲突；重复工号 → 约束异常 ✅ 16个集成测试全部通过
 
-- [ ] **T31 (P1, ~1h / ~10min)** — 算分公式Excel交叉验证(D11)：10个参数化用例
+- [x] **T31 (P1, ~1h / ~10min)** — 算分公式Excel交叉验证(D11)：10个参数化用例
   - 文件: `src/test/java/com/jifeng/assessment/kpi/ScoreCalculatorTest.java`
-  - 验证: 10个用例全部通过 ±0.001容差
+  - 验证: 10个参数化用例 + 6个边界测试全部通过 ±0.001容差
 
-- [ ] **T32 (P2, ~1h / ~15min)** — E2E测试：登录流程 + 7步配置向导完整走通
-  - 文件: `e2e/login.spec.js`, `e2e/setup-wizard.spec.js`
-  - 验证: `npx playwright test` → 2个用例通过
+- [x] **T32 (P2, ~1h / ~15min)** — E2E测试：登录流程 + 7步配置向导完整走通
+  - 文件: `e2e/login.spec.js` (3 tests), `e2e/setup-wizard.spec.js` (1 test, 7 steps)
+  - 验证: `npx playwright test` → 4个用例全部通过 (18.9s)
+  - 同时修复: `WizardService.reset()` 原地清空进度避免 `uk_wizard_user UNIQUE(user_id, deleted)` 冲突
 
 ---
 

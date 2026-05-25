@@ -50,12 +50,15 @@ public class WizardService {
         return toDTO(progress);
     }
 
-    // 功能：重置向导进度——逻辑删除当前记录，下次访问从步骤1重新开始
+    // 功能：重置向导进度——将当前进度恢复到步骤1，避免软删除导致的唯一约束冲突
     @Transactional
     public void reset(String userId) {
         WizardProgress progress = find(userId);
         if (progress != null) {
-            wizardProgressMapper.deleteById(progress.getId());
+            progress.setCurrentStep(1);
+            progress.setCompletedSteps("");
+            progress.setUpdatedAt(LocalDateTime.now());
+            wizardProgressMapper.updateById(progress);
         }
     }
 

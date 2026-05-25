@@ -15,20 +15,8 @@ import PositionConfigPage from './pages/PositionConfig/PositionConfigPage';
 import ProjectKpiPage from './pages/KpiConfig/ProjectKpiPage';
 import FuncKpiPage from './pages/KpiConfig/FuncKpiPage';
 import LeaderConfigPage from './pages/LeaderConfig/LeaderConfigPage';
-
-// 功能：临时占位页——T20-T32实现各页面后逐一替换
-function PlaceholderPage({ title }) {
-  return (
-    <div id="placeholder-page-area" style={{
-      background: '#FFFFFF',
-      borderRadius: 8,
-      padding: 48,
-      textAlign: 'center',
-    }}>
-      <h2 style={{ color: '#8C8C8C' }}>{title} — 待实现 (T20-T32)</h2>
-    </div>
-  );
-}
+import SystemParamPage from './pages/SystemParam/SystemParamPage';
+import PeriodConfigPage from './pages/PeriodConfig/PeriodConfigPage';
 
 function App() {
   return (
@@ -49,9 +37,9 @@ function App() {
           <Route path="/position-config" element={<PositionConfigPage />} />
           <Route path="/kpi-config/project" element={<ProjectKpiPage />} />
           <Route path="/kpi-config/functional" element={<FuncKpiPage />} />
-          <Route path="/period-config" element={<PlaceholderPage title="考核周期" />} />
+          <Route path="/period-config" element={<PeriodConfigPage />} />
           <Route path="/user-role" element={<UserRolePage />} />
-          <Route path="/system-param" element={<PlaceholderPage title="系统参数" />} />
+          <Route path="/system-param" element={<SystemParamPage />} />
           <Route path="/leader-config" element={<LeaderConfigPage />} />
         </Route>
 
