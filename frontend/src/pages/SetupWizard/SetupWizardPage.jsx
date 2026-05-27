@@ -207,6 +207,7 @@ function SetupWizardPage() {
             onError={handleError}
             submitting={submitting}
             setSubmitting={setSubmitting}
+            completedSteps={completedSteps}
           />
         )}
       </div>

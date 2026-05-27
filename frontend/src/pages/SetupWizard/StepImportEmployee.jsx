@@ -9,15 +9,37 @@ import { parseExcelFile, buildPreviewColumns, downloadTemplate } from '../Employ
 
 const { Dragger } = Upload;
 
-function StepImportEmployee({ onNext, onError, submitting, setSubmitting }) {
+function StepImportEmployee({ onNext, onError, submitting, setSubmitting, completedSteps }) {
   const [parsedData, setParsedData] = useState([]);
   const [errors, setErrors] = useState([]);
   const [imported, setImported] = useState(false);
+  const [restoringData, setRestoringData] = useState(false);
   const mountedRef = useRef(true);
+
+  const isStepCompleted = Array.isArray(completedSteps) && completedSteps.includes(2);
 
   useEffect(() => {
     return () => { mountedRef.current = false; };
   }, []);
+
+  useEffect(() => {
+    if (!isStepCompleted) return;
+    setRestoringData(true);
+    client.get('/employees', { params: { page: 1, size: 999 } })
+      .then((res) => {
+        if (mountedRef.current) {
+          const list = res.data?.list || [];
+          if (list.length > 0) {
+            setImported(true);
+            setParsedData(list.map((emp, i) => ({ ...emp, _rowNum: i + 1, _valid: true })));
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (mountedRef.current) setRestoringData(false);
+      });
+  }, [isStepCompleted]);
 
   const handleFileParse = (file) => {
     setParsedData([]);
@@ -34,6 +56,11 @@ function StepImportEmployee({ onNext, onError, submitting, setSubmitting }) {
     return false;
   };
 
+  const markStepDone = async () => {
+    const wizardRes = await client.post('/wizard/step/import-employee');
+    onNext(wizardRes.data);
+  };
+
   const handleImport = async () => {
     const validRows = parsedData.filter((r) => r._valid !== false);
     if (validRows.length === 0) {
@@ -48,7 +75,7 @@ function StepImportEmployee({ onNext, onError, submitting, setSubmitting }) {
         setImported(true);
         if (res.data.successCount > 0) {
           message.success({ content: `成功导入 ${res.data.successCount} 条记录` });
-          onNext(res.data);
+          await markStepDone();
         }
         if (res.data.errors && res.data.errors.length > 0) {
           setErrors((prev) => [...prev, ...res.data.errors.map((e) => ({
@@ -80,14 +107,22 @@ function StepImportEmployee({ onNext, onError, submitting, setSubmitting }) {
 
   const hasData = parsedData.length > 0;
 
-  if (imported) {
+  if (restoringData) {
+    return (
+      <div style={{ textAlign: 'center', padding: 48, color: '#8C8C8C' }}>
+        正在加载已导入数据…
+      </div>
+    );
+  }
+
+  if (imported || isStepCompleted) {
     return (
       <Result
         status="success"
         title="员工导入完成"
         subTitle="导入结果已提交，点击下方按钮继续下一步。"
         extra={
-          <Button type="primary" size="large" onClick={() => onNext({})}>
+          <Button type="primary" size="large" onClick={markStepDone} loading={submitting}>
             继续下一步 →
           </Button>
         }
