@@ -4,6 +4,14 @@
 package com.jifeng.assessment.projectrole;
 
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.employee.Employee;
+import com.jifeng.assessment.employee.EmployeeMapper;
+import com.jifeng.assessment.kpi.ProjectKpiConfig;
+import com.jifeng.assessment.kpi.ProjectKpiMapper;
+import com.jifeng.assessment.project.Project;
+import com.jifeng.assessment.project.ProjectMapper;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,6 +29,18 @@ class ProjectRoleServiceTest {
 
     @Autowired
     private ProjectRoleService projectRoleService;
+
+    @Autowired
+    private ProjectMapper projectMapper;
+
+    @Autowired
+    private EmployeeMapper employeeMapper;
+
+    @Autowired
+    private ProjectRoleAssignmentMapper roleAssignmentMapper;
+
+    @Autowired
+    private ProjectKpiMapper projectKpiMapper;
 
     // 功能：新增角色成功，roleCode和roleName正确返回
     @Test
@@ -138,5 +158,85 @@ class ProjectRoleServiceTest {
         List<ProjectRoleDTO> all = projectRoleService.listProjectRoles(null);
         assertTrue(all.stream().anyMatch(r -> "ACTIVE_ROLE".equals(r.getRoleCode())));
         assertTrue(all.stream().anyMatch(r -> "INACTIVE_ROLE".equals(r.getRoleCode())));
+    }
+
+    // 功能：删除有分配记录的角色时应抛出异常
+    @Test
+    void testDeleteRoleWithAssignmentsShouldFail() {
+        ProjectRole role = new ProjectRole();
+        role.setRoleCode("PDL");
+        role.setRoleName("项目总监");
+        projectRoleService.createProjectRole(role);
+
+        Project project = new Project();
+        project.setProjectCode("PROJ_TEST");
+        project.setProjectName("测试项目");
+        project.setProjectStage("P2");
+        projectMapper.insert(project);
+
+        Employee employee = new Employee();
+        employee.setEmployeeId("EMP001");
+        employee.setName("测试员工");
+        employee.setEmail("emp001@test.com");
+        employee.setCategory("研发技术类");
+        employee.setPosition("工程师");
+        employee.setOrgName("测试部门");
+        employeeMapper.insert(employee);
+
+        ProjectRoleAssignment assignment = new ProjectRoleAssignment();
+        assignment.setProjectCode("PROJ_TEST");
+        assignment.setProjectRoleCode("PDL");
+        assignment.setEmployeeId("EMP001");
+        roleAssignmentMapper.insert(assignment);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> projectRoleService.deleteProjectRole("PDL"));
+        assertTrue(ex.getMessage().contains("项目角色分配记录引用"));
+    }
+
+    // 功能：删除有KPI配置引用的角色时应抛出异常
+    @Test
+    void testDeleteRoleWithKpiConfigShouldFail() {
+        ProjectRole role = new ProjectRole();
+        role.setRoleCode("PDL");
+        role.setRoleName("项目总监");
+        projectRoleService.createProjectRole(role);
+
+        ProjectKpiConfig kpi = new ProjectKpiConfig();
+        kpi.setProjectRoleCode("PDL");
+        kpi.setProjectStage("P2");
+        kpi.setKpiName("技术方案质量");
+        kpi.setWeight(new java.math.BigDecimal("0.3000"));
+        projectKpiMapper.insert(kpi);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> projectRoleService.deleteProjectRole("PDL"));
+        assertTrue(ex.getMessage().contains("项目KPI配置引用"));
+    }
+
+    // 功能：逻辑删除后重新创建同名角色应成功
+    @Test
+    void testRecreateDeletedRoleShouldSucceed() {
+        ProjectRole role = new ProjectRole();
+        role.setRoleCode("PDL");
+        role.setRoleName("项目总监");
+        ProjectRoleDTO created = projectRoleService.createProjectRole(role);
+        assertEquals("PDL", created.getRoleCode());
+        assertEquals("项目总监", created.getRoleName());
+
+        projectRoleService.deleteProjectRole("PDL");
+
+        ProjectRole role2 = new ProjectRole();
+        role2.setRoleCode("PDL");
+        role2.setRoleName("新项目总监");
+        role2.setDescription("重建后的角色");
+        ProjectRoleDTO recreated = projectRoleService.createProjectRole(role2);
+        assertEquals("PDL", recreated.getRoleCode());
+        assertEquals("新项目总监", recreated.getRoleName());
+        assertEquals("重建后的角色", recreated.getDescription());
+
+        List<ProjectRoleDTO> list = projectRoleService.listProjectRoles(null);
+        long count = list.stream().filter(r -> "PDL".equals(r.getRoleCode())).count();
+        assertEquals(1, count);
     }
 }

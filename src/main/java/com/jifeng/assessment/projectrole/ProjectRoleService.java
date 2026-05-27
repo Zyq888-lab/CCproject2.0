@@ -6,6 +6,10 @@ package com.jifeng.assessment.projectrole;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jifeng.assessment.common.BaseService;
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.kpi.ProjectKpiConfig;
+import com.jifeng.assessment.kpi.ProjectKpiMapper;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +23,8 @@ import java.util.List;
 public class ProjectRoleService extends BaseService<ProjectRoleMapper, ProjectRole> {
 
     private final PositionAssessorRoleConfigMapper assessorRoleConfigMapper;
+    private final ProjectRoleAssignmentMapper roleAssignmentMapper;
+    private final ProjectKpiMapper projectKpiMapper;
 
     // 功能：查询所有项目角色，支持按 isActive 过滤
     public List<ProjectRoleDTO> listProjectRoles(Boolean isActive) {
@@ -32,7 +38,7 @@ public class ProjectRoleService extends BaseService<ProjectRoleMapper, ProjectRo
                 .toList();
     }
 
-    // 功能：新增项目角色——校验 roleCode 非空、不重复
+    // 功能：新增项目角色——校验 roleCode 非空、不重复；支持逻辑删除后重建
     @Transactional
     public ProjectRoleDTO createProjectRole(ProjectRole role) {
         if (!StringUtils.hasText(role.getRoleCode())) {
@@ -45,6 +51,11 @@ public class ProjectRoleService extends BaseService<ProjectRoleMapper, ProjectRo
             throw new BusinessException(409, "角色代码" + role.getRoleCode() + "已存在");
         }
         role.setIsActive(role.getIsActive() != null ? role.getIsActive() : true);
+        ProjectRole deleted = baseMapper.selectByIdBypassDelete(role.getRoleCode());
+        if (deleted != null) {
+            baseMapper.reviveDeleted(role);
+            return toDTO(baseMapper.selectById(role.getRoleCode()));
+        }
         baseMapper.insert(role);
         return toDTO(role);
     }
@@ -84,6 +95,22 @@ public class ProjectRoleService extends BaseService<ProjectRoleMapper, ProjectRo
         if (refCount > 0) {
             throw new BusinessException(400,
                     "角色 " + roleCode + " 被 " + refCount + " 个岗位配置引用，无法删除");
+        }
+
+        LambdaQueryWrapper<ProjectRoleAssignment> assignWrapper = new LambdaQueryWrapper<>();
+        assignWrapper.eq(ProjectRoleAssignment::getProjectRoleCode, roleCode);
+        long assignCount = roleAssignmentMapper.selectCount(assignWrapper);
+        if (assignCount > 0) {
+            throw new BusinessException(400,
+                    "角色 " + roleCode + " 被 " + assignCount + " 条项目角色分配记录引用，无法删除。请先解除所有分配。");
+        }
+
+        LambdaQueryWrapper<ProjectKpiConfig> kpiWrapper = new LambdaQueryWrapper<>();
+        kpiWrapper.eq(ProjectKpiConfig::getProjectRoleCode, roleCode);
+        long kpiCount = projectKpiMapper.selectCount(kpiWrapper);
+        if (kpiCount > 0) {
+            throw new BusinessException(400,
+                    "角色 " + roleCode + " 被 " + kpiCount + " 条项目KPI配置引用，无法删除。请先删除相关KPI配置。");
         }
 
         baseMapper.deleteById(roleCode);
