@@ -6,7 +6,7 @@ import {
   Card, Button, Tag, Space, Modal, Form, Input, DatePicker, message, Row, Col, Spin, Result, Select,
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, CalendarOutlined, LockOutlined,
+  PlusOutlined, EditOutlined, CalendarOutlined, LockOutlined, PlayCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
@@ -106,6 +106,23 @@ function PeriodConfigPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleStart = (period) => {
+    showConfirm({
+      title: `确定要开始考核周期"${period.periodName}"吗？`,
+      content: '开始后状态变为"进行中"，考核将正式启动。',
+      okText: '确认开始',
+      onOk: async () => {
+        try {
+          await client.put(`/periods/${period.periodId}/start`);
+          message.success({ content: '考核周期已开始', duration: 3 });
+          fetchPeriods();
+        } catch (err) {
+          message.error({ content: err?.message || '开始失败' });
+        }
+      },
+    });
   };
 
   const handleClose = (period) => {
@@ -213,6 +230,16 @@ function PeriodConfigPage() {
                       </Space>
                     }
                     actions={[
+                      period.status === 'INIT' && (
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<PlayCircleOutlined />}
+                          onClick={() => handleStart(period)}
+                        >
+                          开始
+                        </Button>
+                      ),
                       period.status === 'INIT' && (
                         <Button
                           type="link"

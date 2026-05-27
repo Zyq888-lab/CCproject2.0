@@ -21,6 +21,7 @@ public class PeriodService {
     private final PeriodMapper periodMapper;
 
     private static final String COMPLETED = "COMPLETED";
+    private static final String ONGOING = "ONGOING";
     private static final String INIT = "INIT";
 
     // 功能：查询考核周期列表，支持按status筛选
@@ -78,6 +79,22 @@ public class PeriodService {
         period.setUpdatedAt(LocalDateTime.now());
         periodMapper.updateById(period);
         return periodMapper.selectById(periodId);
+    }
+
+    // 功能：开始考核周期——状态从INIT变为ONGOING
+    @Transactional
+    public AssessmentPeriod startPeriod(String periodId) {
+        AssessmentPeriod period = periodMapper.selectById(periodId);
+        if (period == null) {
+            throw new BusinessException(404, "考核周期不存在: " + periodId);
+        }
+        if (!INIT.equals(period.getStatus())) {
+            throw new BusinessException(400, "仅未开始的考核周期可以开始");
+        }
+        period.setStatus(ONGOING);
+        period.setUpdatedAt(LocalDateTime.now());
+        periodMapper.updateById(period);
+        return period;
     }
 
     // 功能：关闭考核周期——状态设为COMPLETED
