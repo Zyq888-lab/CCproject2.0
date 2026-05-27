@@ -992,3 +992,14 @@ Greenfield项目，无已有代码。设计文档 `design-绩效考核系统-202
 
 - **UNRESOLVED:** 0
 - **VERDICT:** CEO + ENG + DESIGN CLEARED — ready to implement Phase 1
+
+
+## 变更记录
+
+### 2026-05-27：配置向导改为仪表盘卡片引导
+
+- 移除 /setup-wizard 路由及组件，仪表盘不再有"开始配置"按钮。
+- 改为仪表盘显示7张配置卡片（员工管理、项目角色、项目管理、角色分配、KPI指标、岗位配置、考核周期），点击卡片跳转到对应独立页面。
+- 配置进度基于后端 /dashboard/config-progress 接口，卡片显示"已配置"状态。
+- 原任务 T20 取消，文档中以实际实现为准。
+- 此变更不影响员工管理、KPI配置等核心功能。
