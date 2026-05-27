@@ -1,4 +1,4 @@
-// 模块用途：考核周期业务逻辑——CRUD、活跃周期唯一约束、关闭周期
+// 模块用途：考核周期业务逻辑——CRUD、活跃周期唯一约束、编辑校验、关闭周期
 // 依赖文件：PeriodMapper.java, AssessmentPeriod.java
 // 修改注意：同一时间只能有一个非COMPLETED周期，创建时自动生成periodId
 package com.jifeng.assessment.period;
@@ -50,6 +50,34 @@ public class PeriodService {
         period.setStatus(INIT);
         periodMapper.insert(period);
         return periodMapper.selectById(period.getPeriodId());
+    }
+
+    // 功能：编辑考核周期——仅INIT状态可修改名称和起止日期
+    @Transactional
+    public AssessmentPeriod updatePeriod(String periodId, AssessmentPeriod update) {
+        AssessmentPeriod period = periodMapper.selectById(periodId);
+        if (period == null) {
+            throw new BusinessException(404, "考核周期不存在: " + periodId);
+        }
+        if (!INIT.equals(period.getStatus())) {
+            throw new BusinessException(400, "仅未开始的考核周期可编辑");
+        }
+        if (update.getStartDate() != null && update.getEndDate() != null
+                && update.getStartDate().isAfter(update.getEndDate())) {
+            throw new BusinessException(400, "开始日期不能晚于结束日期");
+        }
+        if (update.getPeriodName() != null) {
+            period.setPeriodName(update.getPeriodName());
+        }
+        if (update.getStartDate() != null) {
+            period.setStartDate(update.getStartDate());
+        }
+        if (update.getEndDate() != null) {
+            period.setEndDate(update.getEndDate());
+        }
+        period.setUpdatedAt(LocalDateTime.now());
+        periodMapper.updateById(period);
+        return periodMapper.selectById(periodId);
     }
 
     // 功能：关闭考核周期——状态设为COMPLETED

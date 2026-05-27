@@ -1,13 +1,14 @@
-{/* 模块用途：PeriodConfigPage——考核周期管理页，卡片列表+新增弹窗+关闭周期 */}
+{/* 模块用途：PeriodConfigPage——考核周期管理页，卡片列表+新增/编辑弹窗+关闭周期 */}
 {/* 依赖组件：PageHeader, EmptyState, ConfirmModal, client.js, Ant Design Card/Modal/Form/Input/DatePicker/Tag/Row/Col */}
-{/* 修改注意：只有ADMIN可创建/关闭周期；已完成的周期不可关闭 */}
+{/* 修改注意：仅INIT状态可编辑；存在活跃周期时新增按钮禁用 */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Card, Button, Tag, Space, Modal, Form, Input, DatePicker, message, Row, Col, Spin, Result, Select,
 } from 'antd';
 import {
-  PlusOutlined, CalendarOutlined, LockOutlined,
+  PlusOutlined, EditOutlined, CalendarOutlined, LockOutlined,
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { showConfirm } from '../../components/ConfirmModal';
@@ -25,10 +26,13 @@ function PeriodConfigPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [editingPeriod, setEditingPeriod] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
   const [form] = Form.useForm();
   const mountedRef = useRef(true);
+
+  const hasActivePeriod = periods.some((p) => p.status !== 'COMPLETED');
 
   const fetchPeriods = useCallback(async () => {
     setLoading(true);
@@ -61,7 +65,18 @@ function PeriodConfigPage() {
   }, [fetchPeriods]);
 
   const handleCreate = () => {
+    setEditingPeriod(null);
     form.resetFields();
+    setModalVisible(true);
+  };
+
+  const handleEdit = (period) => {
+    setEditingPeriod(period);
+    form.resetFields();
+    form.setFieldsValue({
+      periodName: period.periodName,
+      dateRange: [dayjs(period.startDate), dayjs(period.endDate)],
+    });
     setModalVisible(true);
   };
 
@@ -69,13 +84,20 @@ function PeriodConfigPage() {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
-      await client.post('/periods', {
+      const payload = {
         periodName: values.periodName,
         startDate: values.dateRange[0].format('YYYY-MM-DD'),
         endDate: values.dateRange[1].format('YYYY-MM-DD'),
-      });
-      message.success({ content: '考核周期创建成功', duration: 3 });
+      };
+      if (editingPeriod) {
+        await client.put(`/periods/${editingPeriod.periodId}`, payload);
+        message.success({ content: '考核周期保存成功', duration: 3 });
+      } else {
+        await client.post('/periods', payload);
+        message.success({ content: '考核周期创建成功', duration: 3 });
+      }
       setModalVisible(false);
+      setEditingPeriod(null);
       fetchPeriods();
     } catch (err) {
       if (err?.message) {
@@ -137,7 +159,13 @@ function PeriodConfigPage() {
       <PageHeader
         title="考核周期"
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
-        actions={[{ label: '创建周期', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate }]}
+        actions={[{
+          label: hasActivePeriod ? '请先关闭当前活跃周期' : '创建周期',
+          icon: <PlusOutlined />,
+          type: 'primary',
+          onClick: handleCreate,
+          disabled: hasActivePeriod,
+        }]}
       />
 
       {error && periods.length > 0 && (
@@ -185,6 +213,16 @@ function PeriodConfigPage() {
                       </Space>
                     }
                     actions={[
+                      period.status === 'INIT' && (
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={() => handleEdit(period)}
+                        >
+                          编辑
+                        </Button>
+                      ),
                       period.status !== 'COMPLETED' && (
                         <Button
                           type="link"
@@ -219,12 +257,12 @@ function PeriodConfigPage() {
       )}
 
       <Modal
-        title="创建考核周期"
+        title={editingPeriod ? '编辑考核周期' : '创建考核周期'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        onCancel={() => { setModalVisible(false); setEditingPeriod(null); }}
         confirmLoading={submitting}
-        okText="创建"
+        okText={editingPeriod ? '保存' : '创建'}
         cancelText="取消"
         width={480}
       >
