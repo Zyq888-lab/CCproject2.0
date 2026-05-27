@@ -14,11 +14,13 @@ function StepImportEmployee({ onNext, onError, submitting, setSubmitting, comple
   const [errors, setErrors] = useState([]);
   const [imported, setImported] = useState(false);
   const [restoringData, setRestoringData] = useState(false);
+  const [dataRestored, setDataRestored] = useState(false);
   const mountedRef = useRef(true);
 
   const isStepCompleted = Array.isArray(completedSteps) && completedSteps.includes(2);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
 
@@ -30,8 +32,8 @@ function StepImportEmployee({ onNext, onError, submitting, setSubmitting, comple
         if (mountedRef.current) {
           const list = res.data?.list || [];
           if (list.length > 0) {
-            setImported(true);
             setParsedData(list.map((emp, i) => ({ ...emp, _rowNum: i + 1, _valid: true })));
+            setDataRestored(true);
           }
         }
       })
@@ -45,6 +47,7 @@ function StepImportEmployee({ onNext, onError, submitting, setSubmitting, comple
     setParsedData([]);
     setErrors([]);
     setImported(false);
+    setDataRestored(false);
     parseExcelFile(file).then(({ rows, errors: parseErrors }) => {
       if (mountedRef.current) {
         setParsedData(rows);
@@ -115,7 +118,7 @@ function StepImportEmployee({ onNext, onError, submitting, setSubmitting, comple
     );
   }
 
-  if (imported || isStepCompleted) {
+  if (imported) {
     return (
       <Result
         status="success"
@@ -184,11 +187,24 @@ function StepImportEmployee({ onNext, onError, submitting, setSubmitting, comple
             style={{ marginBottom: 16 }}
           />
           <Space style={{ justifyContent: 'center', width: '100%' }}>
-            <Button type="primary" size="large" loading={submitting} disabled={submitting}
-              onClick={handleImport}>
-              {submitting ? '导入中…' : `确认导入 (${parsedData.filter((r) => r._valid !== false).length} 条) →`}
-            </Button>
-            <Button onClick={handleSkip} disabled={submitting}>跳过，稍后导入</Button>
+            {dataRestored ? (
+              <>
+                <Button type="primary" size="large" onClick={markStepDone} loading={submitting}>
+                  继续下一步 →
+                </Button>
+                <Button onClick={() => { setParsedData([]); setErrors([]); setDataRestored(false); }} disabled={submitting}>
+                  重新上传
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button type="primary" size="large" loading={submitting} disabled={submitting}
+                  onClick={handleImport}>
+                  {submitting ? '导入中…' : `确认导入 (${parsedData.filter((r) => r._valid !== false).length} 条) →`}
+                </Button>
+                <Button onClick={handleSkip} disabled={submitting}>跳过，稍后导入</Button>
+              </>
+            )}
           </Space>
         </>
       )}

@@ -73,6 +73,7 @@ function SetupWizardPage() {
   useEffect(() => {
     mountedRef.current = true;
     fetchProgress();
+    mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, [fetchProgress]);
 
