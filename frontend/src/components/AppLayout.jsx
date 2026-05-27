@@ -3,7 +3,7 @@
 {/* 修改注意：菜单项变更时同步更新 menuItems 数组和路由配置 */}
 import { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { Layout, Menu } from 'antd';
+import { Layout, Menu, Dropdown } from 'antd';
 import {
   DashboardOutlined,
   ExperimentOutlined,
@@ -17,7 +17,9 @@ import {
   UserOutlined,
   ToolOutlined,
   OrderedListOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons';
+import client from '../api/client';
 
 const { Sider, Header, Content } = Layout;
 
@@ -49,12 +51,26 @@ function AppLayout() {
     (item) => item.key && location.pathname.startsWith(item.key.split('/:')[0])
   )?.key || '/dashboard';
 
+  const [loggingOut, setLoggingOut] = useState(false);
+
   // 功能：点击菜单项跳转到对应页面，参数化路径（含:id）跳转到列表页
   const handleMenuClick = ({ key }) => {
     if (key.includes('/:id')) {
       navigate(key.replace(/\/:id.*$/, '/list'));
     } else {
       navigate(key);
+    }
+  };
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await client.post('/auth/logout');
+      navigate('/login');
+    } catch {
+      navigate('/login');
+    } finally {
+      setLoggingOut(false);
     }
   };
 
@@ -108,10 +124,26 @@ function AppLayout() {
           borderBottom: '1px solid #F0F0F0',
           height: 56,
         }}>
-          <span style={{ color: '#8C8C8C', fontSize: 14 }}>
-            <UserOutlined style={{ marginRight: 6 }} />
-            管理员
-          </span>
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', danger: true },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'logout') handleLogout();
+              },
+            }}
+            trigger={['click']}
+          >
+            <span
+              style={{ color: '#1890FF', fontSize: 14, cursor: 'pointer', userSelect: 'none' }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = '#40A9FF'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = '#1890FF'; }}
+            >
+              <UserOutlined style={{ marginRight: 6 }} />
+              管理员{loggingOut ? '…' : ''}
+            </span>
+          </Dropdown>
         </Header>
 
         {/* 功能：内容区——页面背景#F5F5F5，内边距24px */}
