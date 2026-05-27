@@ -6,7 +6,6 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { Layout, Menu, Dropdown } from 'antd';
 import {
   DashboardOutlined,
-  ExperimentOutlined,
   TeamOutlined,
   AimOutlined,
   FolderOutlined,
@@ -26,7 +25,6 @@ const { Sider, Header, Content } = Layout;
 const menuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', group: 'top' },
   { type: 'divider', label: '配置中心', group: 'config' },
-  { key: '/setup-wizard', icon: <ExperimentOutlined />, label: '配置向导' },
   { key: '/employee/list', icon: <TeamOutlined />, label: '员工管理' },
   { key: '/project-role', icon: <AimOutlined />, label: '项目角色' },
   { key: '/project/list', icon: <FolderOutlined />, label: '项目管理' },

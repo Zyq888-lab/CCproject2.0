@@ -5,7 +5,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import LoginPage from './pages/Login/LoginPage';
 import DashboardPage from './pages/Dashboard/DashboardPage';
-import SetupWizardPage from './pages/SetupWizard/SetupWizardPage';
 import EmployeeListPage from './pages/Employee/EmployeeListPage';
 import UserRolePage from './pages/UserRole/UserRolePage';
 import ProjectRolePage from './pages/ProjectRole/ProjectRolePage';
@@ -28,7 +27,6 @@ function App() {
         {/* 功能：所有需登录页面——由AppLayout包裹，通过<Outlet />渲染子路由 */}
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/setup-wizard" element={<SetupWizardPage />} />
           <Route path="/employee/list" element={<EmployeeListPage />} />
           <Route path="/project-role" element={<ProjectRolePage />} />
           <Route path="/project/list" element={<ProjectListPage />} />

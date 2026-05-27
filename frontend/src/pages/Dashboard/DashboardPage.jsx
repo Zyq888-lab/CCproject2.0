@@ -1,6 +1,6 @@
-{/* 模块用途：DashboardPage——仪表盘页，首次访问显示欢迎引导，已有数据显示配置进度卡片 */}
-{/* 依赖组件：EmptyState, PageHeader, Ant Design Card/Progress/Badge/Spin, react-router-dom, client.js */}
-{/* 修改注意：阶段2添加差异报告红点Badge；config-progress API返回5项数据 */}
+{/* 模块用途：DashboardPage——仪表盘页，卡片引导方式展示8个配置模块及完成进度 */}
+{/* 依赖组件：PageHeader, Ant Design Card/Progress/Spin, react-router-dom, client.js */}
+{/* 修改注意：卡片顺序按推荐配置流程排列；config-progress API返回5项数据，缺失项默认"待配置" */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Progress, Spin, Result, Button, Tag } from 'antd';
@@ -9,34 +9,38 @@ import {
   TeamOutlined,
   AimOutlined,
   FolderOutlined,
+  LinkOutlined,
   SettingOutlined,
   LineChartOutlined,
-  RocketOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
-import EmptyState from '../../components/EmptyState';
 import client from '../../api/client';
 
-// 功能：各配置模块对应的图标映射
-const ICON_MAP = {
-  employee: <TeamOutlined style={{ fontSize: 28 }} />,
-  projectRole: <AimOutlined style={{ fontSize: 28 }} />,
-  project: <FolderOutlined style={{ fontSize: 28 }} />,
-  positionConfig: <SettingOutlined style={{ fontSize: 28 }} />,
-  kpi: <LineChartOutlined style={{ fontSize: 28 }} />,
-};
+// 功能：8张配置卡片定义——按推荐配置流程排列
+const CARD_CONFIG = [
+  { key: 'employee',       label: '员工管理',     Icon: TeamOutlined,      color: '#1890FF', link: '/employee/list' },
+  { key: 'projectRole',    label: '项目角色',     Icon: AimOutlined,       color: '#52C41A', link: '/project-role' },
+  { key: 'project',        label: '项目管理',     Icon: FolderOutlined,    color: '#FAAD14', link: '/project/list' },
+  { key: 'roleAssignment', label: '角色分配',     Icon: LinkOutlined,      color: '#13C2C2', link: '/project/list' },
+  { key: 'projectKpi',     label: '项目KPI配置',  Icon: LineChartOutlined, color: '#EB2F96', link: '/kpi-config/project' },
+  { key: 'funcKpi',        label: '职能KPI配置',  Icon: LineChartOutlined, color: '#722ED1', link: '/kpi-config/functional' },
+  { key: 'positionConfig', label: '岗位配置',     Icon: SettingOutlined,   color: '#FA8C16', link: '/position-config' },
+  { key: 'periodConfig',   label: '考核周期',     Icon: CalendarOutlined,  color: '#2F54EB', link: '/period-config' },
+];
 
-// 功能：各配置模块对应的颜色
-const COLOR_MAP = {
-  employee: '#1890FF',
-  projectRole: '#52C41A',
-  project: '#FAAD14',
-  positionConfig: '#722ED1',
-  kpi: '#EB2F96',
-};
+// 功能：卡片网格样式——4列×2行
+const GRID_STYLE = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 };
 
-// 功能：卡片网格样式——2行×3列
-const GRID_STYLE = { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 };
+// 功能：从后端返回的5项数据中查找对应卡片的count，projectKpi使用kpi聚合值
+function resolveCount(backendItems, cardKey) {
+  if (cardKey === 'projectKpi') {
+    const kpiItem = backendItems.find((i) => i.key === 'kpi');
+    return kpiItem ? kpiItem.count : 0;
+  }
+  const item = backendItems.find((i) => i.key === cardKey);
+  return item ? item.count : 0;
+}
 
 function DashboardPage() {
   const [items, setItems] = useState([]);
@@ -104,55 +108,10 @@ function DashboardPage() {
     );
   }
 
-  const allEmpty = items.every((item) => item.count === 0);
-  const configuredCount = items.filter((item) => item.count > 0).length;
-  const progressPercent = items.length > 0
-    ? Math.round((configuredCount / items.length) * 100)
-    : 0;
+  const configuredCount = CARD_CONFIG.filter((card) => resolveCount(items, card.key) > 0).length;
+  const progressPercent = Math.round((configuredCount / CARD_CONFIG.length) * 100);
 
-  // 功能：首次访问——所有模块count=0时显示欢迎引导布局
-  if (allEmpty) {
-    return (
-      <div id="dashboard-welcome-area">
-        <EmptyState
-          image={
-            <RocketOutlined style={{ fontSize: 72, color: '#1890FF' }} />
-          }
-          title="欢迎使用绩效考核系统"
-          description="完成7步配置，预计需要15-20分钟"
-          primaryAction={{
-            label: '开始配置',
-            onClick: () => navigate('/setup-wizard'),
-          }}
-        />
-        {/* 功能：配置进度预览卡片——2行×3列，显示6个待配置模块 */}
-        <div id="dashboard-preview-cards" style={{
-          ...GRID_STYLE,
-          maxWidth: 720,
-          margin: '0 auto',
-          marginTop: 32,
-        }}>
-          {items.map((item) => (
-            <Card
-              key={item.key}
-              size="small"
-              hoverable
-              onClick={() => navigate(item.link)}
-              style={{ borderRadius: 8, textAlign: 'center' }}
-            >
-              <div style={{ color: COLOR_MAP[item.key] || '#8C8C8C', marginBottom: 8 }}>
-                {ICON_MAP[item.key]}
-              </div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>{item.label}</div>
-              <Tag color="default" style={{ marginTop: 8 }}>{item.status}</Tag>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // 功能：配置进度布局——顶部进度条+6张配置卡片2行×3列
+  // 功能：仪表盘布局——顶部进度条+8张配置卡片4列×2行
   return (
     <div id="dashboard-configured-area">
       <PageHeader
@@ -174,48 +133,50 @@ function DashboardPage() {
         </div>
       </Card>
 
-      {/* 功能：配置进度卡片——2行×3列CSS Grid，已配置项绿色左边框+绿色对勾 */}
+      {/* 功能：8张配置引导卡片——4列×2列CSS Grid，已配置项绿色左边框+绿色对勾 */}
       <div id="dashboard-config-cards" style={GRID_STYLE}>
-        {items.map((item) => {
-          const isConfigured = item.count > 0;
+        {CARD_CONFIG.map((card) => {
+          const count = resolveCount(items, card.key);
+          const isConfigured = count > 0;
+          const { Icon } = card;
           return (
             <Card
-              key={item.key}
+              key={card.key}
               hoverable
-              onClick={() => navigate(item.link)}
+              onClick={() => navigate(card.link)}
               style={{
                 borderRadius: 8,
                 borderLeft: isConfigured ? '3px solid #52C41A' : '3px solid #E8E8E8',
               }}
             >
-              <div id={`card-${item.key}`} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div id={`card-${card.key}`} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 {/* 功能：模块图标——已配置时显示对应颜色 */}
                 <div style={{
                   width: 48,
                   height: 48,
                   borderRadius: 8,
-                  background: isConfigured ? `${COLOR_MAP[item.key]}15` : '#FAFAFA',
+                  background: isConfigured ? `${card.color}15` : '#FAFAFA',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: isConfigured ? COLOR_MAP[item.key] : '#D9D9D9',
+                  color: isConfigured ? card.color : '#D9D9D9',
                 }}>
-                  {ICON_MAP[item.key]}
+                  <Icon style={{ fontSize: 28 }} />
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
-                    {item.label}
+                    {card.label}
                     {isConfigured && (
                       <CheckCircleFilled style={{ color: '#52C41A', marginLeft: 6, fontSize: 12 }} />
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: '#8C8C8C' }}>
-                    {item.count} 条记录
+                    {isConfigured ? `${count} 条记录` : '暂无数据'}
                   </div>
                 </div>
                 {/* 功能：配置状态标签——已配置绿色/待配置灰色 */}
                 <Tag color={isConfigured ? 'success' : 'default'}>
-                  {item.status}
+                  {isConfigured ? '已配置' : '待配置'}
                 </Tag>
               </div>
             </Card>
