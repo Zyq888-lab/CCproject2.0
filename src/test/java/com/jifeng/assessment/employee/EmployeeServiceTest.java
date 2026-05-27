@@ -133,6 +133,35 @@ class EmployeeServiceTest {
         assertEquals("孙七", dto.getName());
     }
 
+    // 功能：软删除后允许重新使用同一工号 — 旧记录被物理删除，新记录正常插入
+    @Test
+    void shouldAllowRecreateAfterSoftDelete() {
+        Employee emp1 = new Employee();
+        emp1.setEmployeeId("EMP_RECREATE");
+        emp1.setName("原始员工");
+        emp1.setEmail("original@jifeng.com");
+        emp1.setCategory("研发技术类");
+        emp1.setPosition("整椅研发岗");
+        emp1.setOrgName("研发部");
+        emp1.setStatus("ACTIVE");
+        employeeService.createEmployee(emp1);
+        employeeService.deleteEmployee("EMP_RECREATE");
+
+        Employee emp2 = new Employee();
+        emp2.setEmployeeId("EMP_RECREATE");
+        emp2.setName("重建员工");
+        emp2.setEmail("recreated@jifeng.com");
+        emp2.setCategory("管理类");
+        emp2.setPosition("项目经理");
+        emp2.setOrgName("项目部");
+        emp2.setStatus("ACTIVE");
+
+        EmployeeDTO dto = employeeService.createEmployee(emp2);
+        assertNotNull(dto);
+        assertEquals("EMP_RECREATE", dto.getEmployeeId());
+        assertEquals("重建员工", dto.getName());
+    }
+
     // 功能：分页查询员工列表，验证分页参数和总数
     @Test
     void shouldListEmployeesWithPagination() {

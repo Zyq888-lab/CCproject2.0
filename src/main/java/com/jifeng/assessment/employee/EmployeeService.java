@@ -61,15 +61,24 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
     }
 
     // 功能：新增员工——校验工号不重复、必填字段完整、直属上级工号存在，通过后写入数据库
+    // 若工号对应的旧记录已被软删除，则先物理删除再插入，允许重新使用该工号
     @Transactional
     public EmployeeDTO createEmployee(Employee employee) {
         validateOnCreate(employee);
+        removeSoftDeletedRecord(employee.getEmployeeId());
         try {
             baseMapper.insert(employee);
         } catch (DuplicateKeyException e) {
             throw new BusinessException(409, "工号" + employee.getEmployeeId() + "已存在");
         }
         return toDTO(employee);
+    }
+
+    private void removeSoftDeletedRecord(String employeeId) {
+        Employee existing = baseMapper.selectByIdIgnoreDeleted(employeeId);
+        if (existing != null && existing.getDeleted() != null && existing.getDeleted() == 1) {
+            baseMapper.physicalDeleteById(employeeId);
+        }
     }
 
     // 功能：更新员工信息——使用乐观锁防止并发覆盖，校验直属上级存在且状态为ACTIVE
@@ -136,6 +145,13 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
                 .map(Employee::getEmployeeId)
                 .filter(StringUtils::hasText)
                 .collect(Collectors.toSet());
+        // 物理删除同ID的软删除记录，允许重新使用已删除工号
+        for (String id : inputIds) {
+            Employee emp = baseMapper.selectByIdIgnoreDeleted(id);
+            if (emp != null && emp.getDeleted() != null && emp.getDeleted() == 1) {
+                baseMapper.physicalDeleteById(id);
+            }
+        }
         Set<String> existingIds = inputIds.isEmpty() ? Collections.emptySet()
                 : baseMapper.selectBatchIds(inputIds).stream()
                         .map(Employee::getEmployeeId)
