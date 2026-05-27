@@ -86,6 +86,19 @@ function FuncKpiPage() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      // 权重总和校验：同岗位下所有权重之和不得超过100%
+      const scopeCategory = editingRecord ? editingRecord.category : values.category;
+      const scopePosition = editingRecord ? editingRecord.position : values.position;
+      const newWeight = values.weight;
+      const otherSum = data
+        .filter((d) => d.category === scopeCategory
+          && d.position === scopePosition
+          && d.id !== (editingRecord?.id || ''))
+        .reduce((s, d) => s + Math.round((d.weight || 0) * 100), 0);
+      if (otherSum + newWeight > 100) {
+        message.error(`权重总和超过100%（其他指标合计: ${otherSum}% + 当前: ${newWeight}% = ${otherSum + newWeight}%）`);
+        return;
+      }
       setSubmitting(true);
       const payload = {
         kpiName: values.kpiName,
