@@ -12,13 +12,7 @@ import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
 import client from '../../api/client';
-
-const CATEGORY_OPTIONS = [
-  { label: '研发技术类', value: '研发技术类' },
-  { label: '生产制造类', value: '生产制造类' },
-  { label: '质量管理类', value: '质量管理类' },
-  { label: '项目管理类', value: '项目管理类' },
-];
+import useCategories from '../../hooks/useCategories';
 
 const FUNC_MODE_OPTIONS = [
   { label: '直接上级评分', value: 'DIRECT_LEADER' },
@@ -47,6 +41,7 @@ function PositionConfigPage() {
   const [assessorForm] = Form.useForm();
 
   const mountedRef = useRef(true);
+  const categoryOptions = useCategories();
 
   // 功能：分页获取岗位配置——支持 category 精确匹配 + position 模糊搜索
   const fetchConfigs = useCallback(async (page, size, filterParams) => {
@@ -147,7 +142,7 @@ function PositionConfigPage() {
       setModalVisible(false);
       fetchConfigs(pagination.current, pagination.pageSize, filters);
     } catch (err) {
-      if (err?.code === 409) {
+      if (err?.code === 409 && err?.message?.includes('已被他人修改')) {
         showConflictWarning('其他用户', '几');
       } else if (err?.message) {
         message.error({ content: err.message });
@@ -295,7 +290,7 @@ function PositionConfigPage() {
             onChange={(v) => setFilters((f) => ({ ...f, category: v || '' }))}
             allowClear
             style={{ width: 140 }}
-            options={CATEGORY_OPTIONS}
+            options={categoryOptions}
           />
           <Input
             placeholder="岗位名称"

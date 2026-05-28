@@ -24,6 +24,13 @@ public class PositionConfigController extends BaseController {
     private final PositionConfigService positionConfigService;
     private static final BigDecimal HUNDRED = new BigDecimal("100");
 
+    // 功能：获取所有不重复的岗位分类列表——供前端下拉框动态获取
+    @GetMapping("/api/v1/position-configs/categories")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    public ApiResponse<List<String>> getCategories() {
+        return ok(positionConfigService.getDistinctCategories());
+    }
+
     // 功能：分页查询岗位配置，支持按岗位分类和岗位名称筛选
     @GetMapping("/api/v1/position-configs")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM')")

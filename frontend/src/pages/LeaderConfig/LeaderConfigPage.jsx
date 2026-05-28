@@ -12,6 +12,7 @@ import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { showConflictWarning } from '../../components/ConfirmModal';
 import client from '../../api/client';
+import useCategories from '../../hooks/useCategories';
 
 const STATUS_OPTIONS = [
   { label: '在职', value: '在职' },
@@ -35,6 +36,7 @@ function LeaderConfigPage() {
   const [batchSubmitting, setBatchSubmitting] = useState(false);
   const [batchForm] = Form.useForm();
   const mountedRef = useRef(true);
+  const categoryOptions = useCategories();
 
   // 功能：分页获取员工列表——支持关键字、岗位分类、状态筛选，用于主表格展示
   const fetchEmployees = useCallback(async (page, size, filterParams) => {
@@ -135,7 +137,7 @@ function LeaderConfigPage() {
           success++;
         } catch (err) {
           fail++;
-          if (err?.code === 409) {
+          if (err?.code === 409 && err?.message?.includes('已被他人修改')) {
             showConflictWarning('其他用户', '几');
           }
         }
@@ -220,12 +222,7 @@ function LeaderConfigPage() {
             onChange={(v) => setFilters((f) => ({ ...f, category: v || '' }))}
             allowClear
             style={{ width: 140 }}
-            options={[
-              { label: '研发技术类', value: '研发技术类' },
-              { label: '生产制造类', value: '生产制造类' },
-              { label: '质量管理类', value: '质量管理类' },
-              { label: '项目管理类', value: '项目管理类' },
-            ]}
+            options={categoryOptions}
           />
           <Select
             placeholder="状态"

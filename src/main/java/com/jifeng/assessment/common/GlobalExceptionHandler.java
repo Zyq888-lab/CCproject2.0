@@ -22,9 +22,9 @@ import java.util.Map;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
-    @ResponseStatus(HttpStatus.OK)
-    public ApiResponse<Void> handleBusinessException(BusinessException ex) {
+    public ApiResponse<Void> handleBusinessException(BusinessException ex, jakarta.servlet.http.HttpServletResponse response) {
         log.warn("业务异常: code={}, message={}", ex.getCode(), ex.getMessage());
+        response.setStatus(ex.getCode() >= 100 && ex.getCode() < 600 ? ex.getCode() : 500);
         return ApiResponse.error(ex.getCode(), ex.getMessage());
     }
 

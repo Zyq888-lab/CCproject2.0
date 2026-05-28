@@ -32,6 +32,15 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
     private static final BigDecimal ONE = BigDecimal.ONE;
     private static final Set<String> VALID_FUNC_ASSESS_MODES = Set.of("DIRECT_LEADER", "ORG_LEADER");
 
+    // 功能：获取所有不重复的岗位分类——从 position_assessment_config 表 DISTINCT 查询
+    public List<String> getDistinctCategories() {
+        return baseMapper.selectList(null).stream()
+                .map(PositionAssessmentConfig::getCategory)
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
     // 功能：分页查询岗位配置列表，支持按岗位分类和岗位名称筛选
     public PageResult<PositionAssessmentConfig> listConfigs(int pageNum, int pageSize, String category, String position) {
         LambdaQueryWrapper<PositionAssessmentConfig> wrapper = new LambdaQueryWrapper<>();

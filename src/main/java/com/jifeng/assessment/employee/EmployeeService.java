@@ -223,6 +223,15 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
         if (!StringUtils.hasText(employee.getName())) {
             throw new BusinessException(400, "姓名不能为空");
         }
+        if (!StringUtils.hasText(employee.getCategory())) {
+            throw new BusinessException(400, "岗位分类不能为空");
+        }
+        if (!StringUtils.hasText(employee.getPosition())) {
+            throw new BusinessException(400, "岗位名称不能为空");
+        }
+        if (!StringUtils.hasText(employee.getOrgName())) {
+            throw new BusinessException(400, "部门不能为空");
+        }
         // 工号唯一校验：查询同工号的未删除记录
         if (baseMapper.selectById(employee.getEmployeeId()) != null) {
             throw new BusinessException(409, "工号" + employee.getEmployeeId() + "已存在");

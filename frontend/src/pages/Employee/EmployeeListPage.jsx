@@ -13,6 +13,7 @@ import EmptyState from '../../components/EmptyState';
 import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
 import EmployeeImportModal from './EmployeeImportModal';
 import client from '../../api/client';
+import useCategories from '../../hooks/useCategories';
 
 const STATUS_OPTIONS = [
   { label: '在职', value: '在职' },
@@ -36,6 +37,7 @@ function EmployeeListPage() {
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
   const mountedRef = useRef(true);
+  const categoryOptions = useCategories();
 
   // 功能：分页获取员工列表——支持关键字、岗位分类、状态筛选
   const fetchEmployees = useCallback(async (page, size, filterParams) => {
@@ -141,7 +143,7 @@ function EmployeeListPage() {
       setModalVisible(false);
       fetchEmployees(pagination.current, pagination.pageSize, filters);
     } catch (err) {
-      if (err?.code === 409) {
+      if (err?.code === 409 && err?.message?.includes('已被他人修改')) {
         showConflictWarning('其他用户', '几');
       } else if (err?.message) {
         message.error({ content: err.message });
@@ -219,12 +221,7 @@ function EmployeeListPage() {
             onChange={(v) => setFilters((f) => ({ ...f, category: v || '' }))}
             allowClear
             style={{ width: 140 }}
-            options={[
-              { label: '研发技术类', value: '研发技术类' },
-              { label: '生产制造类', value: '生产制造类' },
-              { label: '质量管理类', value: '质量管理类' },
-              { label: '项目管理类', value: '项目管理类' },
-            ]}
+            options={categoryOptions}
           />
           <Select
             placeholder="状态"
@@ -298,21 +295,16 @@ function EmployeeListPage() {
           <Form.Item name="name" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}>
             <Input placeholder="员工姓名" maxLength={50} />
           </Form.Item>
-          <Form.Item name="email" label="邮箱" rules={[{ type: 'email', message: '请输入有效邮箱' }]}>
+          <Form.Item name="email" label="邮箱" rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入有效邮箱' }]}>
             <Input placeholder="如 zhangsan@jifeng.com" maxLength={100} />
           </Form.Item>
-          <Form.Item name="category" label="岗位分类">
-            <Select placeholder="选择岗位分类" allowClear options={[
-              { label: '研发技术类', value: '研发技术类' },
-              { label: '生产制造类', value: '生产制造类' },
-              { label: '质量管理类', value: '质量管理类' },
-              { label: '项目管理类', value: '项目管理类' },
-            ]} />
+          <Form.Item name="category" label="岗位分类" rules={[{ required: true, message: '请选择岗位分类' }]}>
+            <Select placeholder="选择岗位分类" allowClear options={categoryOptions} />
           </Form.Item>
-          <Form.Item name="position" label="岗位">
+          <Form.Item name="position" label="岗位" rules={[{ required: true, message: '请输入岗位名称' }]}>
             <Input placeholder="如 整椅研发工程师" maxLength={50} />
           </Form.Item>
-          <Form.Item name="orgName" label="部门">
+          <Form.Item name="orgName" label="部门" rules={[{ required: true, message: '请输入部门' }]}>
             <Input placeholder="如 研发中心" maxLength={100} />
           </Form.Item>
           <Form.Item name="directLeaderId" label="直属上级工号">
