@@ -13,6 +13,5 @@ COMMENT ON COLUMN position_category.sort_order IS '排序，数字越小越靠�
 COMMENT ON COLUMN position_category.deleted IS '逻辑删除 0=未删除 1=已删除';
 
 INSERT INTO position_category (name, sort_order)
-SELECT DISTINCT category, ROW_NUMBER() OVER (ORDER BY category) * 10
-FROM position_assessment_config
-WHERE category IS NOT NULL AND category != '';
+SELECT category, ROW_NUMBER() OVER (ORDER BY category) * 10
+FROM (SELECT DISTINCT category FROM position_assessment_config WHERE category IS NOT NULL AND category != '') t;
