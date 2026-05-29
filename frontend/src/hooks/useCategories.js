@@ -17,10 +17,10 @@ export default function useCategories() {
     }
 
     if (!fetchPromise) {
-      fetchPromise = client.get('/position-configs/categories')
+      fetchPromise = client.get('/position-categories/list')
         .then((res) => {
           const list = (Array.isArray(res.data) ? res.data : [])
-            .map((c) => ({ label: c, value: c }));
+            .map((c) => ({ label: c.name, value: c.name }));
           cachedOptions = list;
           return list;
         })

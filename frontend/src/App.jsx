@@ -16,6 +16,7 @@ import FuncKpiPage from './pages/KpiConfig/FuncKpiPage';
 import LeaderConfigPage from './pages/LeaderConfig/LeaderConfigPage';
 import SystemParamPage from './pages/SystemParam/SystemParamPage';
 import PeriodConfigPage from './pages/PeriodConfig/PeriodConfigPage';
+import PositionCategoryPage from './pages/PositionCategory/PositionCategoryPage';
 
 function App() {
   return (
@@ -39,6 +40,7 @@ function App() {
           <Route path="/user-role" element={<UserRolePage />} />
           <Route path="/system-param" element={<SystemParamPage />} />
           <Route path="/leader-config" element={<LeaderConfigPage />} />
+          <Route path="/position-category" element={<PositionCategoryPage />} />
         </Route>
 
         {/* 功能：根路径重定向到仪表盘 */}

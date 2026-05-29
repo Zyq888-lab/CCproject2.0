@@ -357,7 +357,7 @@ function PositionConfigPage() {
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="category" label="岗位分类" rules={[{ required: true, message: '请选择岗位分类' }]}>
-            <Select placeholder="选择岗位分类" options={CATEGORY_OPTIONS} />
+            <Select placeholder="选择岗位分类" options={categoryOptions} />
           </Form.Item>
           <Form.Item name="position" label="岗位名称" rules={[{ required: true, message: '请输入岗位名称' }]}>
             <Input placeholder="如 整椅研发岗" maxLength={50} />

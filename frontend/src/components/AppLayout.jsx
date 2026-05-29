@@ -16,6 +16,7 @@ import {
   UserOutlined,
   ToolOutlined,
   OrderedListOutlined,
+  TagsOutlined,
   LogoutOutlined,
 } from '@ant-design/icons';
 import client from '../api/client';
@@ -37,6 +38,7 @@ const menuItems = [
   { key: '/user-role', icon: <UserOutlined />, label: '用户管理' },
   { key: '/system-param', icon: <ToolOutlined />, label: '系统参数' },
   { key: '/leader-config', icon: <OrderedListOutlined />, label: '直属上级' },
+  { key: '/position-category', icon: <TagsOutlined />, label: '岗位分类管理' },
 ];
 
 function AppLayout() {
