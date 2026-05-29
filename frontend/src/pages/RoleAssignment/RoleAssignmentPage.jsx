@@ -14,8 +14,9 @@ import EmptyState from '../../components/EmptyState';
 import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
 import client from '../../api/client';
 
-function RoleAssignmentPage() {
-  const { id: projectCode } = useParams();
+function RoleAssignmentPage({ projectCode: propProjectCode }) {
+  const { id: routeProjectCode } = useParams();
+  const projectCode = propProjectCode || routeProjectCode;
 
   const [assignments, setAssignments] = useState([]);
   const [roles, setRoles] = useState([]);

@@ -36,7 +36,7 @@ function LeaderConfigPage() {
   const [batchSubmitting, setBatchSubmitting] = useState(false);
   const [batchForm] = Form.useForm();
   const mountedRef = useRef(true);
-  const categoryOptions = useCategories();
+  const [categoryOptions] = useCategories();
 
   // 功能：分页获取员工列表——支持关键字、岗位分类、状态筛选，用于主表格展示
   const fetchEmployees = useCallback(async (page, size, filterParams) => {

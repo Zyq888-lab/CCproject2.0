@@ -25,6 +25,7 @@ function ProjectKpiPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState({ roleCode: '', stage: '', isActive: '' });
+  const [roleOptions, setRoleOptions] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -53,6 +54,11 @@ function ProjectKpiPage() {
   useEffect(() => {
     mountedRef.current = true;
     fetchData(filters);
+    client.get('/project-roles', { params: { isActive: true } }).then((res) => {
+      if (mountedRef.current && Array.isArray(res.data)) {
+        setRoleOptions(res.data.map((r) => ({ label: r.roleCode, value: r.roleCode })));
+      }
+    }).catch(() => {});
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -194,13 +200,13 @@ function ProjectKpiPage() {
 
       <Card id="project-kpi-search-bar" style={{ marginBottom: 16, borderRadius: 8 }}>
         <Space wrap size="middle">
-          <Input
+          <Select
             placeholder="项目角色"
-            value={filters.roleCode}
-            onChange={(e) => setFilters((f) => ({ ...f, roleCode: e.target.value }))}
-            onPressEnter={handleSearch}
-            style={{ width: 120 }}
+            value={filters.roleCode || undefined}
+            onChange={(v) => setFilters((f) => ({ ...f, roleCode: v || '' }))}
             allowClear
+            style={{ width: 140 }}
+            options={roleOptions}
           />
           <Select
             placeholder="阶段"
@@ -268,8 +274,8 @@ function ProjectKpiPage() {
         width={520}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="projectRoleCode" label="项目角色" rules={[{ required: true, message: '请输入项目角色' }]}>
-            <Input placeholder="如 PDL" maxLength={50} disabled={!!editingRecord} />
+          <Form.Item name="projectRoleCode" label="项目角色" rules={[{ required: true, message: '请选择项目角色' }]}>
+            <Select placeholder="选择项目角色" options={roleOptions} disabled={!!editingRecord} />
           </Form.Item>
           <Form.Item name="projectStage" label="项目阶段" rules={[{ required: true, message: '请选择阶段' }]}>
             <Select placeholder="选择阶段" options={STAGE_OPTIONS} disabled={!!editingRecord} />

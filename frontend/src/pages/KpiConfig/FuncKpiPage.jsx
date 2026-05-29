@@ -26,7 +26,7 @@ function FuncKpiPage() {
   const [form] = Form.useForm();
 
   const mountedRef = useRef(true);
-  const categoryOptions = useCategories();
+  const [categoryOptions] = useCategories();
 
   const fetchData = useCallback(async (filterParams) => {
     setLoading(true);

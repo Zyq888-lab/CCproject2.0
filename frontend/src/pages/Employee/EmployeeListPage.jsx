@@ -3,7 +3,7 @@
 {/* 修改注意：编辑时携带version用于乐观锁，409冲突调用showConflictWarning */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Input, Select, Space, Tag, Modal, Form, message, Card,
+  Table, Button, Input, Select, Space, Tag, Modal, Form, message, Card, Tabs,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, ReloadOutlined, TeamOutlined, DownloadOutlined,
@@ -12,6 +12,7 @@ import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
 import EmployeeImportModal from './EmployeeImportModal';
+import LeaderConfigPage from '../LeaderConfig/LeaderConfigPage';
 import client from '../../api/client';
 import useCategories from '../../hooks/useCategories';
 
@@ -37,7 +38,7 @@ function EmployeeListPage() {
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
   const mountedRef = useRef(true);
-  const categoryOptions = useCategories();
+  const [categoryOptions] = useCategories();
 
   // 功能：分页获取员工列表——支持关键字、岗位分类、状态筛选
   const fetchEmployees = useCallback(async (page, size, filterParams) => {
@@ -203,124 +204,144 @@ function EmployeeListPage() {
         ]}
       />
 
-      {/* 功能：搜索筛选栏——关键字搜索+岗位分类下拉+状态下拉+搜索/重置按钮 */}
-      <Card id="employee-search-bar" style={{ marginBottom: 16, borderRadius: 8 }}>
-        <Space wrap size="middle">
-          <Input
-            placeholder="搜索姓名或工号"
-            prefix={<SearchOutlined />}
-            value={filters.keyword}
-            onChange={(e) => setFilters((f) => ({ ...f, keyword: e.target.value }))}
-            onPressEnter={handleSearch}
-            style={{ width: 220 }}
-            allowClear
-          />
-          <Select
-            placeholder="岗位分类"
-            value={filters.category || undefined}
-            onChange={(v) => setFilters((f) => ({ ...f, category: v || '' }))}
-            allowClear
-            style={{ width: 140 }}
-            options={categoryOptions}
-          />
-          <Select
-            placeholder="状态"
-            value={filters.status || undefined}
-            onChange={(v) => setFilters((f) => ({ ...f, status: v || '' }))}
-            allowClear
-            style={{ width: 100 }}
-            options={STATUS_OPTIONS}
-          />
-          <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>搜索</Button>
-          <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
-        </Space>
-      </Card>
+      <Tabs
+        defaultActiveKey="employee-list"
+        destroyOnHidden={false}
+        style={{ marginTop: -8 }}
+        items={[
+          {
+            key: 'employee-list',
+            label: '员工列表',
+            children: (
+              <>
+                {/* 功能：搜索筛选栏——关键字搜索+岗位分类下拉+状态下拉+搜索/重置按钮 */}
+                <Card id="employee-search-bar" style={{ marginBottom: 16, borderRadius: 8 }}>
+                  <Space wrap size="middle">
+                    <Input
+                      placeholder="搜索姓名或工号"
+                      prefix={<SearchOutlined />}
+                      value={filters.keyword}
+                      onChange={(e) => setFilters((f) => ({ ...f, keyword: e.target.value }))}
+                      onPressEnter={handleSearch}
+                      style={{ width: 220 }}
+                      allowClear
+                    />
+                    <Select
+                      placeholder="岗位分类"
+                      value={filters.category || undefined}
+                      onChange={(v) => setFilters((f) => ({ ...f, category: v || '' }))}
+                      allowClear
+                      style={{ width: 140 }}
+                      options={categoryOptions}
+                    />
+                    <Select
+                      placeholder="状态"
+                      value={filters.status || undefined}
+                      onChange={(v) => setFilters((f) => ({ ...f, status: v || '' }))}
+                      allowClear
+                      style={{ width: 100 }}
+                      options={STATUS_OPTIONS}
+                    />
+                    <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>搜索</Button>
+                    <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
+                  </Space>
+                </Card>
 
-      {/* 功能：空状态——无数据且无筛选条件时显示引导 */}
-      {isEmpty && (
-        <EmptyState
-          image={<TeamOutlined style={{ fontSize: 72, color: '#1890FF' }} />}
-          title="还没有任何员工数据"
-          description="导入继峰现有员工Excel或手动新增"
-          primaryAction={{ label: '批量导入Excel', onClick: () => setImportModalVisible(true) }}
-          secondaryAction={{ label: '手动新增', onClick: handleAdd }}
-        />
-      )}
+                {/* 功能：空状态——无数据且无筛选条件时显示引导 */}
+                {isEmpty && (
+                  <EmptyState
+                    image={<TeamOutlined style={{ fontSize: 72, color: '#1890FF' }} />}
+                    title="还没有任何员工数据"
+                    description="导入继峰现有员工Excel或手动新增"
+                    primaryAction={{ label: '批量导入Excel', onClick: () => setImportModalVisible(true) }}
+                    secondaryAction={{ label: '手动新增', onClick: handleAdd }}
+                  />
+                )}
 
-      {/* 功能：数据表格——斑马纹+分页器 */}
-      {!isEmpty && (
-        <Card id="employee-table-card" style={{ borderRadius: 8 }}>
-          {error && (
-            <div style={{ marginBottom: 16, color: '#FF4D4F', textAlign: 'center' }}>
-              {error}
-              <Button type="link" onClick={() => fetchEmployees(pagination.current, pagination.pageSize, filters)}>重试</Button>
-            </div>
-          )}
-          <Table
-            columns={columns}
-            dataSource={data}
-            rowKey="employeeId"
-            loading={loading}
-            size="middle"
-            rowClassName={(_, index) => index % 2 === 1 ? 'table-row-striped' : ''}
-            onChange={handleTableChange}
-            pagination={{
-              current: pagination.current,
-              pageSize: pagination.pageSize,
-              total: pagination.total,
-              showSizeChanger: true,
-              pageSizeOptions: [10, 20, 50],
-              showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
-            }}
-            scroll={{ x: 1000 }}
-          />
-        </Card>
-      )}
+                {/* 功能：数据表格——斑马纹+分页器 */}
+                {!isEmpty && (
+                  <Card id="employee-table-card" style={{ borderRadius: 8 }}>
+                    {error && (
+                      <div style={{ marginBottom: 16, color: '#FF4D4F', textAlign: 'center' }}>
+                        {error}
+                        <Button type="link" onClick={() => fetchEmployees(pagination.current, pagination.pageSize, filters)}>重试</Button>
+                      </div>
+                    )}
+                    <Table
+                      columns={columns}
+                      dataSource={data}
+                      rowKey="employeeId"
+                      loading={loading}
+                      size="middle"
+                      rowClassName={(_, index) => index % 2 === 1 ? 'table-row-striped' : ''}
+                      onChange={handleTableChange}
+                      pagination={{
+                        current: pagination.current,
+                        pageSize: pagination.pageSize,
+                        total: pagination.total,
+                        showSizeChanger: true,
+                        pageSizeOptions: [10, 20, 50],
+                        showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+                      }}
+                      scroll={{ x: 1000 }}
+                    />
+                  </Card>
+                )}
 
-      {/* 功能：新增/编辑弹窗——编辑时禁用工号字段 */}
-      <Modal
-        title={editingEmployee ? '编辑员工' : '新增员工'}
-        open={modalVisible}
-        onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
-        confirmLoading={submitting}
-        okText="保存"
-        cancelText="取消"
-        width={560}
-      >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="employeeId" label="工号" rules={[{ required: true, message: '请输入工号' }]}>
-            <Input disabled={!!editingEmployee} placeholder="如 EMP001" maxLength={20} />
-          </Form.Item>
-          <Form.Item name="name" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}>
-            <Input placeholder="员工姓名" maxLength={50} />
-          </Form.Item>
-          <Form.Item name="email" label="邮箱" rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入有效邮箱' }]}>
-            <Input placeholder="如 zhangsan@jifeng.com" maxLength={100} />
-          </Form.Item>
-          <Form.Item name="category" label="岗位分类" rules={[{ required: true, message: '请选择岗位分类' }]}>
-            <Select placeholder="选择岗位分类" allowClear options={categoryOptions} />
-          </Form.Item>
-          <Form.Item name="position" label="岗位" rules={[{ required: true, message: '请输入岗位名称' }]}>
-            <Input placeholder="如 整椅研发工程师" maxLength={50} />
-          </Form.Item>
-          <Form.Item name="orgName" label="部门" rules={[{ required: true, message: '请输入部门' }]}>
-            <Input placeholder="如 研发中心" maxLength={100} />
-          </Form.Item>
-          <Form.Item name="directLeaderId" label="直属上级工号">
-            <Input placeholder="上级工号，如 EMP002" maxLength={20} />
-          </Form.Item>
-          <Form.Item name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]}>
-            <Select placeholder="选择状态" options={STATUS_OPTIONS} />
-          </Form.Item>
-        </Form>
-      </Modal>
+                {/* 功能：新增/编辑弹窗——编辑时禁用工号字段 */}
+                <Modal
+                  title={editingEmployee ? '编辑员工' : '新增员工'}
+                  open={modalVisible}
+                  onOk={handleSubmit}
+                  onCancel={() => setModalVisible(false)}
+                  confirmLoading={submitting}
+                  okText="保存"
+                  cancelText="取消"
+                  width={560}
+                >
+                  <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+                    <Form.Item name="employeeId" label="工号" rules={[{ required: true, message: '请输入工号' }]}>
+                      <Input disabled={!!editingEmployee} placeholder="如 EMP001" maxLength={20} />
+                    </Form.Item>
+                    <Form.Item name="name" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}>
+                      <Input placeholder="员工姓名" maxLength={50} />
+                    </Form.Item>
+                    <Form.Item name="email" label="邮箱" rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入有效邮箱' }]}>
+                      <Input placeholder="如 zhangsan@jifeng.com" maxLength={100} />
+                    </Form.Item>
+                    <Form.Item name="category" label="岗位分类" rules={[{ required: true, message: '请选择岗位分类' }]}>
+                      <Select placeholder="选择岗位分类" allowClear options={categoryOptions} />
+                    </Form.Item>
+                    <Form.Item name="position" label="岗位" rules={[{ required: true, message: '请输入岗位名称' }]}>
+                      <Input placeholder="如 整椅研发工程师" maxLength={50} />
+                    </Form.Item>
+                    <Form.Item name="orgName" label="部门" rules={[{ required: true, message: '请输入部门' }]}>
+                      <Input placeholder="如 研发中心" maxLength={100} />
+                    </Form.Item>
+                    <Form.Item name="directLeaderId" label="直属上级工号">
+                      <Input placeholder="上级工号，如 EMP002" maxLength={20} />
+                    </Form.Item>
+                    <Form.Item name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]}>
+                      <Select placeholder="选择状态" options={STATUS_OPTIONS} />
+                    </Form.Item>
+                  </Form>
+                </Modal>
 
-      {/* 功能：批量导入弹窗——Excel上传+预览+校验+确认导入 */}
-      <EmployeeImportModal
-        open={importModalVisible}
-        onClose={() => setImportModalVisible(false)}
-        onSuccess={() => fetchEmployees(pagination.current, pagination.pageSize, filters)}
+                {/* 功能：批量导入弹窗——Excel上传+预览+校验+确认导入 */}
+                <EmployeeImportModal
+                  open={importModalVisible}
+                  onClose={() => setImportModalVisible(false)}
+                  onSuccess={() => fetchEmployees(pagination.current, pagination.pageSize, filters)}
+                />
+              </>
+            ),
+          },
+          {
+            key: 'leader-config',
+            label: '直属上级配置',
+            children: <LeaderConfigPage />,
+          },
+        ]}
       />
     </div>
   );

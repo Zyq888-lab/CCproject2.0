@@ -49,11 +49,7 @@ function SystemParamPage() {
   const handleValueChange = (id, value) => {
     setEditingMap((prev) => {
       const next = { ...prev };
-      if (value === '' || value === null) {
-        delete next[id];
-      } else {
-        next[id] = value;
-      }
+      next[id] = value ?? '';
       return next;
     });
   };
