@@ -1,11 +1,13 @@
-// 模块用途：项目角色分配业务逻辑——分配人员、标记PD负责人、移除分配
+// 模块用途：项目角色分配业务逻辑——分配人员、标记PD负责人、移除分配、汇总查询
 // 依赖文件：ProjectRoleAssignmentMapper.java, ProjectMapper.java, EmployeeMapper.java, ProjectRoleMapper.java
 // 修改注意：标记PD负责人时需先取消同项目内已有PD负责人，保证唯一性
 package com.jifeng.assessment.roleassignment;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jifeng.assessment.common.BaseService;
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.common.PageResult;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.project.Project;
@@ -52,6 +54,17 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         return assignments.stream()
                 .map(a -> toDTO(a, employeeNameMap.get(a.getEmployeeId())))
                 .toList();
+    }
+
+    // 功能：跨项目角色分配汇总查询——四表JOIN，支持多条件筛选和分页
+    public PageResult<ProjectRoleAssignmentSummaryDTO> listSummary(
+            int page, int size,
+            String projectCode, String projectStage, String roleCode,
+            String employeeId, Boolean isPrimaryPd) {
+        Page<ProjectRoleAssignmentSummaryDTO> mpPage = new Page<>(page, size);
+        Page<ProjectRoleAssignmentSummaryDTO> result = baseMapper.selectSummaryPage(
+                mpPage, projectCode, projectStage, roleCode, employeeId, isPrimaryPd);
+        return PageResult.of(result.getTotal(), page, size, result.getRecords());
     }
 
     // 功能：分配人员到项目角色——校验项目、员工、角色均存在且未被重复分配

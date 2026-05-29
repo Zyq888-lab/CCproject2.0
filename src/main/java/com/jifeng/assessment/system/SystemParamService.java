@@ -30,9 +30,7 @@ public class SystemParamService {
             if (existing == null) {
                 throw new BusinessException(404, "系统参数不存在: " + update.getId());
             }
-            if (update.getParamValue() != null) {
-                existing.setParamValue(update.getParamValue());
-            }
+            existing.setParamValue(update.getParamValue());
             if (update.getVersion() != null) {
                 existing.setVersion(update.getVersion());
             }

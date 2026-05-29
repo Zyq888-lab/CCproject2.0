@@ -28,4 +28,7 @@ public class PositionAssessorRoleConfig {
 
     @Version
     private Long version;
+
+    @TableField(exist = false)
+    private String roleName;
 }

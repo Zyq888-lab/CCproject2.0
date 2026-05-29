@@ -6,7 +6,6 @@ package com.jifeng.assessment.system;
 import com.jifeng.assessment.common.ApiResponse;
 import com.jifeng.assessment.common.BaseController;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -47,7 +46,6 @@ public class SystemParamController extends BaseController {
     public static class ParamUpdateRequest {
         @NotNull
         private Long id;
-        @NotBlank
         private String paramValue;
         @NotNull
         private Long version;

@@ -18,8 +18,8 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -41,7 +41,7 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
                 .toList();
     }
 
-    // 功能：分页查询岗位配置列表，支持按岗位分类和岗位名称筛选
+    // 功能：分页查询岗位配置列表，支持按岗位分类和岗位名称筛选，附带考核人角色名称
     public PageResult<PositionAssessmentConfig> listConfigs(int pageNum, int pageSize, String category, String position) {
         LambdaQueryWrapper<PositionAssessmentConfig> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(category)) {
@@ -53,7 +53,38 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
         wrapper.orderByAsc(PositionAssessmentConfig::getId);
         Page<PositionAssessmentConfig> page = new Page<>(pageNum, pageSize);
         Page<PositionAssessmentConfig> result = baseMapper.selectPage(page, wrapper);
-        return PageResult.of(result.getTotal(), (int) result.getCurrent(), (int) result.getSize(), result.getRecords());
+
+        List<PositionAssessmentConfig> records = result.getRecords();
+        if (!records.isEmpty()) {
+            List<Long> configIds = records.stream().map(PositionAssessmentConfig::getId).toList();
+
+            // 批量查询考核人角色关联
+            LambdaQueryWrapper<PositionAssessorRoleConfig> arWrapper = new LambdaQueryWrapper<>();
+            arWrapper.in(PositionAssessorRoleConfig::getPositionConfigId, configIds);
+            List<PositionAssessorRoleConfig> arList = assessorRoleMapper.selectList(arWrapper);
+
+            if (!arList.isEmpty()) {
+                // 收集所有 roleCode，批量查 project_role 拿到 roleName
+                Set<String> roleCodes = arList.stream().map(PositionAssessorRoleConfig::getRoleCode).collect(Collectors.toSet());
+                LambdaQueryWrapper<ProjectRole> prWrapper = new LambdaQueryWrapper<>();
+                prWrapper.in(ProjectRole::getRoleCode, roleCodes);
+                Map<String, String> roleNameMap = projectRoleMapper.selectList(prWrapper).stream()
+                        .collect(Collectors.toMap(ProjectRole::getRoleCode, ProjectRole::getRoleName, (a, b) -> a));
+
+                // 构建 configId → roleNames 映射
+                Map<Long, List<String>> configRoleNamesMap = arList.stream().collect(Collectors.groupingBy(
+                        PositionAssessorRoleConfig::getPositionConfigId,
+                        Collectors.mapping(ar -> roleNameMap.getOrDefault(ar.getRoleCode(), ar.getRoleCode()), Collectors.toList())
+                ));
+
+                // 回填到每个实体
+                records.forEach(r -> r.setAssessorRoleNames(configRoleNamesMap.getOrDefault(r.getId(), List.of())));
+            } else {
+                records.forEach(r -> r.setAssessorRoleNames(List.of()));
+            }
+        }
+
+        return PageResult.of(result.getTotal(), (int) result.getCurrent(), (int) result.getSize(), records);
     }
 
     // 功能：查询单个岗位配置
@@ -123,12 +154,20 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
         baseMapper.deleteById(id);
     }
 
-    // 功能：查询岗位配置关联的考核人角色列表
+    // 功能：查询岗位配置关联的考核人角色列表（含角色名称）
     public List<PositionAssessorRoleConfig> listAssessorRoles(Long configId) {
         LambdaQueryWrapper<PositionAssessorRoleConfig> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PositionAssessorRoleConfig::getPositionConfigId, configId)
                 .orderByAsc(PositionAssessorRoleConfig::getId);
-        return assessorRoleMapper.selectList(wrapper);
+        List<PositionAssessorRoleConfig> list = assessorRoleMapper.selectList(wrapper);
+        if (!list.isEmpty()) {
+            Set<String> roleCodes = list.stream().map(PositionAssessorRoleConfig::getRoleCode).collect(Collectors.toSet());
+            Map<String, String> roleNameMap = projectRoleMapper.selectList(
+                    new LambdaQueryWrapper<ProjectRole>().in(ProjectRole::getRoleCode, roleCodes)
+            ).stream().collect(Collectors.toMap(ProjectRole::getRoleCode, ProjectRole::getRoleName, (a, b) -> a));
+            list.forEach(ar -> ar.setRoleName(roleNameMap.getOrDefault(ar.getRoleCode(), ar.getRoleCode())));
+        }
+        return list;
     }
 
     // 功能：新增考核人角色关联——校验角色存在(D1)、未重复关联
