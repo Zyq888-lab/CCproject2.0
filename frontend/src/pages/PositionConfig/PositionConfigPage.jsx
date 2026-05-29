@@ -6,13 +6,13 @@ import {
   Table, Button, Tag, Space, Modal, Form, Input, Select, InputNumber, Switch, message, Card, Spin, Result,
 } from 'antd';
 import {
-  PlusOutlined, SettingOutlined, EditOutlined, DeleteOutlined, UserOutlined, ReloadOutlined,
+  PlusOutlined, SettingOutlined, EditOutlined, DeleteOutlined, UserOutlined, ReloadOutlined, TagsOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
 import client from '../../api/client';
-import useCategories from '../../hooks/useCategories';
+import useCategories, { refreshCategories } from '../../hooks/useCategories';
 
 const FUNC_MODE_OPTIONS = [
   { label: '直接上级评分', value: 'DIRECT_LEADER' },
@@ -40,8 +40,18 @@ function PositionConfigPage() {
   const [assessorSubmitting, setAssessorSubmitting] = useState(false);
   const [assessorForm] = Form.useForm();
 
+  // --- 岗位分类管理 ---
+  const [categoryData, setCategoryData] = useState([]);
+  const [categoryLoading, setCategoryLoading] = useState(false);
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
+  const [categoryEditing, setCategoryEditing] = useState(null);
+  const [categoryFormVisible, setCategoryFormVisible] = useState(false);
+  const [categorySubmitting, setCategorySubmitting] = useState(false);
+  const [categoryDeletingId, setCategoryDeletingId] = useState(null);
+  const [categoryForm] = Form.useForm();
+
   const mountedRef = useRef(true);
-  const categoryOptions = useCategories();
+  const [categoryOptions] = useCategories();
 
   // 功能：分页获取岗位配置——支持 category 精确匹配 + position 模糊搜索
   const fetchConfigs = useCallback(async (page, size, filterParams) => {
@@ -231,6 +241,99 @@ function PositionConfigPage() {
 
   const projectRoleOptions = projectRoles.map((r) => ({ label: `${r.roleCode} — ${r.roleName}`, value: r.roleCode }));
 
+  // --- 岗位分类管理逻辑 ---
+  const fetchCategories = async () => {
+    setCategoryLoading(true);
+    try {
+      const res = await client.get('/position-categories/list');
+      if (mountedRef.current) setCategoryData(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      message.error({ content: err?.message || '加载分类失败' });
+    } finally {
+      if (mountedRef.current) setCategoryLoading(false);
+    }
+  };
+
+  const handleCategoryCreate = () => {
+    setCategoryEditing(null);
+    categoryForm.resetFields();
+    categoryForm.setFieldsValue({ sortOrder: 0 });
+    setCategoryFormVisible(true);
+  };
+
+  const handleCategoryEdit = (record) => {
+    setCategoryEditing(record);
+    categoryForm.resetFields();
+    categoryForm.setFieldsValue({ name: record.name, sortOrder: record.sortOrder ?? 0 });
+    setCategoryFormVisible(true);
+  };
+
+  const handleCategorySubmit = async () => {
+    try {
+      const values = await categoryForm.validateFields();
+      setCategorySubmitting(true);
+      if (!categoryEditing) {
+        await client.post('/position-categories', values);
+        message.success({ content: '创建成功', duration: 3 });
+      } else {
+        await client.put(`/position-categories/${categoryEditing.id}`, values);
+        message.success({ content: '保存成功', duration: 3 });
+      }
+      refreshCategories();
+      fetchCategories();
+      setCategoryFormVisible(false);
+      setCategoryEditing(null);
+    } catch (err) {
+      if (err?.message) message.error({ content: err.message });
+    } finally {
+      setCategorySubmitting(false);
+    }
+  };
+
+  const handleCategoryDelete = (record) => {
+    showDeleteConfirm(async () => {
+      setCategoryDeletingId(record.id);
+      try {
+        await client.delete(`/position-categories/${record.id}`);
+        message.success({ content: '已删除', duration: 3 });
+        refreshCategories();
+        fetchCategories();
+      } catch (err) {
+        if (err?.code === 409) {
+          message.error({ content: err.message || '该分类被引用，无法删除' });
+        } else {
+          message.error({ content: err?.message || '删除失败' });
+        }
+      } finally {
+        if (mountedRef.current) setCategoryDeletingId(null);
+      }
+    }, `岗位分类「${record.name}」`);
+  };
+
+  const handleOpenCategoryModal = () => {
+    setCategoryModalVisible(true);
+    fetchCategories();
+  };
+
+  const categoryColumns = [
+    { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
+    { title: '名称', dataIndex: 'name', key: 'name', width: 200 },
+    { title: '排序', dataIndex: 'sortOrder', key: 'sortOrder', width: 80 },
+    { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 180,
+      render: (v) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
+    { title: '操作', key: 'action', width: 140,
+      render: (_, record) => (
+        <Space size="small">
+          <Button type="link" size="small" icon={<EditOutlined />}
+            onClick={() => handleCategoryEdit(record)}>编辑</Button>
+          <Button type="link" size="small" danger icon={<DeleteOutlined />}
+            loading={categoryDeletingId === record.id}
+            onClick={() => handleCategoryDelete(record)}>删除</Button>
+        </Space>
+      ),
+    },
+  ];
+
   const columns = [
     { title: '岗位分类', dataIndex: 'category', key: 'category', width: 120 },
     { title: '岗位名称', dataIndex: 'position', key: 'position', width: 140 },
@@ -244,6 +347,10 @@ function PositionConfigPage() {
       render: (v) => FUNC_MODE_LABEL[v] || v || '-' },
     { title: '默认角色', dataIndex: 'defaultProjectRole', key: 'defaultProjectRole', width: 100,
       render: (v) => v || '-' },
+    { title: '考核人角色', dataIndex: 'assessorRoleNames', key: 'assessorRoleNames', width: 200,
+      render: (names) => names && names.length > 0
+        ? names.map((name) => <Tag key={name} color="blue">{name}</Tag>)
+        : <span style={{ color: '#BFBFBF' }}>—</span> },
     { title: '操作', key: 'action', width: 220,
       render: (_, record) => (
         <Space size="small">
@@ -283,26 +390,29 @@ function PositionConfigPage() {
 
       {/* 功能：筛选栏——岗位分类下拉+岗位名称搜索 */}
       <Card id="position-search-bar" style={{ marginBottom: 16, borderRadius: 8 }}>
-        <Space wrap size="middle">
-          <Select
-            placeholder="岗位分类"
-            value={filters.category || undefined}
-            onChange={(v) => setFilters((f) => ({ ...f, category: v || '' }))}
-            allowClear
-            style={{ width: 140 }}
-            options={categoryOptions}
-          />
-          <Input
-            placeholder="岗位名称"
-            value={filters.position}
-            onChange={(e) => setFilters((f) => ({ ...f, position: e.target.value }))}
-            onPressEnter={handleSearch}
-            style={{ width: 140 }}
-            allowClear
-          />
-          <Button type="primary" onClick={handleSearch}>搜索</Button>
-          <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
-        </Space>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <Space wrap size="middle">
+            <Select
+              placeholder="岗位分类"
+              value={filters.category || undefined}
+              onChange={(v) => setFilters((f) => ({ ...f, category: v || '' }))}
+              allowClear
+              style={{ width: 140 }}
+              options={categoryOptions}
+            />
+            <Input
+              placeholder="岗位名称"
+              value={filters.position}
+              onChange={(e) => setFilters((f) => ({ ...f, position: e.target.value }))}
+              onPressEnter={handleSearch}
+              style={{ width: 140 }}
+              allowClear
+            />
+            <Button type="primary" onClick={handleSearch}>搜索</Button>
+            <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
+          </Space>
+          <Button icon={<TagsOutlined />} onClick={handleOpenCategoryModal}>管理分类</Button>
+        </div>
       </Card>
 
       {error && data.length > 0 && (
@@ -339,7 +449,7 @@ function PositionConfigPage() {
               pageSizeOptions: [10, 20, 50],
               showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
             }}
-            scroll={{ x: 960 }}
+            scroll={{ x: 1160 }}
           />
         </Card>
       )}
@@ -424,7 +534,7 @@ function PositionConfigPage() {
           <Table
             columns={[
               { title: '角色编码', dataIndex: 'roleCode', key: 'roleCode', width: 120 },
-              { title: '角色名称', dataIndex: 'roleCode', key: 'roleName', width: 150, render: (code) => getRoleName(code) },
+              { title: '角色名称', dataIndex: 'roleName', key: 'roleName', width: 150, render: (v) => v || '-' },
               { title: '操作', key: 'action', width: 80,
                 render: (_, record) => (
                   <Button type="link" size="small" danger onClick={() => handleRemoveAssessor(record.id)} disabled={assessorSubmitting}>移除</Button>
@@ -437,6 +547,48 @@ function PositionConfigPage() {
             pagination={false}
           />
         )}
+      </Modal>
+
+      {/* 功能：岗位分类管理弹窗——内嵌表格+新增/编辑子弹窗 */}
+      <Modal
+        title="岗位分类管理"
+        open={categoryModalVisible}
+        onCancel={() => { setCategoryModalVisible(false); setCategoryEditing(null); setCategoryFormVisible(false); }}
+        footer={null}
+        width={700}
+      >
+        <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ color: '#8C8C8C', fontSize: 13 }}>共 {categoryData.length} 条记录</span>
+          <Button type="primary" icon={<PlusOutlined />} size="small" onClick={handleCategoryCreate}>新增分类</Button>
+        </div>
+        <Table
+          columns={categoryColumns}
+          dataSource={categoryData}
+          rowKey="id"
+          loading={categoryLoading}
+          size="small"
+          pagination={categoryData.length > 10 ? { defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50] } : false}
+        />
+
+        <Modal
+          title={categoryEditing ? '编辑岗位分类' : '新增岗位分类'}
+          open={categoryFormVisible}
+          onOk={handleCategorySubmit}
+          onCancel={() => { setCategoryEditing(null); setCategoryFormVisible(false); }}
+          confirmLoading={categorySubmitting}
+          okText="保存"
+          cancelText="取消"
+          width={440}
+        >
+          <Form form={categoryForm} layout="vertical" style={{ marginTop: 16 }}>
+            <Form.Item name="name" label="分类名称" rules={[{ required: true, message: '请输入分类名称' }]}>
+              <Input placeholder="如 研发技术类" maxLength={64} />
+            </Form.Item>
+            <Form.Item name="sortOrder" label="排序" extra="数字越小越靠前">
+              <InputNumber min={0} max={999} precision={0} style={{ width: '100%' }} placeholder="0" />
+            </Form.Item>
+          </Form>
+        </Modal>
       </Modal>
     </div>
   );

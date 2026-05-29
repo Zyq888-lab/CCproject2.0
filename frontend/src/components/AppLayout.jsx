@@ -9,14 +9,11 @@ import {
   TeamOutlined,
   AimOutlined,
   FolderOutlined,
-  LinkOutlined,
   SettingOutlined,
   LineChartOutlined,
   CalendarOutlined,
   UserOutlined,
   ToolOutlined,
-  OrderedListOutlined,
-  TagsOutlined,
   LogoutOutlined,
 } from '@ant-design/icons';
 import client from '../api/client';
@@ -26,19 +23,15 @@ const { Sider, Header, Content } = Layout;
 const menuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', group: 'top' },
   { type: 'divider', label: '配置中心', group: 'config' },
-  { key: '/employee/list', icon: <TeamOutlined />, label: '员工管理' },
-  { key: '/project-role', icon: <AimOutlined />, label: '项目角色' },
+  { key: '/employee-management', icon: <TeamOutlined />, label: '员工管理' },
+  { key: '/project-role', icon: <AimOutlined />, label: '项目角色管理' },
   { key: '/project/list', icon: <FolderOutlined />, label: '项目管理' },
-  { key: '/project/:id/roles', icon: <LinkOutlined />, label: '角色分配' },
   { key: '/position-config', icon: <SettingOutlined />, label: '岗位配置' },
-  { key: '/kpi-config/project', icon: <LineChartOutlined />, label: '项目KPI配置' },
-  { key: '/kpi-config/functional', icon: <LineChartOutlined />, label: '职能KPI配置' },
+  { key: '/kpi-config', icon: <LineChartOutlined />, label: 'KPI配置' },
   { key: '/period-config', icon: <CalendarOutlined />, label: '考核周期' },
   { type: 'divider', label: '系统设置', group: 'system' },
   { key: '/user-role', icon: <UserOutlined />, label: '用户管理' },
   { key: '/system-param', icon: <ToolOutlined />, label: '系统参数' },
-  { key: '/leader-config', icon: <OrderedListOutlined />, label: '直属上级' },
-  { key: '/position-category', icon: <TagsOutlined />, label: '岗位分类管理' },
 ];
 
 function AppLayout() {

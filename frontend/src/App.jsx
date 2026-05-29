@@ -7,16 +7,14 @@ import LoginPage from './pages/Login/LoginPage';
 import DashboardPage from './pages/Dashboard/DashboardPage';
 import EmployeeListPage from './pages/Employee/EmployeeListPage';
 import UserRolePage from './pages/UserRole/UserRolePage';
-import ProjectRolePage from './pages/ProjectRole/ProjectRolePage';
+import ProjectRoleView from './pages/ProjectRole/ProjectRoleView';
 import ProjectListPage from './pages/Project/ProjectListPage';
+import ProjectRoleSummaryPage from './pages/Project/ProjectRoleSummaryPage';
 import RoleAssignmentPage from './pages/RoleAssignment/RoleAssignmentPage';
 import PositionConfigPage from './pages/PositionConfig/PositionConfigPage';
-import ProjectKpiPage from './pages/KpiConfig/ProjectKpiPage';
-import FuncKpiPage from './pages/KpiConfig/FuncKpiPage';
-import LeaderConfigPage from './pages/LeaderConfig/LeaderConfigPage';
+import KpiConfigView from './pages/KpiConfig/KpiConfigView';
 import SystemParamPage from './pages/SystemParam/SystemParamPage';
 import PeriodConfigPage from './pages/PeriodConfig/PeriodConfigPage';
-import PositionCategoryPage from './pages/PositionCategory/PositionCategoryPage';
 
 function App() {
   return (
@@ -28,19 +26,21 @@ function App() {
         {/* 功能：所有需登录页面——由AppLayout包裹，通过<Outlet />渲染子路由 */}
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/employee/list" element={<EmployeeListPage />} />
-          <Route path="/project-role" element={<ProjectRolePage />} />
+          <Route path="/employee/list" element={<Navigate to="/employee-management" replace />} />
+          <Route path="/employee-management" element={<EmployeeListPage />} />
+          <Route path="/project-role" element={<ProjectRoleView />} />
           <Route path="/project/list" element={<ProjectListPage />} />
           <Route path="/project/:id/roles" element={<RoleAssignmentPage />} />
+          <Route path="/project/assignment-summary" element={<ProjectRoleSummaryPage />} />
           <Route path="/role-assignment" element={<Navigate to="/project/list" replace />} />
           <Route path="/position-config" element={<PositionConfigPage />} />
-          <Route path="/kpi-config/project" element={<ProjectKpiPage />} />
-          <Route path="/kpi-config/functional" element={<FuncKpiPage />} />
+          <Route path="/kpi-config/project" element={<Navigate to="/kpi-config" replace />} />
+          <Route path="/kpi-config/functional" element={<Navigate to="/kpi-config" replace />} />
+          <Route path="/kpi-config" element={<KpiConfigView />} />
           <Route path="/period-config" element={<PeriodConfigPage />} />
           <Route path="/user-role" element={<UserRolePage />} />
           <Route path="/system-param" element={<SystemParamPage />} />
-          <Route path="/leader-config" element={<LeaderConfigPage />} />
-          <Route path="/position-category" element={<PositionCategoryPage />} />
+          <Route path="/leader-config" element={<Navigate to="/employee-management" replace />} />
         </Route>
 
         {/* 功能：根路径重定向到仪表盘 */}
