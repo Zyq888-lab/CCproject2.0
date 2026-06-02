@@ -114,7 +114,11 @@ function ProjectListPage() {
       fetchProjects(pagination.current, pagination.pageSize, filters);
     } catch (err) {
       if (err?.code === 409) {
-        showConflictWarning('其他用户', '几');
+        if (err?.message?.includes('已被他人修改')) {
+          showConflictWarning('其他用户', '几');
+        } else {
+          message.error({ content: err.message });
+        }
       } else if (err?.message) {
         message.error({ content: err.message });
       }
@@ -137,7 +141,11 @@ function ProjectListPage() {
           fetchProjects(pagination.current, pagination.pageSize, filters);
         } catch (err) {
           if (err?.code === 409) {
-            showConflictWarning('其他用户', '几');
+            if (err?.message?.includes('已被他人修改')) {
+              showConflictWarning('其他用户', '几');
+            } else {
+              message.error({ content: err.message });
+            }
           } else if (err?.message) {
             message.error({ content: err.message });
           }
@@ -160,7 +168,11 @@ function ProjectListPage() {
           fetchProjects(pagination.current, pagination.pageSize, filters);
         } catch (err) {
           if (err?.code === 409) {
-            showConflictWarning('其他用户', '几');
+            if (err?.message?.includes('已被他人修改')) {
+              showConflictWarning('其他用户', '几');
+            } else {
+              message.error({ content: err.message });
+            }
           } else if (err?.message) {
             message.error({ content: err.message });
           }
@@ -169,7 +181,7 @@ function ProjectListPage() {
     });
   };
 
-  // 功能：表格列定义——编码/名称/阶段/状态/确认状态/确认人/操作
+  // 功能：表格列定义——编码/名称/阶段/状态/确认状态/确认人/确认时间/操作
   const columns = [
     { title: '项目编码', dataIndex: 'projectCode', key: 'projectCode', width: 140 },
     { title: '项目名称', dataIndex: 'projectName', key: 'projectName', width: 160 },
@@ -190,6 +202,8 @@ function ProjectListPage() {
       ),
     },
     { title: '确认人', dataIndex: 'confirmedBy', key: 'confirmedBy', width: 100, render: (v) => v || '-' },
+    { title: '确认时间', dataIndex: 'confirmedAt', key: 'confirmedAt', width: 170,
+      render: (v) => v ? new Date(v).toLocaleString('zh-CN') : '-' },
     {
       title: '操作', key: 'action', width: 260,
       render: (_, record) => (
@@ -285,7 +299,7 @@ function ProjectListPage() {
               pageSizeOptions: [10, 20, 50],
               showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
             }}
-            scroll={{ x: 950 }}
+            scroll={{ x: 1100 }}
           />
         </Card>
       )}

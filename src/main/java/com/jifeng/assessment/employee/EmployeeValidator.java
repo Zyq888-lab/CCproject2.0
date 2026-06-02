@@ -23,10 +23,13 @@ public final class EmployeeValidator {
         }
     }
 
-    // 功能：校验邮箱格式是否合法（需包含@及域名后缀）
+    // 功能：校验邮箱格式是否合法（需包含@及域名后缀，长度不超过128字符）
     public static void validateEmail(String email) {
         if (!StringUtils.hasText(email)) {
             throw new BusinessException(400, "邮箱不能为空");
+        }
+        if (email.length() > 128) {
+            throw new BusinessException(400, "邮箱地址过长，最多128个字符");
         }
         if (!email.matches("^[^@]+@[^@]+\\.[^@]+$")) {
             throw new BusinessException(400, "邮箱格式不正确");

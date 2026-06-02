@@ -1,17 +1,23 @@
 package com.jifeng.assessment.common;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.EmptyFileException;
+import org.apache.poi.EncryptedDocumentException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
 import java.util.HashMap;
@@ -73,6 +79,44 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ApiResponse<Void> handleNoHandlerFound(NoHandlerFoundException ex) {
         return ApiResponse.error(404, "接口不存在: " + ex.getRequestURL());
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleMessageNotReadable(HttpMessageNotReadableException ex) {
+        log.warn("请求体解析失败: {}", ex.getMessage());
+        return ApiResponse.error(400, "请求数据格式错误，请检查JSON结构");
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    @ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+    public ApiResponse<Void> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex) {
+        return ApiResponse.error(415, "不支持的请求类型: " + ex.getContentType());
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleMissingPart(MissingServletRequestPartException ex) {
+        return ApiResponse.error(400, "缺少上传文件参数，请选择文件后上传");
+    }
+
+    @ExceptionHandler(MultipartException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleMultipart(MultipartException ex) {
+        log.warn("文件上传异常: {}", ex.getMessage());
+        return ApiResponse.error(400, "文件上传失败，请检查文件大小和格式");
+    }
+
+    @ExceptionHandler(EmptyFileException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleEmptyFile(EmptyFileException ex) {
+        return ApiResponse.error(400, "文件为空，请检查文件内容");
+    }
+
+    @ExceptionHandler(EncryptedDocumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleEncryptedDocument(EncryptedDocumentException ex) {
+        return ApiResponse.error(400, "文件已加密或设置了密码，请解密后重新上传");
     }
 
     @ExceptionHandler(Exception.class)

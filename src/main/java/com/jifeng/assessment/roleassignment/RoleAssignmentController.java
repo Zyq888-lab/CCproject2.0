@@ -53,7 +53,7 @@ public class RoleAssignmentController extends BaseController {
                 projectCode, request.getRoleCode(), request.getEmployeeId()));
     }
 
-    // 功能：标记为PD负责人——先取消同项目已有PD负责人，再设置当前分配
+    // 功能：标记为PD负责人——任意角色分配均可标记，先取消同项目已有PD负责人，再设置当前分配
     @PutMapping("/api/v1/projects/{projectCode}/assignments/{assignmentId}/toggle-primary-pd")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
     public ApiResponse<ProjectRoleAssignmentDTO> markPrimaryPd(

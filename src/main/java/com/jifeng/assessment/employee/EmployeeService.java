@@ -20,6 +20,7 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -168,7 +169,18 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
                         .collect(Collectors.toSet());
         existingLeaderIds.addAll(existingIds); // 上级也可以是本次导入的员工
 
+        // 批量预加载现有邮箱，用于唯一性校验
+        Set<String> inputEmails = employees.stream()
+                .map(Employee::getEmail)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        Set<String> existingEmails = inputEmails.isEmpty() ? Collections.emptySet()
+                : baseMapper.selectList(new LambdaQueryWrapper<Employee>()
+                        .in(Employee::getEmail, inputEmails))
+                        .stream().map(Employee::getEmail).collect(Collectors.toSet());
+
         int rowNum = 0;
+        Set<String> batchEmails = new HashSet<>(); // 防同一批次内重复邮箱
         for (Employee emp : employees) {
             rowNum++;
             try {
@@ -184,6 +196,16 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
                     errors.add(new ImportResult.RowError(rowNum, emp.getEmployeeId(), "工号已存在"));
                     continue;
                 }
+                if (StringUtils.hasText(emp.getEmail())) {
+                    if (existingEmails.contains(emp.getEmail())) {
+                        errors.add(new ImportResult.RowError(rowNum, emp.getEmployeeId(), "邮箱已存在: " + emp.getEmail()));
+                        continue;
+                    }
+                    if (batchEmails.contains(emp.getEmail())) {
+                        errors.add(new ImportResult.RowError(rowNum, emp.getEmployeeId(), "本批次内邮箱重复: " + emp.getEmail()));
+                        continue;
+                    }
+                }
                 if (StringUtils.hasText(emp.getDirectLeaderId())
                         && !existingLeaderIds.contains(emp.getDirectLeaderId())) {
                     errors.add(new ImportResult.RowError(rowNum, emp.getEmployeeId(),
@@ -192,6 +214,9 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
                 }
                 baseMapper.insert(emp);
                 existingIds.add(emp.getEmployeeId()); // 防同一批次内重复工号
+                if (StringUtils.hasText(emp.getEmail())) {
+                    batchEmails.add(emp.getEmail()); // 防同一批次内重复邮箱
+                }
                 successCount++;
             } catch (DuplicateKeyException e) {
                 errors.add(new ImportResult.RowError(rowNum,

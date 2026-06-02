@@ -3,7 +3,7 @@
 {/* 修改注意：权重在前端为百分制整数(0-100)，GET返回小数需×100显示，POST/PUT直接发送整数 */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Tag, Space, Modal, Form, Input, Select, InputNumber, Switch, message, Card, Spin, Result,
+  Table, Button, Tag, Space, Modal, Form, Input, Select, InputNumber, Switch, message, Card, Spin, Result, Tooltip,
 } from 'antd';
 import {
   PlusOutlined, SettingOutlined, EditOutlined, DeleteOutlined, UserOutlined, ReloadOutlined, TagsOutlined,
@@ -234,9 +234,9 @@ function PositionConfigPage() {
     return r ? r.roleName : code;
   };
 
-  const assignedCodes = new Set(assessorRoles.map((r) => r.roleCode));
+  const excludedCodes = new Set([...assessorRoles.map((r) => r.roleCode), assessorConfig?.defaultProjectRole].filter(Boolean));
   const assessorRoleOptions = projectRoles
-    .filter((r) => !assignedCodes.has(r.roleCode))
+    .filter((r) => !excludedCodes.has(r.roleCode))
     .map((r) => ({ label: `${r.roleCode} — ${r.roleName}`, value: r.roleCode }));
 
   const projectRoleOptions = projectRoles.map((r) => ({ label: `${r.roleCode} — ${r.roleName}`, value: r.roleCode }));
@@ -518,7 +518,7 @@ function PositionConfigPage() {
                   options={assessorRoleOptions}
                   showSearch
                   optionFilterProp="label"
-                  notFoundContent={assignedCodes.size >= projectRoles.length ? '所有角色已添加' : '无匹配角色'}
+                  notFoundContent={excludedCodes.size >= projectRoles.length ? '所有角色已添加' : '无匹配角色'}
                 />
               </Form.Item>
             </Form>
@@ -536,9 +536,16 @@ function PositionConfigPage() {
               { title: '角色编码', dataIndex: 'roleCode', key: 'roleCode', width: 120 },
               { title: '角色名称', dataIndex: 'roleName', key: 'roleName', width: 150, render: (v) => v || '-' },
               { title: '操作', key: 'action', width: 80,
-                render: (_, record) => (
-                  <Button type="link" size="small" danger onClick={() => handleRemoveAssessor(record.id)} disabled={assessorSubmitting}>移除</Button>
-                ),
+                render: (_, record) => {
+                  const isDefault = record.roleCode === assessorConfig?.defaultProjectRole;
+                  return isDefault ? (
+                    <Tooltip title="默认角色不可直接移除，请先修改默认项目角色">
+                      <Button type="link" size="small" danger disabled>移除</Button>
+                    </Tooltip>
+                  ) : (
+                    <Button type="link" size="small" danger onClick={() => handleRemoveAssessor(record.id)} disabled={assessorSubmitting}>移除</Button>
+                  );
+                },
               },
             ]}
             dataSource={assessorRoles}

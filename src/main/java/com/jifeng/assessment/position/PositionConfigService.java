@@ -170,7 +170,7 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
         return list;
     }
 
-    // 功能：新增考核人角色关联——校验角色存在(D1)、未重复关联
+    // 功能：新增考核人角色关联——校验角色存在(D1)、未重复关联、非默认角色
     @Transactional
     public PositionAssessorRoleConfig addAssessorRole(Long configId, String roleCode) {
         if (baseMapper.selectById(configId) == null) {
@@ -179,6 +179,13 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
         ProjectRole role = projectRoleMapper.selectById(roleCode);
         if (role == null) {
             throw new BusinessException(400, "角色" + roleCode + "在项目角色表中不存在");
+        }
+
+        // 校验非默认项目角色
+        PositionAssessmentConfig config = baseMapper.selectById(configId);
+        if (config != null && roleCode.equals(config.getDefaultProjectRole())) {
+            throw new BusinessException(400,
+                    "该角色已是默认项目角色，无需重复添加为考核人角色");
         }
 
         // 检查重复关联
@@ -202,12 +209,17 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
         return assoc;
     }
 
-    // 功能：移除考核人角色关联——逻辑删除
+    // 功能：移除考核人角色关联——逻辑删除，禁止移除默认项目角色
     @Transactional
     public void removeAssessorRole(Long configId, Long assessorRoleId) {
         PositionAssessorRoleConfig assoc = assessorRoleMapper.selectById(assessorRoleId);
         if (assoc == null || !assoc.getPositionConfigId().equals(configId)) {
             throw new BusinessException(404, "考核人角色关联不存在");
+        }
+        PositionAssessmentConfig config = baseMapper.selectById(configId);
+        if (config != null && assoc.getRoleCode().equals(config.getDefaultProjectRole())) {
+            throw new BusinessException(400,
+                    "该角色为默认项目角色，请先修改默认项目角色后再移除考核人角色");
         }
         assessorRoleMapper.deleteById(assessorRoleId);
     }

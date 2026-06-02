@@ -1,6 +1,6 @@
 {/* 模块用途：RoleAssignmentPage——项目角色分配页，表格+新增分配弹窗+标记PD负责人+移除分配 */}
 {/* 依赖组件：PageHeader, EmptyState, ConfirmModal, client.js, Ant Design Table/Modal/Form/Select/Tag */}
-{/* 修改注意：角色下拉来自/project-roles?isActive=true，员工搜索来自/employees，标记PD仅对PD角色显示 */}
+{/* 修改注意：角色下拉来自/project-roles?isActive=true，员工搜索来自/employees，任意角色分配均可标记为PD负责人 */}
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import {
@@ -128,7 +128,11 @@ function RoleAssignmentPage({ projectCode: propProjectCode }) {
       fetchAssignments();
     } catch (err) {
       if (err?.code === 409) {
-        showConflictWarning('其他用户', '几');
+        if (err?.message?.includes('已被他人修改')) {
+          showConflictWarning('其他用户', '几');
+        } else {
+          message.error({ content: err.message });
+        }
       } else if (err?.message) {
         message.error({ content: err.message });
       }
@@ -145,7 +149,11 @@ function RoleAssignmentPage({ projectCode: propProjectCode }) {
       fetchAssignments();
     } catch (err) {
       if (err?.code === 409) {
-        showConflictWarning('其他用户', '几');
+        if (err?.message?.includes('已被他人修改')) {
+          showConflictWarning('其他用户', '几');
+        } else {
+          message.error({ content: err.message });
+        }
       } else if (err?.message) {
         message.error({ content: err.message });
       }
@@ -192,7 +200,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode }) {
       title: '操作', key: 'action', width: 160,
       render: (_, record) => (
         <Space size="small">
-          {record.projectRoleCode === 'PD' && !record.isPrimaryPd && (
+          {!record.isPrimaryPd && (
             <Button type="link" size="small" icon={<StarOutlined />} onClick={() => handleMarkPd(record)}>
               标记PD
             </Button>
@@ -254,7 +262,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode }) {
         <EmptyState
           image={<LinkOutlined style={{ fontSize: 72, color: '#1890FF' }} />}
           title="该项目还没有角色分配"
-          description="为项目分配角色人员（如PDL、PQL、Launch），PD角色可标记为项目负责人"
+          description="为项目分配角色人员（如PDL、PQL、Launch），任意角色均可标记为项目负责人"
           primaryAction={{ label: '新增分配', onClick: handleAdd }}
         />
       )}

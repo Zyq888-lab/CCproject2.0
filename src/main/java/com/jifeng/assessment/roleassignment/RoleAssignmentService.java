@@ -125,9 +125,6 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         if (assignment == null) {
             throw new BusinessException(404, "分配记录不存在: " + assignmentId);
         }
-        if (!"PD".equals(assignment.getProjectRoleCode())) {
-            throw new BusinessException(400, "仅PD角色的分配可标记为PD负责人");
-        }
 
         // 取消同项目内已有的PD负责人标记
         LambdaQueryWrapper<ProjectRoleAssignment> unmarkWrapper = new LambdaQueryWrapper<>();

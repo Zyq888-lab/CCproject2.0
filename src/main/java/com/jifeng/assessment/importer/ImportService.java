@@ -10,7 +10,10 @@ import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.employee.EmployeeValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.EmptyFileException;
+import org.apache.poi.EncryptedDocumentException;
 import org.apache.poi.ss.usermodel.*;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -106,9 +109,13 @@ public class ImportService {
             return new ImportResultDTO.PreviewResult(parsed.headers, sampleRows, parsed.rawRows);
         } catch (BusinessException e) {
             throw e;
+        } catch (EmptyFileException e) {
+            throw new BusinessException(400, "文件为空，请检查文件内容");
+        } catch (EncryptedDocumentException e) {
+            throw new BusinessException(400, "文件已加密或设置了密码，请解密后重新上传");
         } catch (Exception e) {
             log.error("预览文件解析失败", e);
-            throw new BusinessException(400, "文件解析失败，请检查文件格式");
+            throw new BusinessException(400, "文件解析失败，请检查文件格式（仅支持 .xlsx / .xls）");
         }
     }
 
@@ -119,11 +126,13 @@ public class ImportService {
              Workbook workbook = WorkbookFactory.create(is)) {
             ParsedSheet parsed = parseSheet(workbook.getSheetAt(0));
 
-            // 第一遍扫描：收集所有工号和直属上级工号
+            // 第一遍扫描：收集所有工号、直属上级工号、邮箱
             Set<String> allEmployeeIds = new HashSet<>();
             Set<String> allLeaderIds = new HashSet<>();
+            Set<String> allEmails = new HashSet<>();
             int empIdCol = getColumnIndex(parsed.columnMapping, "employeeId");
             int leaderCol = getColumnIndex(parsed.columnMapping, "directLeaderId");
+            int emailCol = getColumnIndex(parsed.columnMapping, "email");
             for (int i = 0; i < parsed.rawRows; i++) {
                 Row row = parsed.sheet.getRow(i + 1);
                 if (row == null || isRowEmpty(row)) continue;
@@ -132,6 +141,10 @@ public class ImportService {
                 if (leaderCol >= 0) {
                     String leaderId = readCell(row.getCell(leaderCol));
                     if (!leaderId.isEmpty()) allLeaderIds.add(leaderId);
+                }
+                if (emailCol >= 0) {
+                    String email = readCell(row.getCell(emailCol));
+                    if (!email.isEmpty()) allEmails.add(email);
                 }
             }
 
@@ -147,8 +160,15 @@ public class ImportService {
                                     .in(Employee::getEmployeeId, allLeaderIds))
                             .stream().map(Employee::getEmployeeId).collect(Collectors.toSet());
 
+            // 批量查询已有邮箱（用于唯一性校验）
+            Set<String> existingEmails = allEmails.isEmpty() ? Set.of() :
+                    employeeMapper.selectList(new LambdaQueryWrapper<Employee>()
+                                    .in(Employee::getEmail, allEmails))
+                            .stream().map(Employee::getEmail).collect(Collectors.toSet());
+
             int successCount = 0;
             int dataRowCount = 0;
+            Set<String> batchEmails = new HashSet<>(); // 防同一批次内重复邮箱
             List<ImportResultDTO.ImportError> errors = new ArrayList<>();
 
             for (int i = 0; i < parsed.rawRows; i++) {
@@ -160,9 +180,12 @@ public class ImportService {
 
                 try {
                     Employee emp = buildEmployee(row, rowNum, parsed.columnMapping,
-                            existingIds, existingLeaders);
+                            existingIds, existingLeaders, existingEmails, batchEmails);
                     employeeMapper.insert(emp);
                     successCount++;
+                    if (StringUtils.hasText(emp.getEmail())) {
+                        batchEmails.add(emp.getEmail());
+                    }
                 } catch (BusinessException e) {
                     errors.add(new ImportResultDTO.ImportError(
                             rowNum, readCell(row.getCell(0)), e.getMessage()));
@@ -171,6 +194,11 @@ public class ImportService {
                     log.warn("Row {}: duplicate employeeId {}", rowNum, empId, e);
                     errors.add(new ImportResultDTO.ImportError(
                             rowNum, empId, "工号" + empId + "已存在"));
+                } catch (DataAccessException e) {
+                    String empId = readCell(row.getCell(0));
+                    log.error("Row {} data access error", rowNum, e);
+                    errors.add(new ImportResultDTO.ImportError(
+                            rowNum, empId, "数据写入失败: " + e.getMostSpecificCause().getMessage()));
                 } catch (Exception e) {
                     String empId = readCell(row.getCell(0));
                     log.error("Row {} import failed", rowNum, e);
@@ -189,9 +217,13 @@ public class ImportService {
             return result;
         } catch (BusinessException e) {
             throw e;
+        } catch (EmptyFileException e) {
+            throw new BusinessException(400, "文件为空，请检查文件内容");
+        } catch (EncryptedDocumentException e) {
+            throw new BusinessException(400, "文件已加密或设置了密码，请解密后重新上传");
         } catch (Exception e) {
             log.error("执行导入文件解析失败", e);
-            throw new BusinessException(400, "文件解析失败，请检查文件格式");
+            throw new BusinessException(400, "文件解析失败，请检查文件格式（仅支持 .xlsx / .xls）");
         }
     }
 
@@ -304,7 +336,8 @@ public class ImportService {
 
     // 辅助：根据列映射构建Employee对象并校验（使用预取的Set替代selectById）
     private Employee buildEmployee(Row row, int rowNum, Map<Integer, String> columnMapping,
-                                   Set<String> existingEmployeeIds, Set<String> existingLeaderIds) {
+                                   Set<String> existingEmployeeIds, Set<String> existingLeaderIds,
+                                   Set<String> existingEmails, Set<String> batchEmails) {
         Employee emp = new Employee();
         for (Map.Entry<Integer, String> entry : columnMapping.entrySet()) {
             String value = readCell(row.getCell(entry.getKey()));
@@ -356,6 +389,16 @@ public class ImportService {
         // 工号唯一校验（内存Set查找替代selectById）
         if (existingEmployeeIds.contains(emp.getEmployeeId())) {
             throw new BusinessException(409, "第" + rowNum + "行：工号" + emp.getEmployeeId() + "已存在");
+        }
+
+        // 邮箱唯一校验（内存Set查找）
+        if (StringUtils.hasText(emp.getEmail())) {
+            if (existingEmails.contains(emp.getEmail())) {
+                throw new BusinessException(409, "第" + rowNum + "行：邮箱" + emp.getEmail() + "已存在");
+            }
+            if (batchEmails.contains(emp.getEmail())) {
+                throw new BusinessException(409, "第" + rowNum + "行：本批次内邮箱重复: " + emp.getEmail());
+            }
         }
 
         return emp;
