@@ -16,6 +16,9 @@ export const COLUMN_MAP = {
 
 export const REQUIRED_FIELDS = ['employeeId', 'name', 'email', 'status'];
 
+const STATUS_LABEL_MAP = { 'ACTIVE': '在职', 'INACTIVE': '离职', '在职': '在职', '离职': '离职' };
+const STATUS_COLOR_MAP = { 'ACTIVE': 'green', 'INACTIVE': 'red', '在职': 'green', '离职': 'red' };
+
 export function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -71,7 +74,7 @@ export function buildPreviewColumns() {
     { title: '部门', dataIndex: 'orgName', key: 'orgName', width: 120, ellipsis: true },
     { title: '直属上级工号', dataIndex: 'directLeaderId', key: 'directLeaderId', width: 110 },
     { title: '状态', dataIndex: 'status', key: 'status', width: 70,
-      render: (v) => <Tag color={v === '在职' ? 'green' : v === '离职' ? 'red' : 'default'}>{v || '-'}</Tag> },
+      render: (v) => <Tag color={STATUS_COLOR_MAP[v] || 'default'}>{STATUS_LABEL_MAP[v] || v || '-'}</Tag> },
     { title: '校验', dataIndex: '_valid', key: '_valid', width: 70,
       render: (v) => v !== false ? <Tag color="green">有效</Tag> : <Tag color="red">无效</Tag> },
   ];

@@ -341,6 +341,7 @@ public class ImportService {
         EmployeeValidator.validateEmail(emp.getEmail());
         if (StringUtils.hasText(emp.getStatus())) {
             EmployeeValidator.validateStatus(emp.getStatus());
+            emp.setStatus(EmployeeValidator.mapStatus(emp.getStatus()));
         } else {
             emp.setStatus("ACTIVE");
         }

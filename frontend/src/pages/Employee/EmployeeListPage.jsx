@@ -17,13 +17,18 @@ import client from '../../api/client';
 import useCategories from '../../hooks/useCategories';
 
 const STATUS_OPTIONS = [
-  { label: '在职', value: '在职' },
-  { label: '离职', value: '离职' },
+  { label: '在职', value: 'ACTIVE' },
+  { label: '离职', value: 'INACTIVE' },
 ];
 
+const STATUS_LABEL_MAP = {
+  'ACTIVE': '在职',
+  'INACTIVE': '离职',
+};
+
 const STATUS_COLOR_MAP = {
-  '在职': 'green',
-  '离职': 'red',
+  'ACTIVE': 'green',
+  'INACTIVE': 'red',
 };
 
 function EmployeeListPage() {
@@ -178,7 +183,7 @@ function EmployeeListPage() {
     { title: '直属上级', dataIndex: 'directLeaderId', key: 'directLeaderId', width: 100 },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 80,
-      render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{s || '-'}</Tag>,
+      render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{STATUS_LABEL_MAP[s] || s || '-'}</Tag>,
     },
     {
       title: '操作', key: 'action', width: 150,

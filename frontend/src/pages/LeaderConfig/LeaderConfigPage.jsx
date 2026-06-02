@@ -15,13 +15,18 @@ import client from '../../api/client';
 import useCategories from '../../hooks/useCategories';
 
 const STATUS_OPTIONS = [
-  { label: '在职', value: '在职' },
-  { label: '离职', value: '离职' },
+  { label: '在职', value: 'ACTIVE' },
+  { label: '离职', value: 'INACTIVE' },
 ];
 
+const STATUS_LABEL_MAP = {
+  'ACTIVE': '在职',
+  'INACTIVE': '离职',
+};
+
 const STATUS_COLOR_MAP = {
-  '在职': 'green',
-  '离职': 'red',
+  'ACTIVE': 'green',
+  'INACTIVE': 'red',
 };
 
 function LeaderConfigPage() {
@@ -155,7 +160,7 @@ function LeaderConfigPage() {
     }
   };
 
-  const activeEmployees = allEmployees.filter((e) => e.status === '在职');
+  const activeEmployees = allEmployees.filter((e) => e.status === 'ACTIVE');
 
   // 功能：构建上级候选人下拉选项——排除已选行中的员工，防止自我指派
   const selectedIds = new Set(selectedRowKeys);
@@ -191,7 +196,7 @@ function LeaderConfigPage() {
     },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 80,
-      render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{s || '-'}</Tag>,
+      render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{STATUS_LABEL_MAP[s] || s || '-'}</Tag>,
     },
   ];
 
