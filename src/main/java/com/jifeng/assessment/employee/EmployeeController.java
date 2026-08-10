@@ -29,12 +29,14 @@ public class EmployeeController extends BaseController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String directLeaderId,
+            @RequestParam(required = false) String orgName) {
         PageQuery query = new PageQuery();
         query.setPage(page);
         query.setSize(size);
         query.setKeyword(keyword);
-        return ok(employeeService.listEmployees(query, category, status));
+        return ok(employeeService.listEmployees(query, category, status, directLeaderId, orgName));
     }
 
     // 功能：根据工号获取单个员工详情，不存在返回 404

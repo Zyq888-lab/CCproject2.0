@@ -201,7 +201,7 @@ class EmployeeServiceTest {
         query.setPage(1);
         query.setSize(3);
         com.jifeng.assessment.common.PageResult<EmployeeDTO> result =
-                employeeService.listEmployees(query, null, null);
+                employeeService.listEmployees(query, null, null, null, null);
 
         // ADMIN 种子数据 + 5 条测试数据 = 6
         assertEquals(6, result.getTotal());

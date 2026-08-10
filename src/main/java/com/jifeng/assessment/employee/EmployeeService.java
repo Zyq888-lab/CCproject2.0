@@ -35,7 +35,8 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
     private final PositionCategoryMapper positionCategoryMapper;
 
     // 功能：分页查询员工列表，支持按关键字（姓名/工号）、岗位分类、状态筛选
-    public PageResult<EmployeeDTO> listEmployees(PageQuery query, String category, String status) {
+    public PageResult<EmployeeDTO> listEmployees(PageQuery query, String category, String status,
+            String directLeaderId, String orgName) {
         LambdaQueryWrapper<Employee> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(query.getKeyword())) {
             wrapper.and(w -> w
@@ -48,6 +49,12 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
         }
         if (StringUtils.hasText(status)) {
             wrapper.eq(Employee::getStatus, status);
+        }
+        if (StringUtils.hasText(directLeaderId)) {
+            wrapper.eq(Employee::getDirectLeaderId, directLeaderId);
+        }
+        if (StringUtils.hasText(orgName)) {
+            wrapper.like(Employee::getOrgName, orgName);
         }
         wrapper.orderByAsc(Employee::getEmployeeId);
 

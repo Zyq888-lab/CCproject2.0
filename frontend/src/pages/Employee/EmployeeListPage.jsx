@@ -35,7 +35,7 @@ function EmployeeListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
-  const [filters, setFilters] = useState({ keyword: '', category: '', status: '' });
+  const [filters, setFilters] = useState({ keyword: '', category: '', status: '', directLeaderId: '', orgName: '' });
   const [modalVisible, setModalVisible] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState(null);
@@ -61,6 +61,8 @@ function EmployeeListPage() {
       if (filterParams?.keyword) params.keyword = filterParams.keyword;
       if (filterParams?.category) params.category = filterParams.category;
       if (filterParams?.status) params.status = filterParams.status;
+      if (filterParams?.directLeaderId) params.directLeaderId = filterParams.directLeaderId;
+      if (filterParams?.orgName) params.orgName = filterParams.orgName;
       const res = await client.get('/employees', { params });
       if (mountedRef.current) {
         const pageData = res.data || {};
@@ -98,10 +100,10 @@ function EmployeeListPage() {
 
   useEffect(() => {
     mountedRef.current = true;
-    setFilters({ keyword: '', category: '', status: '' });
+    setFilters({ keyword: '', category: '', status: '', directLeaderId: '', orgName: '' });
     setPagination({ current: 1, pageSize: 20, total: 0 });
     setData([]);
-    fetchEmployees(1, 20, { keyword: '', category: '', status: '' });
+    fetchEmployees(1, 20, { keyword: '', category: '', status: '', directLeaderId: '', orgName: '' });
     fetchAllEmployees();
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -113,7 +115,7 @@ function EmployeeListPage() {
 
   // 功能：重置筛选条件——清空后重新加载
   const handleReset = () => {
-    const empty = { keyword: '', category: '', status: '' };
+    const empty = { keyword: '', category: '', status: '', directLeaderId: '', orgName: '' };
     setFilters(empty);
     fetchEmployees(1, pagination.pageSize, empty);
   };
@@ -273,7 +275,7 @@ function EmployeeListPage() {
     },
   ];
 
-  const isEmpty = !loading && !error && data.length === 0 && !filters.keyword && !filters.category && !filters.status;
+  const isEmpty = !loading && !error && data.length === 0 && !filters.keyword && !filters.category && !filters.status && !filters.directLeaderId && !filters.orgName;
 
   return (
     <div id="employee-list-area">
@@ -314,6 +316,20 @@ function EmployeeListPage() {
                       allowClear
                       style={{ width: 100 }}
                       options={STATUS_OPTIONS}
+                    />
+                    <Input
+                      placeholder="直属上级工号"
+                      value={filters.directLeaderId || ''}
+                      onChange={(e) => setFilters((f) => ({ ...f, directLeaderId: e.target.value }))}
+                      allowClear
+                      style={{ width: 140 }}
+                    />
+                    <Input
+                      placeholder="部门"
+                      value={filters.orgName || ''}
+                      onChange={(e) => setFilters((f) => ({ ...f, orgName: e.target.value }))}
+                      allowClear
+                      style={{ width: 140 }}
                     />
                     <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>搜索</Button>
                     <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
