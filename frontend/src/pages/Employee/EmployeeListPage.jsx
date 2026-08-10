@@ -3,16 +3,15 @@
 {/* 修改注意：编辑时携带version用于乐观锁，409冲突调用showConflictWarning */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Input, Select, Space, Tag, Modal, Form, message, Card, Tabs,
+  Table, Button, Input, Select, Space, Tag, Modal, Form, message, Card,
 } from 'antd';
 import {
-  SearchOutlined, PlusOutlined, ReloadOutlined, TeamOutlined, DownloadOutlined,
+  SearchOutlined, PlusOutlined, ReloadOutlined, TeamOutlined, DownloadOutlined, EditOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
 import EmployeeImportModal from './EmployeeImportModal';
-import LeaderConfigPage from '../LeaderConfig/LeaderConfigPage';
 import client from '../../api/client';
 import useCategories from '../../hooks/useCategories';
 
@@ -44,6 +43,12 @@ function EmployeeListPage() {
   const [form] = Form.useForm();
   const mountedRef = useRef(true);
   const [categoryOptions] = useCategories();
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const [batchModalVisible, setBatchModalVisible] = useState(false);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
+  const [batchForm] = Form.useForm();
+  const [allEmployees, setAllEmployees] = useState([]);
+  const [employeeNameMap, setEmployeeNameMap] = useState({});
 
   // 功能：分页获取员工列表——支持关键字、岗位分类、状态筛选
   const fetchEmployees = useCallback(async (page, size, filterParams) => {
@@ -77,12 +82,27 @@ function EmployeeListPage() {
     }
   }, []);
 
+  // 功能：获取全量员工列表——用于构造姓名查表和上级候选人下拉
+  const fetchAllEmployees = useCallback(async () => {
+    try {
+      const res = await client.get('/employees', { params: { page: 1, size: 9999 } });
+      if (mountedRef.current) {
+        const list = (res.data || {}).list || [];
+        setAllEmployees(list);
+        const map = {};
+        list.forEach((e) => { map[e.employeeId] = e.name; });
+        setEmployeeNameMap(map);
+      }
+    } catch (_) { /* 非关键数据 */ }
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     setFilters({ keyword: '', category: '', status: '' });
     setPagination({ current: 1, pageSize: 20, total: 0 });
     setData([]);
     fetchEmployees(1, 20, { keyword: '', category: '', status: '' });
+    fetchAllEmployees();
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -131,7 +151,57 @@ function EmployeeListPage() {
     }
   };
 
-  // 功能：提交新增/编辑——POST或PUT，携带version用于乐观锁
+  // 功能：批量编辑——检查选中行，打开批量编辑弹窗
+  const handleBatchEdit = () => {
+    if (selectedRowKeys.length === 0) return;
+    batchForm.resetFields();
+    setBatchModalVisible(true);
+  };
+
+  // 功能：提交批量编辑——逐行PUT，只覆盖用户填写的字段，未填字段保留原值
+  const handleBatchSubmit = async () => {
+    try {
+      const values = await batchForm.validateFields();
+      setBatchSubmitting(true);
+      let success = 0;
+      let fail = 0;
+      const editableFields = ['category', 'position', 'orgName', 'directLeaderId', 'status', 'email'];
+      const patchFields = editableFields.filter((f) => values[f] !== undefined && values[f] !== null && values[f] !== '');
+      for (const key of selectedRowKeys) {
+        const record = data.find((d) => d.employeeId === key);
+        if (!record) { fail++; continue; }
+        try {
+          const body = {
+            employeeId: record.employeeId,
+            name: record.name,
+            version: record.version,
+          };
+          editableFields.forEach((f) => {
+            body[f] = patchFields.includes(f) ? values[f] : (record[f] ?? '');
+          });
+          await client.put(`/employees/${record.employeeId}`, body);
+          success++;
+        } catch (err) {
+          fail++;
+          if (err?.code === 409 && err?.message?.includes('已被他人修改')) {
+            showConflictWarning('其他用户', '几');
+          } else if (err?.message) {
+            message.error({ content: err.message });
+          }
+        }
+      }
+      if (success > 0) {
+        message.success({ content: `已更新 ${success} 人` + (fail > 0 ? `，${fail} 人失败` : ''), duration: 3 });
+      }
+      setBatchModalVisible(false);
+      setSelectedRowKeys([]);
+      fetchEmployees(pagination.current, pagination.pageSize, filters);
+    } catch (_) {
+      // validateFields rejected — form validation handled inline
+    } finally {
+      if (mountedRef.current) setBatchSubmitting(false);
+    }
+  };
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
@@ -180,7 +250,10 @@ function EmployeeListPage() {
     { title: '岗位分类', dataIndex: 'category', key: 'category', width: 100 },
     { title: '岗位', dataIndex: 'position', key: 'position', width: 120 },
     { title: '部门', dataIndex: 'orgName', key: 'orgName', width: 120, ellipsis: true },
-    { title: '直属上级', dataIndex: 'directLeaderId', key: 'directLeaderId', width: 100 },
+    {
+      title: '直属上级', dataIndex: 'directLeaderId', key: 'directLeaderId', width: 160,
+      render: (v) => v ? `${v} — ${employeeNameMap[v] || ''}` : '-',
+    },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 80,
       render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{STATUS_LABEL_MAP[s] || s || '-'}</Tag>,
@@ -209,16 +282,7 @@ function EmployeeListPage() {
         ]}
       />
 
-      <Tabs
-        defaultActiveKey="employee-list"
-        destroyOnHidden={false}
-        style={{ marginTop: -8 }}
-        items={[
-          {
-            key: 'employee-list',
-            label: '员工列表',
-            children: (
-              <>
+      <>
                 {/* 功能：搜索筛选栏——关键字搜索+岗位分类下拉+状态下拉+搜索/重置按钮 */}
                 <Card id="employee-search-bar" style={{ marginBottom: 16, borderRadius: 8 }}>
                   <Space wrap size="middle">
@@ -249,6 +313,10 @@ function EmployeeListPage() {
                     />
                     <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>搜索</Button>
                     <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
+                    <Button type="primary" icon={<EditOutlined />} onClick={handleBatchEdit}
+                      disabled={selectedRowKeys.length === 0}>
+                      批量编辑 ({selectedRowKeys.length})
+                    </Button>
                   </Space>
                 </Card>
 
@@ -273,6 +341,7 @@ function EmployeeListPage() {
                       </div>
                     )}
                     <Table
+                      rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
                       columns={columns}
                       dataSource={data}
                       rowKey="employeeId"
@@ -332,6 +401,44 @@ function EmployeeListPage() {
                   </Form>
                 </Modal>
 
+                {/* 功能：批量编辑弹窗——勾选员工后批量修改可编辑字段，留空=不修改 */}
+                <Modal
+                  title={`批量编辑 — 已选 ${selectedRowKeys.length} 人`}
+                  open={batchModalVisible}
+                  onOk={handleBatchSubmit}
+                  onCancel={() => setBatchModalVisible(false)}
+                  confirmLoading={batchSubmitting}
+                  okText="保存"
+                  cancelText="取消"
+                  width={520}
+                >
+                  <Form form={batchForm} layout="vertical" style={{ marginTop: 16 }}>
+                    <Form.Item name="category" label="岗位分类（留空不修改）">
+                      <Select placeholder="选择岗位分类" allowClear options={categoryOptions} />
+                    </Form.Item>
+                    <Form.Item name="position" label="岗位名称（留空不修改）">
+                      <Input placeholder="如 整椅研发工程师" maxLength={50} />
+                    </Form.Item>
+                    <Form.Item name="orgName" label="部门（留空不修改）">
+                      <Input placeholder="如 研发中心" maxLength={100} />
+                    </Form.Item>
+                    <Form.Item name="directLeaderId" label="直属上级（留空不修改）">
+                      <Select
+                        placeholder="选择直属上级"
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        options={allEmployees
+                          .filter((e) => e.status === 'ACTIVE' && !selectedRowKeys.includes(e.employeeId))
+                          .map((e) => ({ label: `${e.employeeId} — ${e.name}`, value: e.employeeId }))}
+                      />
+                    </Form.Item>
+                    <Form.Item name="status" label="状态（留空不修改）">
+                      <Select placeholder="选择状态" allowClear options={STATUS_OPTIONS} />
+                    </Form.Item>
+                  </Form>
+                </Modal>
+
                 {/* 功能：批量导入弹窗——Excel上传+预览+校验+确认导入 */}
                 <EmployeeImportModal
                   open={importModalVisible}
@@ -339,15 +446,6 @@ function EmployeeListPage() {
                   onSuccess={() => fetchEmployees(pagination.current, pagination.pageSize, filters)}
                 />
               </>
-            ),
-          },
-          {
-            key: 'leader-config',
-            label: '直属上级配置',
-            children: <LeaderConfigPage />,
-          },
-        ]}
-      />
     </div>
   );
 }
