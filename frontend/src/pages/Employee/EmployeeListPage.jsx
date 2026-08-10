@@ -167,6 +167,10 @@ function EmployeeListPage() {
       let fail = 0;
       const editableFields = ['category', 'position', 'orgName', 'directLeaderId', 'status', 'email'];
       const patchFields = editableFields.filter((f) => values[f] !== undefined && values[f] !== null && values[f] !== '');
+      if (patchFields.length === 0) {
+        message.warning({ content: '请至少选择一个字段进行修改', duration: 3 });
+        return;
+      }
       for (const key of selectedRowKeys) {
         const record = data.find((d) => d.employeeId === key);
         if (!record) { fail++; continue; }
