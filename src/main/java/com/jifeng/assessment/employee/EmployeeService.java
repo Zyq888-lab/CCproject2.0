@@ -175,10 +175,10 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
                 .filter(StringUtils::hasText)
                 .collect(Collectors.toSet());
         leaderIds.removeAll(inputIds); // 已在existingIds中的无需重复查询
-        Set<String> existingLeaderIds = leaderIds.isEmpty() ? Collections.emptySet()
+        Set<String> existingLeaderIds = leaderIds.isEmpty() ? new HashSet<>()
                 : baseMapper.selectBatchIds(leaderIds).stream()
                         .map(Employee::getEmployeeId)
-                        .collect(Collectors.toSet());
+                        .collect(Collectors.toCollection(HashSet::new));
         existingLeaderIds.addAll(existingIds); // 上级也可以是本次导入的员工
 
         // 批量预加载现有邮箱，用于唯一性校验
