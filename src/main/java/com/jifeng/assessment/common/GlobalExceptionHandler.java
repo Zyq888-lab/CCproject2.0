@@ -63,7 +63,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(DuplicateKeyException.class)
-    @ResponseStatus(HttpStatus.OK)
+    @ResponseStatus(HttpStatus.CONFLICT)
     public ApiResponse<Void> handleDuplicateKey(DuplicateKeyException ex) {
         log.warn("数据重复: {}", ex.getMessage());
         return ApiResponse.error(409, "数据已存在，请检查后重试");

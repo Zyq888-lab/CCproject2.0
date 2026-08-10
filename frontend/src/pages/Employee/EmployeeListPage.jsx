@@ -3,7 +3,7 @@
 {/* 修改注意：编辑时携带version用于乐观锁，409冲突调用showConflictWarning */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Input, Select, Space, Tag, Modal, Form, message, Card,
+  Table, Button, Input, Select, AutoComplete, Space, Tag, Modal, Form, message, Card,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, ReloadOutlined, TeamOutlined, DownloadOutlined, EditOutlined,
@@ -427,14 +427,15 @@ function EmployeeListPage() {
                       <Input placeholder="如 研发中心" maxLength={100} />
                     </Form.Item>
                     <Form.Item name="directLeaderId" label="直属上级（留空不修改）">
-                      <Select
-                        placeholder="选择直属上级"
+                      <AutoComplete
+                        placeholder="输入工号搜索（如 EMP001）"
                         allowClear
-                        showSearch
-                        optionFilterProp="label"
                         options={allEmployees
                           .filter((e) => e.status === 'ACTIVE' && !selectedRowKeys.includes(e.employeeId))
                           .map((e) => ({ label: `${e.employeeId} — ${e.name}`, value: e.employeeId }))}
+                        filterOption={(inputValue, option) =>
+                          (option?.label ?? '').toUpperCase().includes(inputValue.toUpperCase())
+                        }
                       />
                     </Form.Item>
                     <Form.Item name="status" label="状态（留空不修改）">
