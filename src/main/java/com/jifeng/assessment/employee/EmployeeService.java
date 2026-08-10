@@ -229,7 +229,12 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
                         continue;
                     }
                 }
-                if (StringUtils.hasText(emp.getCategory()) && !validCategories.contains(emp.getCategory())) {
+                if (!StringUtils.hasText(emp.getCategory())) {
+                    errors.add(new ImportResult.RowError(rowNum, emp.getEmployeeId(),
+                            "岗位分类不能为空"));
+                    continue;
+                }
+                if (!validCategories.contains(emp.getCategory())) {
                     errors.add(new ImportResult.RowError(rowNum, emp.getEmployeeId(),
                             "岗位分类 '" + emp.getCategory() + "' 不存在，请先在岗位分类管理中维护"));
                     continue;
