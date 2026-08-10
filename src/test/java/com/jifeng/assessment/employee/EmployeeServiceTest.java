@@ -4,6 +4,9 @@
 package com.jifeng.assessment.employee;
 
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.positioncategory.PositionCategory;
+import com.jifeng.assessment.positioncategory.PositionCategoryMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,6 +22,23 @@ class EmployeeServiceTest {
 
     @Autowired
     private EmployeeService employeeService;
+
+    @Autowired
+    private PositionCategoryMapper positionCategoryMapper;
+
+    @BeforeEach
+    void seedCategories() {
+        if (positionCategoryMapper.selectCount(null) == 0) {
+            PositionCategory cat1 = new PositionCategory();
+            cat1.setName("研发技术类");
+            cat1.setSortOrder(10);
+            positionCategoryMapper.insert(cat1);
+            PositionCategory cat2 = new PositionCategory();
+            cat2.setName("管理类");
+            cat2.setSortOrder(20);
+            positionCategoryMapper.insert(cat2);
+        }
+    }
 
     // 功能：正常新增员工，校验返回的DTO字段与输入一致
     @Test

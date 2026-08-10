@@ -8,6 +8,8 @@ import com.jifeng.assessment.common.BaseService;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.common.PageQuery;
 import com.jifeng.assessment.common.PageResult;
+import com.jifeng.assessment.positioncategory.PositionCategory;
+import com.jifeng.assessment.positioncategory.PositionCategoryMapper;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,7 @@ import java.util.stream.Collectors;
 public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
 
     private final ProjectRoleAssignmentMapper projectRoleAssignmentMapper;
+    private final PositionCategoryMapper positionCategoryMapper;
 
     // 功能：分页查询员工列表，支持按关键字（姓名/工号）、岗位分类、状态筛选
     public PageResult<EmployeeDTO> listEmployees(PageQuery query, String category, String status) {
@@ -96,6 +99,15 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
             }
             if (!"ACTIVE".equals(leader.getStatus())) {
                 throw new BusinessException(400, "直属上级状态无效，仅允许 ACTIVE 员工担任上级");
+            }
+        }
+        if (StringUtils.hasText(employee.getCategory())) {
+            boolean categoryExists = positionCategoryMapper.selectCount(
+                    new LambdaQueryWrapper<PositionCategory>()
+                            .eq(PositionCategory::getName, employee.getCategory())
+                            .eq(PositionCategory::getDeleted, 0)) > 0;
+            if (!categoryExists) {
+                throw new BusinessException(400, "岗位分类 '" + employee.getCategory() + "' 不存在，请先在岗位分类管理中维护");
             }
         }
         employee.setUpdatedAt(LocalDateTime.now());
@@ -179,6 +191,17 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
                         .in(Employee::getEmail, inputEmails))
                         .stream().map(Employee::getEmail).collect(Collectors.toSet());
 
+        // 批量预加载有效岗位分类
+        Set<String> inputCategories = employees.stream()
+                .map(Employee::getCategory)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        Set<String> validCategories = inputCategories.isEmpty() ? Collections.emptySet()
+                : positionCategoryMapper.selectList(new LambdaQueryWrapper<PositionCategory>()
+                        .eq(PositionCategory::getDeleted, 0)
+                        .in(PositionCategory::getName, inputCategories))
+                        .stream().map(PositionCategory::getName).collect(Collectors.toSet());
+
         int rowNum = 0;
         Set<String> batchEmails = new HashSet<>(); // 防同一批次内重复邮箱
         for (Employee emp : employees) {
@@ -205,6 +228,11 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
                         errors.add(new ImportResult.RowError(rowNum, emp.getEmployeeId(), "本批次内邮箱重复: " + emp.getEmail()));
                         continue;
                     }
+                }
+                if (StringUtils.hasText(emp.getCategory()) && !validCategories.contains(emp.getCategory())) {
+                    errors.add(new ImportResult.RowError(rowNum, emp.getEmployeeId(),
+                            "岗位分类 '" + emp.getCategory() + "' 不存在，请先在岗位分类管理中维护"));
+                    continue;
                 }
                 if (StringUtils.hasText(emp.getDirectLeaderId())
                         && !existingLeaderIds.contains(emp.getDirectLeaderId())) {
@@ -250,6 +278,13 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
         }
         if (!StringUtils.hasText(employee.getCategory())) {
             throw new BusinessException(400, "岗位分类不能为空");
+        }
+        boolean categoryExists = positionCategoryMapper.selectCount(
+                new LambdaQueryWrapper<PositionCategory>()
+                        .eq(PositionCategory::getName, employee.getCategory())
+                        .eq(PositionCategory::getDeleted, 0)) > 0;
+        if (!categoryExists) {
+            throw new BusinessException(400, "岗位分类 '" + employee.getCategory() + "' 不存在，请先在岗位分类管理中维护");
         }
         if (!StringUtils.hasText(employee.getPosition())) {
             throw new BusinessException(400, "岗位名称不能为空");

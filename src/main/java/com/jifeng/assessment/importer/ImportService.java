@@ -8,6 +8,8 @@ import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.employee.EmployeeValidator;
+import com.jifeng.assessment.positioncategory.PositionCategory;
+import com.jifeng.assessment.positioncategory.PositionCategoryMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.EmptyFileException;
@@ -31,6 +33,7 @@ import java.util.stream.Collectors;
 public class ImportService {
 
     private final EmployeeMapper employeeMapper;
+    private final PositionCategoryMapper positionCategoryMapper;
 
     // 最大预览行数
     private static final int PREVIEW_ROWS = 10;
@@ -130,9 +133,11 @@ public class ImportService {
             Set<String> allEmployeeIds = new HashSet<>();
             Set<String> allLeaderIds = new HashSet<>();
             Set<String> allEmails = new HashSet<>();
+            Set<String> allCategories = new HashSet<>();
             int empIdCol = getColumnIndex(parsed.columnMapping, "employeeId");
             int leaderCol = getColumnIndex(parsed.columnMapping, "directLeaderId");
             int emailCol = getColumnIndex(parsed.columnMapping, "email");
+            int catCol = getColumnIndex(parsed.columnMapping, "category");
             for (int i = 0; i < parsed.rawRows; i++) {
                 Row row = parsed.sheet.getRow(i + 1);
                 if (row == null || isRowEmpty(row)) continue;
@@ -145,6 +150,10 @@ public class ImportService {
                 if (emailCol >= 0) {
                     String email = readCell(row.getCell(emailCol));
                     if (!email.isEmpty()) allEmails.add(email);
+                }
+                if (catCol >= 0) {
+                    String cat = readCell(row.getCell(catCol));
+                    if (!cat.isEmpty()) allCategories.add(cat);
                 }
             }
 
@@ -166,6 +175,13 @@ public class ImportService {
                                     .in(Employee::getEmail, allEmails))
                             .stream().map(Employee::getEmail).collect(Collectors.toSet());
 
+            // 批量查询有效岗位分类
+            Set<String> validCategories = allCategories.isEmpty() ? Set.of() :
+                    positionCategoryMapper.selectList(new LambdaQueryWrapper<PositionCategory>()
+                                    .eq(PositionCategory::getDeleted, 0)
+                                    .in(PositionCategory::getName, allCategories))
+                            .stream().map(PositionCategory::getName).collect(Collectors.toSet());
+
             int successCount = 0;
             int dataRowCount = 0;
             Set<String> batchEmails = new HashSet<>(); // 防同一批次内重复邮箱
@@ -180,7 +196,7 @@ public class ImportService {
 
                 try {
                     Employee emp = buildEmployee(row, rowNum, parsed.columnMapping,
-                            existingIds, existingLeaders, existingEmails, batchEmails);
+                            existingIds, existingLeaders, existingEmails, batchEmails, validCategories);
                     employeeMapper.insert(emp);
                     successCount++;
                     if (StringUtils.hasText(emp.getEmail())) {
@@ -337,7 +353,8 @@ public class ImportService {
     // 辅助：根据列映射构建Employee对象并校验（使用预取的Set替代selectById）
     private Employee buildEmployee(Row row, int rowNum, Map<Integer, String> columnMapping,
                                    Set<String> existingEmployeeIds, Set<String> existingLeaderIds,
-                                   Set<String> existingEmails, Set<String> batchEmails) {
+                                   Set<String> existingEmails, Set<String> batchEmails,
+                                   Set<String> validCategories) {
         Employee emp = new Employee();
         for (Map.Entry<Integer, String> entry : columnMapping.entrySet()) {
             String value = readCell(row.getCell(entry.getKey()));
@@ -349,7 +366,10 @@ public class ImportService {
 
         // 数据库NOT NULL字段默认值
         if (!StringUtils.hasText(emp.getCategory())) {
-            emp.setCategory("未分类");
+            throw new BusinessException(400, "第" + rowNum + "行：岗位分类不能为空");
+        }
+        if (!validCategories.contains(emp.getCategory())) {
+            throw new BusinessException(400, "第" + rowNum + "行：岗位分类 '" + emp.getCategory() + "' 不存在，请先在岗位分类管理中维护");
         }
         if (!StringUtils.hasText(emp.getPosition())) {
             emp.setPosition("未定义");
