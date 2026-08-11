@@ -4,6 +4,7 @@
 package com.jifeng.assessment.project;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.jifeng.assessment.common.BaseService;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.common.PageQuery;
@@ -85,7 +86,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         existing.setConfirmedBy(currentUser);
         existing.setConfirmedAt(LocalDateTime.now());
         existing.setUpdatedAt(LocalDateTime.now());
-        updateWithOptimisticLock(existing);
+        updateProject(existing);
         return toDTO(baseMapper.selectByCodeAndStage(projectCode, projectStage));
     }
 
@@ -100,8 +101,23 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         existing.setConfirmedBy(null);
         existing.setConfirmedAt(null);
         existing.setUpdatedAt(LocalDateTime.now());
-        updateWithOptimisticLock(existing);
+        updateProject(existing);
         return toDTO(baseMapper.selectByCodeAndStage(projectCode, projectStage));
+    }
+
+    // 功能：联合主键安全更新——WHERE (project_code, project_stage, version)，不影响同编码其他阶段
+    private void updateProject(Project entity) {
+        int rows = baseMapper.update(null, new LambdaUpdateWrapper<Project>()
+                .eq(Project::getProjectCode, entity.getProjectCode())
+                .eq(Project::getProjectStage, entity.getProjectStage())
+                .eq(Project::getVersion, entity.getVersion())
+                .set(Project::getStageConfirmed, entity.getStageConfirmed())
+                .set(Project::getConfirmedBy, entity.getConfirmedBy())
+                .set(Project::getConfirmedAt, entity.getConfirmedAt())
+                .set(Project::getUpdatedAt, entity.getUpdatedAt()));
+        if (rows == 0) {
+            throw new BusinessException(409, "数据已被他人修改，请刷新后重试");
+        }
     }
 
     // 功能：从Spring Security上下文获取当前登录用户名，未认证时返回"system"
