@@ -235,7 +235,8 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
       )}
 
       {hideHeader && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16, gap: 8 }}>
+          <Button icon={<DownloadOutlined />} onClick={() => setImportVisible(true)}>批量导入</Button>
           <Button icon={<DownloadOutlined />} onClick={handleExport}>导出CSV</Button>
         </div>
       )}
