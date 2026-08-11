@@ -16,6 +16,7 @@ public class ProjectRoleAssignment {
     @TableId(type = IdType.AUTO)
     private Long id;
     private String projectCode;
+    private String projectStage;
     private String projectRoleCode;
     private String employeeId;
     private Boolean isPrimaryPd;

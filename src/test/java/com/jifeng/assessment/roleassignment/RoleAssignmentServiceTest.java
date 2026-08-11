@@ -77,7 +77,7 @@ class RoleAssignmentServiceTest {
         createTestEmployee("EMP_RA1", "张三");
         createTestRole("PD", "PD负责人");
 
-        ProjectRoleAssignmentDTO dto = roleAssignmentService.assignEmployee("PJ_RA1", "PD", "EMP_RA1");
+        ProjectRoleAssignmentDTO dto = roleAssignmentService.assignEmployee("PJ_RA1", "P3", "PD", "EMP_RA1");
         assertNotNull(dto);
         assertEquals("PJ_RA1", dto.getProjectCode());
         assertEquals("PD", dto.getProjectRoleCode());
@@ -93,10 +93,10 @@ class RoleAssignmentServiceTest {
         createTestEmployee("EMP_RA2", "李四");
         createTestRole("PM", "项目经理");
 
-        roleAssignmentService.assignEmployee("PJ_RA2", "PM", "EMP_RA2");
+        roleAssignmentService.assignEmployee("PJ_RA2", "P3", "PM", "EMP_RA2");
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> roleAssignmentService.assignEmployee("PJ_RA2", "PM", "EMP_RA2"));
+                () -> roleAssignmentService.assignEmployee("PJ_RA2", "P3", "PM", "EMP_RA2"));
         assertTrue(ex.getMessage().contains("已被分配"));
     }
 
@@ -108,8 +108,8 @@ class RoleAssignmentServiceTest {
         createTestEmployee("EMP_RA3B", "赵六");
         createTestRole("PD", "PD负责人");
 
-        ProjectRoleAssignmentDTO a1 = roleAssignmentService.assignEmployee("PJ_RA3", "PD", "EMP_RA3A");
-        ProjectRoleAssignmentDTO a2 = roleAssignmentService.assignEmployee("PJ_RA3", "PD", "EMP_RA3B");
+        ProjectRoleAssignmentDTO a1 = roleAssignmentService.assignEmployee("PJ_RA3", "P3", "PD", "EMP_RA3A");
+        ProjectRoleAssignmentDTO a2 = roleAssignmentService.assignEmployee("PJ_RA3", "P3", "PD", "EMP_RA3B");
 
         // 标记第一个为PD负责人
         ProjectRoleAssignmentDTO pd1 = roleAssignmentService.markPrimaryPd(a1.getId());
@@ -120,7 +120,7 @@ class RoleAssignmentServiceTest {
         assertTrue(pd2.getIsPrimaryPd());
 
         // 查询列表验证只有一个主PD
-        List<ProjectRoleAssignmentDTO> list = roleAssignmentService.listAssignments("PJ_RA3");
+        List<ProjectRoleAssignmentDTO> list = roleAssignmentService.listAssignments("PJ_RA3", "P3");
         long primaryCount = list.stream().filter(ProjectRoleAssignmentDTO::getIsPrimaryPd).count();
         assertEquals(1, primaryCount);
     }
@@ -132,12 +132,12 @@ class RoleAssignmentServiceTest {
         createTestEmployee("EMP_RA4", "孙七");
         createTestRole("PQL", "项目质量负责人");
 
-        ProjectRoleAssignmentDTO dto = roleAssignmentService.assignEmployee("PJ_RA4", "PQL", "EMP_RA4");
+        ProjectRoleAssignmentDTO dto = roleAssignmentService.assignEmployee("PJ_RA4", "P3", "PQL", "EMP_RA4");
         assertNotNull(dto);
 
         roleAssignmentService.removeAssignment(dto.getId());
 
-        List<ProjectRoleAssignmentDTO> list = roleAssignmentService.listAssignments("PJ_RA4");
+        List<ProjectRoleAssignmentDTO> list = roleAssignmentService.listAssignments("PJ_RA4", "P3");
         assertTrue(list.isEmpty());
     }
 
@@ -148,7 +148,7 @@ class RoleAssignmentServiceTest {
         createTestRole("PD", "PD负责人");
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> roleAssignmentService.assignEmployee("NOT_EXIST", "PD", "EMP_RA5"));
+                () -> roleAssignmentService.assignEmployee("NOT_EXIST", "P3", "PD", "EMP_RA5"));
         assertTrue(ex.getMessage().contains("项目不存在"));
     }
 
@@ -159,7 +159,7 @@ class RoleAssignmentServiceTest {
         createTestRole("PD", "PD负责人");
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> roleAssignmentService.assignEmployee("PJ_RA6", "PD", "NOT_EXIST"));
+                () -> roleAssignmentService.assignEmployee("PJ_RA6", "P3", "PD", "NOT_EXIST"));
         assertTrue(ex.getMessage().contains("员工不存在"));
     }
 
@@ -170,7 +170,7 @@ class RoleAssignmentServiceTest {
         createTestEmployee("EMP_RA7", "郑九");
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> roleAssignmentService.assignEmployee("PJ_RA7", "NOT_EXIST", "EMP_RA7"));
+                () -> roleAssignmentService.assignEmployee("PJ_RA7", "P3", "NOT_EXIST", "EMP_RA7"));
         assertTrue(ex.getMessage().contains("项目角色不存在"));
     }
 }

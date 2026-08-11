@@ -20,7 +20,7 @@ function ProjectRoleView() {
         if (mountedRef.current) {
           const list = res.data?.list || [];
           setProjects(list);
-          if (list.length > 0) setSelectedProject(list[0].projectCode);
+          if (list.length > 0) setSelectedProject(`${list[0].projectCode}__${list[0].projectStage}`);
         }
       })
       .catch(() => {})
@@ -31,9 +31,16 @@ function ProjectRoleView() {
   }, []);
 
   const projectOptions = projects.map((p) => ({
-    label: `${p.projectCode} — ${p.projectName}`,
-    value: p.projectCode,
+    label: `${p.projectCode} - ${p.projectStage} (${p.projectName})`,
+    value: `${p.projectCode}__${p.projectStage}`,
   }));
+
+  const parseProjectKey = (key) => {
+    if (!key) return { projectCode: '', projectStage: '' };
+    const idx = key.indexOf('__');
+    return idx > 0 ? { projectCode: key.substring(0, idx), projectStage: key.substring(idx + 2) } : { projectCode: key, projectStage: '' };
+  };
+  const selectedProjectObj = parseProjectKey(selectedProject);
 
   const tabItems = [
     {
@@ -63,7 +70,7 @@ function ProjectRoleView() {
             />
           </div>
           {selectedProject ? (
-            <RoleAssignmentPage key={selectedProject} projectCode={selectedProject} />
+            <RoleAssignmentPage key={selectedProject} projectCode={selectedProjectObj.projectCode} projectStage={selectedProjectObj.projectStage} />
           ) : (
             <div style={{ textAlign: 'center', padding: 60, color: '#8C8C8C' }}>
               请选择一个项目以查看角色分配

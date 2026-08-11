@@ -96,7 +96,8 @@ public class WizardController extends BaseController {
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<WizardStepResult> stepRoleAssignment(@Valid @RequestBody Step4Request request) {
         roleAssignmentService.assignEmployee(
-                request.getProjectCode(), request.getRoleCode(), request.getEmployeeId());
+                request.getProjectCode(), request.getProjectStage(),
+                request.getRoleCode(), request.getEmployeeId());
         return ok(advance(4));
     }
 
@@ -180,6 +181,8 @@ public class WizardController extends BaseController {
     public static class Step4Request {
         @NotBlank
         private String projectCode;
+        @NotBlank
+        private String projectStage;
         @NotBlank
         private String roleCode;
         @NotBlank

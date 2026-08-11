@@ -192,6 +192,7 @@ class WizardControllerTest {
 
         Map<String, String> body = Map.of(
                 "projectCode", projectCode,
+                "projectStage", "P3",
                 "roleCode", roleCode,
                 "employeeId", "ADMIN");
 

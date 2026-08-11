@@ -241,7 +241,7 @@ function ProjectListPage() {
       title: '操作', key: 'action', width: 260,
       render: (_, record) => (
         <Space size="small">
-          <Button type="link" size="small" icon={<LinkOutlined />} onClick={() => navigate(`/project/${record.projectCode}/roles`)}>
+          <Button type="link" size="small" icon={<LinkOutlined />} onClick={() => navigate(`/project/${record.projectCode}/${record.projectStage}/roles`)}>
             角色分配
           </Button>
           {!record.stageConfirmed ? (

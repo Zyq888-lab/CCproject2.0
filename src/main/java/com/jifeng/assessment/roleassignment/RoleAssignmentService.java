@@ -32,14 +32,15 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
     private final EmployeeMapper employeeMapper;
     private final ProjectRoleMapper projectRoleMapper;
 
-    // 功能：查询项目下所有角色分配——关联查询员工姓名
-    public List<ProjectRoleAssignmentDTO> listAssignments(String projectCode) {
-        List<Project> projects = projectMapper.selectByCode(projectCode);
-        if (projects.isEmpty()) {
-            throw new BusinessException(404, "项目不存在: " + projectCode);
+    // 功能：查询项目特定阶段下的所有角色分配——关联查询员工姓名
+    public List<ProjectRoleAssignmentDTO> listAssignments(String projectCode, String projectStage) {
+        Project project = projectMapper.selectByCodeAndStage(projectCode, projectStage);
+        if (project == null) {
+            throw new BusinessException(404, "项目不存在: " + projectCode + " / " + projectStage);
         }
         LambdaQueryWrapper<ProjectRoleAssignment> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ProjectRoleAssignment::getProjectCode, projectCode)
+                .eq(ProjectRoleAssignment::getProjectStage, projectStage)
                 .orderByAsc(ProjectRoleAssignment::getId);
         List<ProjectRoleAssignment> assignments = baseMapper.selectList(wrapper);
 
@@ -69,9 +70,13 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
 
     // 功能：分配人员到项目角色——校验项目、员工、角色均存在且未被重复分配
     @Transactional
-    public ProjectRoleAssignmentDTO assignEmployee(String projectCode, String roleCode, String employeeId) {
+    public ProjectRoleAssignmentDTO assignEmployee(String projectCode, String projectStage,
+            String roleCode, String employeeId) {
         if (!StringUtils.hasText(projectCode)) {
             throw new BusinessException(400, "项目编码不能为空");
+        }
+        if (!StringUtils.hasText(projectStage)) {
+            throw new BusinessException(400, "项目阶段不能为空");
         }
         if (!StringUtils.hasText(roleCode)) {
             throw new BusinessException(400, "角色编码不能为空");
@@ -80,9 +85,9 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
             throw new BusinessException(400, "员工工号不能为空");
         }
 
-        List<Project> projects = projectMapper.selectByCode(projectCode);
-        if (projects.isEmpty()) {
-            throw new BusinessException(404, "项目不存在: " + projectCode);
+        Project project = projectMapper.selectByCodeAndStage(projectCode, projectStage);
+        if (project == null) {
+            throw new BusinessException(404, "项目不存在: " + projectCode + " / " + projectStage);
         }
         Employee employee = employeeMapper.selectById(employeeId);
         if (employee == null) {
@@ -96,15 +101,17 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         // 检查重复分配
         LambdaQueryWrapper<ProjectRoleAssignment> dupWrapper = new LambdaQueryWrapper<>();
         dupWrapper.eq(ProjectRoleAssignment::getProjectCode, projectCode)
+                .eq(ProjectRoleAssignment::getProjectStage, projectStage)
                 .eq(ProjectRoleAssignment::getProjectRoleCode, roleCode)
                 .eq(ProjectRoleAssignment::getEmployeeId, employeeId);
         if (baseMapper.selectCount(dupWrapper) > 0) {
             throw new BusinessException(409,
-                    "员工" + employeeId + "已被分配到项目" + projectCode + "的角色" + roleCode);
+                    "员工" + employeeId + "已被分配到项目" + projectCode + " " + projectStage + "的角色" + roleCode);
         }
 
         ProjectRoleAssignment assignment = new ProjectRoleAssignment();
         assignment.setProjectCode(projectCode);
+        assignment.setProjectStage(projectStage);
         assignment.setProjectRoleCode(roleCode);
         assignment.setEmployeeId(employeeId);
         assignment.setIsPrimaryPd(false);
@@ -112,7 +119,7 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
             baseMapper.insert(assignment);
         } catch (DuplicateKeyException e) {
             throw new BusinessException(409,
-                    "员工" + employeeId + "已被分配到项目" + projectCode + "的角色" + roleCode);
+                    "员工" + employeeId + "已被分配到项目" + projectCode + " " + projectStage + "的角色" + roleCode);
         }
 
         return toDTO(assignment, employee.getName());

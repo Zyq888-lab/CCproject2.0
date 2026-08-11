@@ -30,7 +30,7 @@ function App() {
           <Route path="/employee-management" element={<EmployeeListPage />} />
           <Route path="/project-role" element={<ProjectRoleView />} />
           <Route path="/project/list" element={<ProjectListPage />} />
-          <Route path="/project/:id/roles" element={<RoleAssignmentPage />} />
+          <Route path="/project/:projectCode/:projectStage/roles" element={<RoleAssignmentPage />} />
           <Route path="/project/assignment-summary" element={<ProjectRoleSummaryPage />} />
           <Route path="/role-assignment" element={<Navigate to="/project/list" replace />} />
           <Route path="/position-config" element={<PositionConfigPage />} />

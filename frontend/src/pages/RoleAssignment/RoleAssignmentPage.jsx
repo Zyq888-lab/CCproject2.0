@@ -14,9 +14,10 @@ import EmptyState from '../../components/EmptyState';
 import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
 import client from '../../api/client';
 
-function RoleAssignmentPage({ projectCode: propProjectCode }) {
-  const { id: routeProjectCode } = useParams();
+function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propProjectStage }) {
+  const { projectCode: routeProjectCode, projectStage: routeProjectStage } = useParams();
   const projectCode = propProjectCode || routeProjectCode;
+  const projectStage = propProjectStage || routeProjectStage || '';
 
   const [assignments, setAssignments] = useState([]);
   const [roles, setRoles] = useState([]);
@@ -41,7 +42,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await client.get(`/projects/${projectCode}/assignments`);
+      const res = await client.get(`/projects/${projectCode}/${projectStage}/assignments`);
       if (mountedRef.current) {
         setAssignments(Array.isArray(res.data) ? res.data : []);
       }
@@ -54,7 +55,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode }) {
         setLoading(false);
       }
     }
-  }, [projectCode]);
+  }, [projectCode, projectStage]);
 
   // 功能：获取启用的角色列表——用于下拉选项和角色名称解析
   const fetchRoles = useCallback(async () => {
@@ -119,7 +120,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode }) {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
-      await client.post(`/projects/${projectCode}/assignments`, {
+      await client.post(`/projects/${projectCode}/${projectStage}/assignments`, {
         roleCode: values.roleCode,
         employeeId: values.employeeId,
       });
@@ -144,7 +145,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode }) {
   // 功能：标记为PD负责人——PUT /api/v1/projects/{projectCode}/assignments/{id}/toggle-primary-pd
   const handleMarkPd = async (assignment) => {
     try {
-      await client.put(`/projects/${projectCode}/assignments/${assignment.id}/toggle-primary-pd`);
+      await client.put(`/projects/${projectCode}/${projectStage}/assignments/${assignment.id}/toggle-primary-pd`);
       message.success({ content: `已将 ${assignment.employeeName} 标记为PD负责人`, duration: 3 });
       fetchAssignments();
     } catch (err) {
@@ -164,7 +165,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode }) {
   const handleRemove = (assignment) => {
     showDeleteConfirm(async () => {
       try {
-        await client.delete(`/projects/${projectCode}/assignments/${assignment.id}`);
+        await client.delete(`/projects/${projectCode}/${projectStage}/assignments/${assignment.id}`);
         message.success({ content: '已移除', duration: 3 });
         fetchAssignments();
       } catch (err) {
@@ -241,7 +242,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode }) {
   return (
     <div id="role-assignment-area">
       <PageHeader
-        title={`角色分配 — ${projectCode}`}
+        title={`角色分配 — ${projectCode} ${projectStage}`}
         breadcrumb={[
           { title: '首页', path: '/dashboard' },
           { title: '项目管理', path: '/project/list' },

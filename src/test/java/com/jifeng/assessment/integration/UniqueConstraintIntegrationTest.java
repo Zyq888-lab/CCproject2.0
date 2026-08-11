@@ -190,11 +190,11 @@ class UniqueConstraintIntegrationTest {
         projectRoleService.createProjectRole(role);
 
         // 第一次分配
-        roleAssignmentService.assignEmployee("UNQ_ASGN_PRJ", "UNQ_ASGN_ROLE", "UNQ_ASGN_EMP");
+        roleAssignmentService.assignEmployee("UNQ_ASGN_PRJ", "P3", "UNQ_ASGN_ROLE", "UNQ_ASGN_EMP");
 
         // 重复分配
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> roleAssignmentService.assignEmployee("UNQ_ASGN_PRJ", "UNQ_ASGN_ROLE", "UNQ_ASGN_EMP"));
+                () -> roleAssignmentService.assignEmployee("UNQ_ASGN_PRJ", "P3", "UNQ_ASGN_ROLE", "UNQ_ASGN_EMP"));
         assertEquals(409, ex.getCode());
         assertTrue(ex.getMessage().contains("已被分配"));
     }

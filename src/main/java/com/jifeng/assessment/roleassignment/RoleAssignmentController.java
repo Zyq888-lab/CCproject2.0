@@ -22,10 +22,11 @@ public class RoleAssignmentController extends BaseController {
     private final RoleAssignmentService roleAssignmentService;
 
     // 功能：查询项目下所有角色分配，返回含员工姓名的分配列表
-    @GetMapping("/api/v1/projects/{projectCode}/assignments")
+    @GetMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD')")
-    public ApiResponse<List<ProjectRoleAssignmentDTO>> list(@PathVariable String projectCode) {
-        return ok(roleAssignmentService.listAssignments(projectCode));
+    public ApiResponse<List<ProjectRoleAssignmentDTO>> list(
+            @PathVariable String projectCode, @PathVariable String projectStage) {
+        return ok(roleAssignmentService.listAssignments(projectCode, projectStage));
     }
 
     // 功能：跨项目角色分配汇总查询——四表JOIN，支持多条件筛选和分页
@@ -44,29 +45,32 @@ public class RoleAssignmentController extends BaseController {
     }
 
     // 功能：分配员工到项目角色——校验项目、角色、员工均存在且未被重复分配
-    @PostMapping("/api/v1/projects/{projectCode}/assignments")
+    @PostMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
     public ApiResponse<ProjectRoleAssignmentDTO> assign(
             @PathVariable String projectCode,
+            @PathVariable String projectStage,
             @Valid @RequestBody AssignRequest request) {
         return ok(roleAssignmentService.assignEmployee(
-                projectCode, request.getRoleCode(), request.getEmployeeId()));
+                projectCode, projectStage, request.getRoleCode(), request.getEmployeeId()));
     }
 
-    // 功能：标记为PD负责人——任意角色分配均可标记，先取消同项目已有PD负责人，再设置当前分配
-    @PutMapping("/api/v1/projects/{projectCode}/assignments/{assignmentId}/toggle-primary-pd")
+    // 功能：标记为PD负责人——任意角色分配均可标记
+    @PutMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments/{assignmentId}/toggle-primary-pd")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
     public ApiResponse<ProjectRoleAssignmentDTO> markPrimaryPd(
             @PathVariable String projectCode,
+            @PathVariable String projectStage,
             @PathVariable Long assignmentId) {
         return ok(roleAssignmentService.markPrimaryPd(assignmentId));
     }
 
     // 功能：移除角色分配——逻辑删除
-    @DeleteMapping("/api/v1/projects/{projectCode}/assignments/{assignmentId}")
+    @DeleteMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments/{assignmentId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
     public ApiResponse<Void> remove(
             @PathVariable String projectCode,
+            @PathVariable String projectStage,
             @PathVariable Long assignmentId) {
         roleAssignmentService.removeAssignment(assignmentId);
         return ok("已移除", null);
