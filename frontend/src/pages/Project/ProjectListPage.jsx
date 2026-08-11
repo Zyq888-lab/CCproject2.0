@@ -6,7 +6,7 @@ import {
   Table, Button, Tag, Space, Modal, Form, Input, Select, message, Card,
 } from 'antd';
 import {
-  PlusOutlined, FolderOutlined, CheckCircleOutlined, RollbackOutlined, ReloadOutlined, LinkOutlined, UnorderedListOutlined,
+  PlusOutlined, FolderOutlined, CheckCircleOutlined, RollbackOutlined, ReloadOutlined, LinkOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -234,7 +234,6 @@ function ProjectListPage() {
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
         actions={[
           { label: '新增项目', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate },
-          { label: '角色分配汇总', icon: <UnorderedListOutlined />, onClick: () => navigate('/project/assignment-summary') },
         ]}
       />
 
