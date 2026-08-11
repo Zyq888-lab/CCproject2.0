@@ -25,13 +25,16 @@ import java.util.List;
 public class ProjectService extends BaseService<ProjectMapper, Project> {
 
     // 功能：分页查询项目列表，支持按 projectStage 和 status 筛选
-    public PageResult<ProjectDTO> listProjects(PageQuery query, String stage, String status) {
+    public PageResult<ProjectDTO> listProjects(PageQuery query, String stage, String status, Boolean includeInactive) {
         LambdaQueryWrapper<Project> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(stage)) {
             wrapper.eq(Project::getProjectStage, stage);
         }
         if (StringUtils.hasText(status)) {
             wrapper.eq(Project::getStatus, status);
+        }
+        if (!Boolean.TRUE.equals(includeInactive)) {
+            wrapper.ne(Project::getStatus, "INACTIVE");
         }
         wrapper.orderByAsc(Project::getProjectCode);
         PageResult<Project> page = selectPage(query, wrapper);
@@ -103,6 +106,22 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         existing.setConfirmedAt(null);
         existing.setUpdatedAt(LocalDateTime.now());
         existing.setStatus("ACTIVE");
+        updateProject(existing);
+        return toDTO(baseMapper.selectByCodeAndStage(projectCode, projectStage));
+    }
+
+    // 功能：归档已确认的项目阶段——只有 COMPLETED 状态才能归档，归档后变为 INACTIVE
+    @Transactional
+    public ProjectDTO archiveStage(String projectCode, String projectStage) {
+        Project existing = baseMapper.selectByCodeAndStage(projectCode, projectStage);
+        if (existing == null) {
+            throw new BusinessException(404, "项目不存在: " + projectCode + " / " + projectStage);
+        }
+        if (!"COMPLETED".equals(existing.getStatus())) {
+            throw new BusinessException(400, "只有已完成状态的项目阶段才能归档，当前状态: " + existing.getStatus());
+        }
+        existing.setStatus("INACTIVE");
+        existing.setUpdatedAt(LocalDateTime.now());
         updateProject(existing);
         return toDTO(baseMapper.selectByCodeAndStage(projectCode, projectStage));
     }

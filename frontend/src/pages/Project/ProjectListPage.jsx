@@ -6,7 +6,7 @@ import {
   Table, Button, Tag, Space, Modal, Form, Input, Select, message, Card,
 } from 'antd';
 import {
-  PlusOutlined, FolderOutlined, CheckCircleOutlined, RollbackOutlined, ReloadOutlined, LinkOutlined,
+  PlusOutlined, FolderOutlined, CheckCircleOutlined, RollbackOutlined, ReloadOutlined, LinkOutlined, InboxOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -37,6 +37,7 @@ function ProjectListPage() {
   const [error, setError] = useState(null);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
   const [filters, setFilters] = useState({ stage: '', status: '' });
+  const [showArchived, setShowArchived] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
@@ -51,6 +52,7 @@ function ProjectListPage() {
       const params = { page, size };
       if (filterParams?.stage) params.stage = filterParams.stage;
       if (filterParams?.status) params.status = filterParams.status;
+      params.includeInactive = filterParams?.includeInactive !== undefined ? filterParams.includeInactive : showArchived;
       const res = await client.get('/projects', { params });
       if (mountedRef.current) {
         const pageData = res.data || {};
@@ -70,7 +72,7 @@ function ProjectListPage() {
         setLoading(false);
       }
     }
-  }, []);
+  }, [showArchived]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -85,6 +87,7 @@ function ProjectListPage() {
 
   // 功能：重置筛选——清空后重新加载
   const handleReset = () => {
+    setShowArchived(false);
     const empty = { stage: '', status: '' };
     setFilters(empty);
     fetchProjects(1, pagination.pageSize, empty);
@@ -183,6 +186,33 @@ function ProjectListPage() {
     });
   };
 
+  // 功能：归档已完成的项目阶段——PUT /projects/{code}/{stage}/archive
+  const handleArchive = (project) => {
+    showConfirm({
+      title: `归档项目阶段 — ${project.projectCode} ${project.projectStage}`,
+      content: '归档后该阶段数据将变为只读。',
+      okText: '归档',
+      okType: 'default',
+      onOk: async () => {
+        try {
+          await client.put(`/projects/${project.projectCode}/${project.projectStage}/archive`);
+          message.success({ content: `项目"${project.projectCode}" ${project.projectStage} 阶段已归档`, duration: 3 });
+          fetchProjects(pagination.current, pagination.pageSize, filters);
+        } catch (err) {
+          if (err?.code === 409) {
+            if (err?.message?.includes('已被他人修改')) {
+              showConflictWarning('其他用户', '几');
+            } else {
+              message.error({ content: err.message });
+            }
+          } else if (err?.message) {
+            message.error({ content: err.message });
+          }
+        }
+      },
+    });
+  };
+
   // 功能：表格列定义——编码/名称/阶段/状态/确认状态/确认人/确认时间/操作
   const columns = [
     { title: '项目编码', dataIndex: 'projectCode', key: 'projectCode', width: 140 },
@@ -220,6 +250,11 @@ function ProjectListPage() {
           ) : (
             <Button type="link" size="small" danger icon={<RollbackOutlined />} onClick={() => handleResetStage(record)}>
               强制重置
+            </Button>
+          )}
+          {record.status === 'COMPLETED' && (
+            <Button type="link" size="small" icon={<InboxOutlined />} onClick={() => handleArchive(record)}>
+              归档
             </Button>
           )}
         </Space>
@@ -260,6 +295,17 @@ function ProjectListPage() {
           />
           <Button type="primary" onClick={handleSearch}>搜索</Button>
           <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
+          <Button
+            type={showArchived ? 'primary' : 'default'}
+            icon={<InboxOutlined />}
+            onClick={() => {
+              const newVal = !showArchived;
+              setShowArchived(newVal);
+              fetchProjects(1, pagination.pageSize, { ...filters, includeInactive: newVal });
+            }}
+          >
+            {showArchived ? '隐藏已归档' : '显示已归档'}
+          </Button>
         </Space>
       </Card>
 

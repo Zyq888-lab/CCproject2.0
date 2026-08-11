@@ -26,11 +26,12 @@ public class ProjectController extends BaseController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String stage,
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "false") Boolean includeInactive) {
         PageQuery query = new PageQuery();
         query.setPage(page);
         query.setSize(size);
-        return ok(projectService.listProjects(query, stage, status));
+        return ok(projectService.listProjects(query, stage, status, includeInactive));
     }
 
     // 功能：创建项目——校验 projectCode 非空不重复，projectStage 为有效枚举值
@@ -52,5 +53,12 @@ public class ProjectController extends BaseController {
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<ProjectDTO> resetStage(@PathVariable String projectCode, @PathVariable String projectStage) {
         return ok(projectService.resetStage(projectCode, projectStage));
+    }
+
+    // 功能：归档已完成的项目阶段——只有 COMPLETED 状态可归档，变为 INACTIVE
+    @PutMapping("/{projectCode}/{projectStage}/archive")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    public ApiResponse<ProjectDTO> archiveStage(@PathVariable String projectCode, @PathVariable String projectStage) {
+        return ok(projectService.archiveStage(projectCode, projectStage));
     }
 }
