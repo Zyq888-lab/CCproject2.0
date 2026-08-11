@@ -323,9 +323,11 @@ function FuncKpiPage() {
         width={520}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+          <FormPositionLinker form={form} editingRecord={editingRecord}
+            allConfigs={allPositionConfigs} allPositionOpts={positionOptions}
+            onFiltered={setFormPositionOptions} />
           <Form.Item name="category" label="岗位分类" rules={[{ required: true, message: '请选择岗位分类' }]}>
-            <Select placeholder="选择岗位分类" options={categoryOptions} disabled={!!editingRecord}
-              onChange={(v) => handleModalCategoryChange(v)} />
+            <Select placeholder="选择岗位分类" options={categoryOptions} disabled={!!editingRecord} />
           </Form.Item>
           <Form.Item name="position" label="岗位名称" rules={[{ required: true, message: '请选择岗位名称' }]}>
             <Select placeholder="选择岗位" showSearch optionFilterProp="label" options={formPositionOptions} disabled={!!editingRecord} />
@@ -361,19 +363,23 @@ function FuncKpiPage() {
   );
 }
 
-// 新增表单：岗位分类变化时联动岗位名称下拉选项
-const handleModalCategoryChange = (cat) => {
-  if (!cat) { setFormPositionOptions(positionOptions); return; }
-  const filtered = allPositionConfigs.filter((p) => p.category === cat);
-  const names = [...new Set(filtered.map((p) => p.position).filter(Boolean))].sort().map((n) => ({ label: n, value: n }));
-  setFormPositionOptions(names);
-};
+// 监听表单分类变化，联动过滤岗位下拉
+function FormPositionLinker({ form, editingRecord, allConfigs, allPositionOpts, onFiltered }) {
+  const cat = Form.useWatch('category', form);
+  useEffect(() => {
+    if (editingRecord) return; // 编辑模式不动
+    if (!cat) { onFiltered(allPositionOpts); return; }
+    const filtered = (allConfigs || []).filter((p) => p.category === cat);
+    const names = [...new Set(filtered.map((p) => p.position).filter(Boolean))].sort().map((n) => ({ label: n, value: n }));
+    onFiltered(names);
+  }, [cat, editingRecord, allConfigs, allPositionOpts, onFiltered]);
+  return null;
+}
 
 function WeightSumHint({ data, editingRecord, form }) {
   const watchedWeight = Form.useWatch('weight', form);
-  const watchedCategory = Form.useWatch('category', form);
   const watchedPosition = Form.useWatch('position', form);
-  const category = editingRecord ? editingRecord.category : watchedCategory;
+  const category = editingRecord ? editingRecord.category : Form.useWatch('category', form);
   const position = editingRecord ? editingRecord.position : watchedPosition;
   const weight = watchedWeight;
   if (weight == null || !category || !position) return null;
