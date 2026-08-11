@@ -56,8 +56,9 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
             throw new BusinessException(400,
                     "无效的项目阶段: " + project.getProjectStage() + "，有效值: P1, P2, P3, P4, P5");
         }
-        if (baseMapper.selectById(project.getProjectCode()) != null) {
-            throw new BusinessException(409, "项目编码" + project.getProjectCode() + "已存在");
+        if (baseMapper.selectByCodeAndStage(project.getProjectCode(), project.getProjectStage()) != null) {
+            throw new BusinessException(409,
+                    "项目 " + project.getProjectCode() + " 的 " + project.getProjectStage() + " 阶段已存在");
         }
         project.setStatus(StringUtils.hasText(project.getStatus()) ? project.getStatus() : "ACTIVE");
         project.setStageConfirmed(false);
@@ -71,10 +72,10 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
 
     // 功能：PM确认项目阶段——使用乐观锁，记录确认人和确认时间，已确认则拒绝重复操作
     @Transactional
-    public ProjectDTO confirmStage(String projectCode) {
-        Project existing = baseMapper.selectById(projectCode);
+    public ProjectDTO confirmStage(String projectCode, String projectStage) {
+        Project existing = baseMapper.selectByCodeAndStage(projectCode, projectStage);
         if (existing == null) {
-            throw new BusinessException(404, "项目不存在: " + projectCode);
+            throw new BusinessException(404, "项目不存在: " + projectCode + " / " + projectStage);
         }
         if (Boolean.TRUE.equals(existing.getStageConfirmed())) {
             throw new BusinessException(400, "项目阶段已确认，无需重复确认");
@@ -85,22 +86,22 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         existing.setConfirmedAt(LocalDateTime.now());
         existing.setUpdatedAt(LocalDateTime.now());
         updateWithOptimisticLock(existing);
-        return toDTO(baseMapper.selectById(projectCode));
+        return toDTO(baseMapper.selectByCodeAndStage(projectCode, projectStage));
     }
 
     // 功能：ADMIN强制重置阶段确认——使用乐观锁，清空确认人、确认时间
     @Transactional
-    public ProjectDTO resetStage(String projectCode) {
-        Project existing = baseMapper.selectById(projectCode);
+    public ProjectDTO resetStage(String projectCode, String projectStage) {
+        Project existing = baseMapper.selectByCodeAndStage(projectCode, projectStage);
         if (existing == null) {
-            throw new BusinessException(404, "项目不存在: " + projectCode);
+            throw new BusinessException(404, "项目不存在: " + projectCode + " / " + projectStage);
         }
         existing.setStageConfirmed(false);
         existing.setConfirmedBy(null);
         existing.setConfirmedAt(null);
         existing.setUpdatedAt(LocalDateTime.now());
         updateWithOptimisticLock(existing);
-        return toDTO(baseMapper.selectById(projectCode));
+        return toDTO(baseMapper.selectByCodeAndStage(projectCode, projectStage));
     }
 
     // 功能：从Spring Security上下文获取当前登录用户名，未认证时返回"system"

@@ -12,12 +12,15 @@ import com.jifeng.assessment.kpi.KpiConfigService;
 import com.jifeng.assessment.kpi.ProjectKpiConfig;
 import com.jifeng.assessment.position.PositionAssessmentConfig;
 import com.jifeng.assessment.position.PositionConfigService;
+import com.jifeng.assessment.positioncategory.PositionCategory;
+import com.jifeng.assessment.positioncategory.PositionCategoryMapper;
 import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectService;
 import com.jifeng.assessment.projectrole.ProjectRole;
 import com.jifeng.assessment.projectrole.ProjectRoleService;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.RoleAssignmentService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,6 +41,15 @@ class UniqueConstraintIntegrationTest {
     @Autowired private EmployeeMapper employeeMapper;
     @Autowired private ProjectService projectService;
     @Autowired private ProjectRoleService projectRoleService;
+    @Autowired private PositionCategoryMapper positionCategoryMapper;
+
+    @BeforeEach
+    void seedCategories() {
+        if (positionCategoryMapper.selectCount(null) == 0) {
+            PositionCategory c = new PositionCategory(); c.setName("研发技术类"); c.setSortOrder(10); positionCategoryMapper.insert(c);
+            c = new PositionCategory(); c.setName("管理类"); c.setSortOrder(20); positionCategoryMapper.insert(c);
+        }
+    }
     @Autowired private RoleAssignmentService roleAssignmentService;
     @Autowired private PositionConfigService positionConfigService;
     @Autowired private KpiConfigService kpiConfigService;
@@ -103,7 +115,7 @@ class UniqueConstraintIntegrationTest {
     // ========================================
 
     @Test
-    void duplicateProjectCodeShouldThrow409() {
+    void duplicateProjectCodeStageShouldThrow409() {
         Project p1 = new Project();
         p1.setProjectCode("UNQ_PRJ001");
         p1.setProjectName("唯一约束测试项目");
@@ -111,10 +123,11 @@ class UniqueConstraintIntegrationTest {
         p1.setStatus("ACTIVE");
         projectService.createProject(p1);
 
+        // 同一编码+同一阶段 → 应拒绝（联合主键冲突）
         Project p2 = new Project();
         p2.setProjectCode("UNQ_PRJ001");
         p2.setProjectName("重复项目代码");
-        p2.setProjectStage("P3");
+        p2.setProjectStage("P2");
         p2.setStatus("ACTIVE");
 
         BusinessException ex = assertThrows(BusinessException.class,

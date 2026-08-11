@@ -41,16 +41,16 @@ public class ProjectController extends BaseController {
     }
 
     // 功能：PM确认项目阶段——使用乐观锁防止并发覆盖，已确认则拒绝
-    @PutMapping("/{projectCode}/confirm-stage")
+    @PutMapping("/{projectCode}/{projectStage}/confirm-stage")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
-    public ApiResponse<ProjectDTO> confirmStage(@PathVariable String projectCode) {
-        return ok(projectService.confirmStage(projectCode));
+    public ApiResponse<ProjectDTO> confirmStage(@PathVariable String projectCode, @PathVariable String projectStage) {
+        return ok(projectService.confirmStage(projectCode, projectStage));
     }
 
     // 功能：ADMIN强制重置阶段确认——使用乐观锁，清空确认人和时间
-    @PutMapping("/{projectCode}/reset-stage")
+    @PutMapping("/{projectCode}/{projectStage}/reset-stage")
     @PreAuthorize("hasRole('ADMIN')")
-    public ApiResponse<ProjectDTO> resetStage(@PathVariable String projectCode) {
-        return ok(projectService.resetStage(projectCode));
+    public ApiResponse<ProjectDTO> resetStage(@PathVariable String projectCode, @PathVariable String projectStage) {
+        return ok(projectService.resetStage(projectCode, projectStage));
     }
 }

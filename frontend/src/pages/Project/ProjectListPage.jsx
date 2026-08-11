@@ -137,8 +137,8 @@ function ProjectListPage() {
       okType: 'primary',
       onOk: async () => {
         try {
-          await client.put(`/projects/${project.projectCode}/confirm-stage`);
-          message.success({ content: `项目"${project.projectCode}"阶段已确认`, duration: 3 });
+          await client.put(`/projects/${project.projectCode}/${project.projectStage}/confirm-stage`);
+          message.success({ content: `项目"${project.projectCode}" ${project.projectStage} 阶段已确认`, duration: 3 });
           fetchProjects(pagination.current, pagination.pageSize, filters);
         } catch (err) {
           if (err?.code === 409) {
@@ -164,8 +164,8 @@ function ProjectListPage() {
       okType: 'danger',
       onOk: async () => {
         try {
-          await client.put(`/projects/${project.projectCode}/reset-stage`);
-          message.success({ content: `项目"${project.projectCode}"阶段已重置`, duration: 3 });
+          await client.put(`/projects/${project.projectCode}/${project.projectStage}/reset-stage`);
+          message.success({ content: `项目"${project.projectCode}" ${project.projectStage} 阶段已重置`, duration: 3 });
           fetchProjects(pagination.current, pagination.pageSize, filters);
         } catch (err) {
           if (err?.code === 409) {
@@ -286,7 +286,7 @@ function ProjectListPage() {
           <Table
             columns={columns}
             dataSource={data}
-            rowKey="projectCode"
+            rowKey={(r) => `${r.projectCode}_${r.projectStage}`}
             loading={loading}
             size="middle"
             rowClassName={(_, index) => index % 2 === 1 ? 'table-row-striped' : ''}

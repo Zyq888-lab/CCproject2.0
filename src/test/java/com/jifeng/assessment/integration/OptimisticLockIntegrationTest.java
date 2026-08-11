@@ -12,6 +12,8 @@ import com.jifeng.assessment.kpi.KpiConfigService;
 import com.jifeng.assessment.kpi.ProjectKpiConfig;
 import com.jifeng.assessment.position.PositionAssessmentConfig;
 import com.jifeng.assessment.position.PositionConfigService;
+import com.jifeng.assessment.positioncategory.PositionCategory;
+import com.jifeng.assessment.positioncategory.PositionCategoryMapper;
 import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.project.ProjectService;
@@ -21,6 +23,7 @@ import com.jifeng.assessment.projectrole.ProjectRoleService;
 import com.jifeng.assessment.system.SystemParam;
 import com.jifeng.assessment.system.SystemParamService;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -46,6 +49,15 @@ class OptimisticLockIntegrationTest {
     @Autowired private SystemParamService systemParamService;
     @Autowired private PositionConfigService positionConfigService;
     @Autowired private KpiConfigService kpiConfigService;
+    @Autowired private PositionCategoryMapper positionCategoryMapper;
+
+    @BeforeEach
+    void seedCategories() {
+        if (positionCategoryMapper.selectCount(null) == 0) {
+            PositionCategory c = new PositionCategory(); c.setName("研发技术类"); c.setSortOrder(10); positionCategoryMapper.insert(c);
+            c = new PositionCategory(); c.setName("管理类"); c.setSortOrder(20); positionCategoryMapper.insert(c);
+        }
+    }
 
     // ========================================
     // Employee 乐观锁
@@ -94,12 +106,13 @@ class OptimisticLockIntegrationTest {
         projectService.createProject(p);
 
         // 模拟并发
-        Project fresh = projectMapper.selectById("INT_PRJ01");
+        Project fresh = projectMapper.selectByCodeAndStage("INT_PRJ01", "P3");
         fresh.setDescription("并发修改的描述");
         projectMapper.updateById(fresh);
 
         Project stale = new Project();
         stale.setProjectCode("INT_PRJ01");
+        stale.setProjectStage("P3");
         stale.setDescription("过期的描述");
         stale.setVersion(0L);
 
@@ -119,13 +132,14 @@ class OptimisticLockIntegrationTest {
         projectService.createProject(p);
 
         // 模拟并发修改
-        Project fresh = projectMapper.selectById("INT_PRJ02");
+        Project fresh = projectMapper.selectByCodeAndStage("INT_PRJ02", "P2");
         fresh.setDescription("并发修改");
         projectMapper.updateById(fresh);
 
         // 用过期version确认阶段
         Project stale = new Project();
         stale.setProjectCode("INT_PRJ02");
+        stale.setProjectStage("P2");
         stale.setVersion(0L);
 
         BusinessException ex = assertThrows(BusinessException.class,

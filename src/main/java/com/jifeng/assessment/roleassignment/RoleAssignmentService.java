@@ -34,8 +34,8 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
 
     // 功能：查询项目下所有角色分配——关联查询员工姓名
     public List<ProjectRoleAssignmentDTO> listAssignments(String projectCode) {
-        Project project = projectMapper.selectById(projectCode);
-        if (project == null) {
+        List<Project> projects = projectMapper.selectByCode(projectCode);
+        if (projects.isEmpty()) {
             throw new BusinessException(404, "项目不存在: " + projectCode);
         }
         LambdaQueryWrapper<ProjectRoleAssignment> wrapper = new LambdaQueryWrapper<>();
@@ -80,8 +80,8 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
             throw new BusinessException(400, "员工工号不能为空");
         }
 
-        Project project = projectMapper.selectById(projectCode);
-        if (project == null) {
+        List<Project> projects = projectMapper.selectByCode(projectCode);
+        if (projects.isEmpty()) {
             throw new BusinessException(404, "项目不存在: " + projectCode);
         }
         Employee employee = employeeMapper.selectById(employeeId);

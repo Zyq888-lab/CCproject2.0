@@ -50,22 +50,31 @@ class ProjectServiceTest {
         assertEquals("ACTIVE", dto.getStatus());
     }
 
-    // 功能：projectCode重复时抛出409异常
+    // 功能：同一projectCode+projectStage重复时抛出409（联合主键），不同stage可创建
     @Test
-    void shouldRejectDuplicateProjectCode() {
+    void shouldRejectDuplicateCodeStageCombo() {
         Project p1 = new Project();
         p1.setProjectCode("PJ_DUP");
         p1.setProjectName("重复项目");
         p1.setProjectStage("P2");
         projectService.createProject(p1);
 
+        // 同编码不同阶段 — 应该成功
         Project p2 = new Project();
         p2.setProjectCode("PJ_DUP");
-        p2.setProjectName("重复项目二");
+        p2.setProjectName("重复项目P3");
         p2.setProjectStage("P3");
+        ProjectDTO dto2 = projectService.createProject(p2);
+        assertNotNull(dto2);
+
+        // 同编码同阶段 — 应该拒绝
+        Project p3 = new Project();
+        p3.setProjectCode("PJ_DUP");
+        p3.setProjectName("重复项目二");
+        p3.setProjectStage("P2");
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> projectService.createProject(p2));
+                () -> projectService.createProject(p3));
         assertTrue(ex.getMessage().contains("已存在"));
     }
 
@@ -95,7 +104,7 @@ class ProjectServiceTest {
                 new UsernamePasswordAuthenticationToken("pm_zhang", null,
                         List.of(new SimpleGrantedAuthority("ROLE_PM"))));
 
-        ProjectDTO dto = projectService.confirmStage("PJ_CONFIRM");
+        ProjectDTO dto = projectService.confirmStage("PJ_CONFIRM", "P4");
         assertTrue(dto.getStageConfirmed());
         assertEquals("pm_zhang", dto.getConfirmedBy());
         assertNotNull(dto.getConfirmedAt());
@@ -114,10 +123,10 @@ class ProjectServiceTest {
                 new UsernamePasswordAuthenticationToken("pm_li", null,
                         List.of(new SimpleGrantedAuthority("ROLE_PM"))));
 
-        projectService.confirmStage("PJ_CONF2");
+        projectService.confirmStage("PJ_CONF2", "P3");
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> projectService.confirmStage("PJ_CONF2"));
+                () -> projectService.confirmStage("PJ_CONF2", "P3"));
         assertTrue(ex.getMessage().contains("已确认"));
     }
 
@@ -130,14 +139,15 @@ class ProjectServiceTest {
         project.setProjectStage("P5");
         projectService.createProject(project);
 
-        // 模拟并发：直接通过mapper读取并更新，推进version
-        Project fresh = projectMapper.selectById("PJ_CONCUR");
+        // 模拟并发：通过selectByCodeAndStage读取并更新，推进version
+        Project fresh = projectMapper.selectByCodeAndStage("PJ_CONCUR", "P5");
         fresh.setDescription("并发修改的内容");
         projectMapper.updateById(fresh); // version now 1
 
         // 构造一个version=0的过期实体，模拟并发窗口期
         Project stale = new Project();
         stale.setProjectCode("PJ_CONCUR");
+        stale.setProjectStage("P5");
         stale.setVersion(0L);
 
         BusinessException ex = assertThrows(BusinessException.class,
@@ -159,11 +169,11 @@ class ProjectServiceTest {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("pm_wang", null,
                         List.of(new SimpleGrantedAuthority("ROLE_PM"))));
-        projectService.confirmStage("PJ_RESET");
+        projectService.confirmStage("PJ_RESET", "P2");
         SecurityContextHolder.clearContext();
 
         // 重置
-        ProjectDTO dto = projectService.resetStage("PJ_RESET");
+        ProjectDTO dto = projectService.resetStage("PJ_RESET", "P2");
         assertFalse(dto.getStageConfirmed());
         assertNull(dto.getConfirmedBy());
         assertNull(dto.getConfirmedAt());
