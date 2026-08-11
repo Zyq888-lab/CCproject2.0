@@ -171,13 +171,17 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
       const res = await client.post('/projects/assignments/import', payload);
       const result = res.data || {};
       const fail = (result.errors || []).length;
+      const skip = result.skip || 0;
+      const ok = result.success || 0;
       if (fail > 0) {
-        message.warning({ content: `成功 ${result.success || 0} 条，跳过 ${result.skip || 0} 条，失败 ${fail} 条`, duration: 5 });
+        message.warning({ content: `导入完成：成功 ${ok} 条，跳过 ${skip} 条（已存在），失败 ${fail} 条`, duration: 5 });
         result.errors.slice(0, 5).forEach(e => message.error({ content: e, duration: 4 }));
-      } else if (result.success > 0) {
-        message.success({ content: `成功导入 ${result.success} 条` + (result.skip > 0 ? `，跳过 ${result.skip} 条（已存在）` : ''), duration: 4 });
+      } else if (skip > 0 && ok === 0) {
+        message.warning({ content: `全部 ${skip} 条已存在，未新增任何记录`, duration: 4 });
+      } else if (ok > 0) {
+        message.success({ content: `成功导入 ${ok} 条` + (skip > 0 ? `，${skip} 条已存在被跳过` : ''), duration: 4 });
       }
-      if (result.success > 0 || fail === 0) { setImportVisible(false); setImportData([]); }
+      if (ok > 0 || fail === 0) { setImportVisible(false); setImportData([]); }
       fetchData(pagination.current, pagination.pageSize, filters);
     } catch (err) { message.error({ content: err?.message || '导入失败' }); }
     finally { setImporting(false); }
