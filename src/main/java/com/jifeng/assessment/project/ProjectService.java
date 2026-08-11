@@ -86,6 +86,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         existing.setConfirmedBy(currentUser);
         existing.setConfirmedAt(LocalDateTime.now());
         existing.setUpdatedAt(LocalDateTime.now());
+        existing.setStatus("COMPLETED");
         updateProject(existing);
         return toDTO(baseMapper.selectByCodeAndStage(projectCode, projectStage));
     }
@@ -101,6 +102,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         existing.setConfirmedBy(null);
         existing.setConfirmedAt(null);
         existing.setUpdatedAt(LocalDateTime.now());
+        existing.setStatus("ACTIVE");
         updateProject(existing);
         return toDTO(baseMapper.selectByCodeAndStage(projectCode, projectStage));
     }
@@ -114,6 +116,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
                 .set(Project::getStageConfirmed, entity.getStageConfirmed())
                 .set(Project::getConfirmedBy, entity.getConfirmedBy())
                 .set(Project::getConfirmedAt, entity.getConfirmedAt())
+                .set(Project::getStatus, entity.getStatus())
                 .set(Project::getUpdatedAt, entity.getUpdatedAt()));
         if (rows == 0) {
             throw new BusinessException(409, "数据已被他人修改，请刷新后重试");

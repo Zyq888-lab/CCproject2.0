@@ -24,11 +24,12 @@ const STAGE_OPTIONS = [
 
 const STATUS_OPTIONS = [
   { label: '活跃', value: 'ACTIVE' },
+  { label: '已完成', value: 'COMPLETED' },
   { label: '归档', value: 'INACTIVE' },
 ];
 
 const STAGE_COLOR_MAP = { 'P1': 'cyan', 'P2': 'blue', 'P3': 'green', 'P4': 'orange', 'P5': 'red' };
-const STATUS_COLOR_MAP = { 'ACTIVE': 'green', 'INACTIVE': 'default' };
+const STATUS_COLOR_MAP = { 'ACTIVE': 'green', 'COMPLETED': 'blue', 'INACTIVE': 'default' };
 
 function ProjectListPage() {
   const [data, setData] = useState([]);
@@ -192,7 +193,7 @@ function ProjectListPage() {
     },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 80,
-      render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{s === 'ACTIVE' ? '活跃' : s === 'INACTIVE' ? '归档' : (s || '-')}</Tag>,
+      render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{s === 'ACTIVE' ? '活跃' : s === 'COMPLETED' ? '已完成' : s === 'INACTIVE' ? '归档' : (s || '-')}</Tag>,
     },
     {
       title: '阶段确认', dataIndex: 'stageConfirmed', key: 'stageConfirmed', width: 100,
