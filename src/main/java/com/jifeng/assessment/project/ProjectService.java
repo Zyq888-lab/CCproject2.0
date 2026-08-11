@@ -54,7 +54,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         }
         if (ProjectStage.fromCode(project.getProjectStage()) == null) {
             throw new BusinessException(400,
-                    "无效的项目阶段: " + project.getProjectStage() + "，有效值: P2, P3, P4, P5");
+                    "无效的项目阶段: " + project.getProjectStage() + "，有效值: P1, P2, P3, P4, P5");
         }
         if (baseMapper.selectById(project.getProjectCode()) != null) {
             throw new BusinessException(409, "项目编码" + project.getProjectCode() + "已存在");

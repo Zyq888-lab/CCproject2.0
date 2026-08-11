@@ -15,6 +15,7 @@ import { showConfirm, showConflictWarning } from '../../components/ConfirmModal'
 import client from '../../api/client';
 
 const STAGE_OPTIONS = [
+  { label: 'P1', value: 'P1' },
   { label: 'P2', value: 'P2' },
   { label: 'P3', value: 'P3' },
   { label: 'P4', value: 'P4' },
@@ -26,7 +27,7 @@ const STATUS_OPTIONS = [
   { label: '归档', value: 'INACTIVE' },
 ];
 
-const STAGE_COLOR_MAP = { 'P2': 'blue', 'P3': 'green', 'P4': 'orange', 'P5': 'red' };
+const STAGE_COLOR_MAP = { 'P1': 'cyan', 'P2': 'blue', 'P3': 'green', 'P4': 'orange', 'P5': 'red' };
 const STATUS_COLOR_MAP = { 'ACTIVE': 'green', 'INACTIVE': 'default' };
 
 function ProjectListPage() {

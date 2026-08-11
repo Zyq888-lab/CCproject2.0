@@ -4,6 +4,7 @@
 package com.jifeng.assessment.project;
 
 public enum ProjectStage {
+    P1("P1", "P1阶段"),
     P2("P2", "P2阶段"),
     P3("P3", "P3阶段"),
     P4("P4", "P4阶段"),

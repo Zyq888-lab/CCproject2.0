@@ -6,6 +6,7 @@ import { LineChartOutlined, AimOutlined, PercentageOutlined } from '@ant-design/
 import client from '../../api/client';
 
 const STAGE_OPTIONS = [
+  { label: 'P1 规划阶段', value: 'P1' },
   { label: 'P2 概念阶段', value: 'P2' },
   { label: 'P3 设计阶段', value: 'P3' },
   { label: 'P4 样件阶段', value: 'P4' },
