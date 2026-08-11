@@ -5,6 +5,7 @@ package com.jifeng.assessment.roleassignment;
 
 import com.jifeng.assessment.common.ApiResponse;
 import com.jifeng.assessment.common.BaseController;
+import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.common.PageResult;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -13,7 +14,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
@@ -74,6 +77,35 @@ public class RoleAssignmentController extends BaseController {
             @PathVariable Long assignmentId) {
         roleAssignmentService.removeAssignment(assignmentId);
         return ok("已移除", null);
+    }
+
+    // 功能：批量导入角色分配——逐行处理，跳过已存在的分配
+    @PostMapping("/api/v1/projects/assignments/import")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    public ApiResponse<java.util.Map<String, Object>> importAssignments(
+            @RequestBody List<ImportAssignmentRequest> requests) {
+        int success = 0, skip = 0;
+        List<String> errors = new java.util.ArrayList<>();
+        for (ImportAssignmentRequest req : requests) {
+            try {
+                roleAssignmentService.assignEmployee(
+                        req.getProjectCode(), req.getProjectStage(),
+                        req.getRoleCode(), req.getEmployeeId());
+                success++;
+            } catch (BusinessException e) {
+                if (e.getMessage().contains("已被分配")) { skip++; }
+                else { errors.add(req.getProjectCode() + "/" + req.getProjectStage() + ": " + e.getMessage()); }
+            }
+        }
+        return ok("导入完成", java.util.Map.of("success", success, "skip", skip, "errors", errors));
+    }
+
+    @Data
+    public static class ImportAssignmentRequest {
+        @NotBlank private String projectCode;
+        @NotBlank private String projectStage;
+        @NotBlank private String roleCode;
+        @NotBlank private String employeeId;
     }
 
     @Data

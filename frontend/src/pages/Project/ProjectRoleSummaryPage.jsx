@@ -3,11 +3,14 @@
 {/* 修改注意：导出为前端CSV生成，不依赖后端导出接口；筛选仅PD负责人用Checkbox */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Input, Select, Space, Checkbox, Tag, message, Card, Spin, Result,
+  Table, Button, Input, Select, Space, Checkbox, Tag, message, Card, Spin, Result, Modal, Upload,
 } from 'antd';
 import {
-  SearchOutlined, ReloadOutlined, LinkOutlined, DownloadOutlined,
+  SearchOutlined, ReloadOutlined, LinkOutlined, DownloadOutlined, InboxOutlined,
 } from '@ant-design/icons';
+import * as XLSX from 'xlsx';
+
+const { Dragger } = Upload;
 import PageHeader from '../../components/PageHeader';
 import client from '../../api/client';
 
@@ -31,6 +34,9 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
     projectCode: '', projectStage: '', roleCode: '', employeeId: '', isPrimaryPd: false,
   });
   const [roleOptions, setRoleOptions] = useState([]);
+  const [importVisible, setImportVisible] = useState(false);
+  const [importData, setImportData] = useState([]);
+  const [importing, setImporting] = useState(false);
   const mountedRef = useRef(true);
 
   // 功能：获取角色列表——用于筛选下拉
@@ -135,6 +141,47 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
     }
   };
 
+  // 批量导入
+  const COL_MAP = { '项目编码': 'projectCode', '项目阶段': 'projectStage', '角色编码': 'roleCode', '员工工号': 'employeeId' };
+  const handleFileParse = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
+          .map((row, idx) => {
+            const mapped = { _key: idx };
+            Object.entries(COL_MAP).forEach(([col, field]) => { mapped[field] = String(row[col] || '').trim(); });
+            mapped._valid = !!mapped.projectCode && !!mapped.projectStage && !!mapped.roleCode && !!mapped.employeeId;
+            return mapped;
+          });
+        setImportData(rows);
+        if (rows.length > 0) message.success({ content: `成功解析 ${rows.length} 条记录` });
+      } catch (_) { message.error({ content: '文件解析失败' }); }
+    };
+    reader.readAsArrayBuffer(file);
+    return false;
+  };
+  const handleImport = async () => {
+    const valid = importData.filter(r => r._valid);
+    if (!valid.length) { message.warning({ content: '无有效数据' }); return; }
+    setImporting(true);
+    try {
+      const payload = valid.map(({ _key, _valid, ...rest }) => rest);
+      const res = await client.post('/projects/assignments/import', payload);
+      const result = res.data || {};
+      message.success({ content: `成功 ${result.success || 0} 条，跳过 ${result.skip || 0} 条`, duration: 4 });
+      setImportVisible(false); setImportData([]);
+      fetchData(pagination.current, pagination.pageSize, filters);
+    } catch (err) { message.error({ content: err?.message || '导入失败' }); }
+    finally { setImporting(false); }
+  };
+  const downloadTemplate = () => {
+    const ws = XLSX.utils.json_to_sheet([{ '项目编码': 'P001', '项目阶段': 'P1', '角色编码': 'PDL', '员工工号': 'EMP001' }]);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '导入模板');
+    XLSX.writeFile(wb, '角色分配导入模板.xlsx');
+  };
+
   const columns = [
     { title: '项目编码', dataIndex: 'projectCode', key: 'projectCode', width: 120 },
     { title: '项目名称', dataIndex: 'projectName', key: 'projectName', width: 140, ellipsis: true },
@@ -181,6 +228,7 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
           title="角色分配汇总"
           breadcrumb={[{ title: '首页', path: '/dashboard' }, { title: '项目管理', path: '/project/list' }]}
           actions={[
+            { label: '批量导入', icon: <DownloadOutlined />, onClick: () => setImportVisible(true) },
             { label: '导出CSV', icon: <DownloadOutlined />, onClick: handleExport },
           ]}
         />
@@ -277,6 +325,31 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
           />
         </Card>
       )}
+
+      <Modal title="批量导入角色分配" open={importVisible} onCancel={() => { setImportVisible(false); setImportData([]); }}
+        width={850} footer={
+          <Space>{importData.length > 0 && <Button type="primary" loading={importing} onClick={handleImport}>确认导入 ({importData.filter(r => r._valid).length} 条)</Button>}
+            <Button onClick={() => { setImportVisible(false); setImportData([]); }}>关闭</Button></Space>}>
+        {!importData.length ? (
+          <div>
+            <Dragger accept=".xlsx,.xls" maxCount={1} beforeUpload={handleFileParse} showUploadList={false}>
+              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+              <p className="ant-upload-text">点击或拖拽Excel文件上传</p>
+              <p className="ant-upload-hint">列：项目编码、项目阶段、角色编码、员工工号</p>
+            </Dragger>
+            <div style={{ marginTop: 16, textAlign: 'center' }}>
+              <Button type="link" icon={<DownloadOutlined />} onClick={downloadTemplate}>下载导入模板</Button></div>
+          </div>
+        ) : (
+          <Table columns={[
+            { title: '项目编码', dataIndex: 'projectCode', width: 110 },
+            { title: '项目阶段', dataIndex: 'projectStage', width: 90 },
+            { title: '角色编码', dataIndex: 'roleCode', width: 110 },
+            { title: '员工工号', dataIndex: 'employeeId', width: 110 },
+            { title: '校验', dataIndex: '_valid', width: 60, render: (v) => <Tag color={v ? 'green' : 'red'}>{v ? '有效' : '无效'}</Tag> },
+          ]} dataSource={importData} rowKey="_key" size="small" scroll={{ y: 360 }} pagination={false} />
+        )}
+      </Modal>
     </div>
   );
 }
