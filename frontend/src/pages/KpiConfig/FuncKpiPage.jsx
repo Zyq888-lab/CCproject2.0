@@ -31,6 +31,7 @@ function FuncKpiPage() {
   const [categoryOptions] = useCategories();
   const [allPositionConfigs, setAllPositionConfigs] = useState([]);
   const [positionOptions, setPositionOptions] = useState([]);
+  const [formPositionOptions, setFormPositionOptions] = useState([]);
   const [importVisible, setImportVisible] = useState(false);
 
   const updatePositionOptions = (configs, cat) => {
@@ -63,7 +64,9 @@ function FuncKpiPage() {
     client.get('/position-configs', { params: { size: 9999 } }).then((res) => {
       const list = res.data?.list || [];
       setAllPositionConfigs(list);
-      updatePositionOptions(list, filters.category);
+      const allNames = [...new Set(list.map((p) => p.position).filter(Boolean))].sort().map((n) => ({ label: n, value: n }));
+      setPositionOptions(allNames);
+      setFormPositionOptions(allNames);
     }).catch(() => {});
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -258,7 +261,7 @@ function FuncKpiPage() {
           <Select
             placeholder="岗位分类"
             value={filters.category || undefined}
-            onChange={(v) => { const cat = v || ''; setFilters((f) => ({ ...f, category: cat, position: '' })); updatePositionOptions(allPositionConfigs, cat); }}
+            onChange={(v) => setFilters((f) => ({ ...f, category: v || '' }))}
             allowClear
             style={{ width: 140 }}
             options={categoryOptions}
@@ -321,10 +324,11 @@ function FuncKpiPage() {
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="category" label="岗位分类" rules={[{ required: true, message: '请选择岗位分类' }]}>
-            <Select placeholder="选择岗位分类" options={categoryOptions} disabled={!!editingRecord} />
+            <Select placeholder="选择岗位分类" options={categoryOptions} disabled={!!editingRecord}
+              onChange={(v) => handleModalCategoryChange(v)} />
           </Form.Item>
           <Form.Item name="position" label="岗位名称" rules={[{ required: true, message: '请选择岗位名称' }]}>
-            <Select placeholder="选择岗位" showSearch optionFilterProp="label" options={positionOptions} disabled={!!editingRecord} />
+            <Select placeholder="选择岗位" showSearch optionFilterProp="label" options={formPositionOptions} disabled={!!editingRecord} />
           </Form.Item>
           <Form.Item name="kpiName" label="KPI指标名称" rules={[{ required: true, message: '请输入KPI名称' }]}>
             <Input placeholder="如 技术文档完整性" maxLength={50} />
@@ -356,6 +360,14 @@ function FuncKpiPage() {
     </div>
   );
 }
+
+// 新增表单：岗位分类变化时联动岗位名称下拉选项
+const handleModalCategoryChange = (cat) => {
+  if (!cat) { setFormPositionOptions(positionOptions); return; }
+  const filtered = allPositionConfigs.filter((p) => p.category === cat);
+  const names = [...new Set(filtered.map((p) => p.position).filter(Boolean))].sort().map((n) => ({ label: n, value: n }));
+  setFormPositionOptions(names);
+};
 
 function WeightSumHint({ data, editingRecord, form }) {
   const watchedWeight = Form.useWatch('weight', form);
