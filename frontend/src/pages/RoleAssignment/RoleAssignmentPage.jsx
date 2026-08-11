@@ -60,9 +60,9 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
   // 功能：获取启用的角色列表——用于下拉选项和角色名称解析
   const fetchRoles = useCallback(async () => {
     try {
-      const res = await client.get('/project-roles', { params: { isActive: true } });
+      const res = await client.get('/project-roles', { params: { isActive: true, size: 999 } });
       if (mountedRef.current) {
-        setRoles(Array.isArray(res.data) ? res.data : []);
+        setRoles(res.data?.list || []);
       }
     } catch (_err) {
       // 角色列表加载失败不影响主流程，仅按角色编码显示
