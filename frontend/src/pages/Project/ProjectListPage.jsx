@@ -36,7 +36,7 @@ function ProjectListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
-  const [filters, setFilters] = useState({ stage: '', status: '' });
+  const [filters, setFilters] = useState({ stage: '', status: '', projectCode: '' });
   const [showArchived, setShowArchived] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -52,6 +52,7 @@ function ProjectListPage() {
       const params = { page, size };
       if (filterParams?.stage) params.stage = filterParams.stage;
       if (filterParams?.status) params.status = filterParams.status;
+      if (filterParams?.projectCode) params.projectCode = filterParams.projectCode;
       params.includeInactive = filterParams?.includeInactive !== undefined ? filterParams.includeInactive : showArchived;
       const res = await client.get('/projects', { params });
       if (mountedRef.current) {
@@ -88,7 +89,7 @@ function ProjectListPage() {
   // 功能：重置筛选——清空后重新加载
   const handleReset = () => {
     setShowArchived(false);
-    const empty = { stage: '', status: '' };
+    const empty = { stage: '', status: '', projectCode: '' };
     setFilters(empty);
     fetchProjects(1, pagination.pageSize, empty);
   };
@@ -216,7 +217,7 @@ function ProjectListPage() {
   // 功能：表格列定义——编码/名称/阶段/状态/确认状态/确认人/确认时间/操作
   const columns = [
     { title: '项目编码', dataIndex: 'projectCode', key: 'projectCode', width: 140 },
-    { title: '项目名称', dataIndex: 'projectName', key: 'projectName', width: 160 },
+    { title: '项目名称', dataIndex: 'projectCode', key: 'projectCode', width: 160 },
     {
       title: '阶段', dataIndex: 'projectStage', key: 'projectStage', width: 80,
       render: (s) => <Tag color={STAGE_COLOR_MAP[s] || 'default'}>{s || '-'}</Tag>,
@@ -277,6 +278,14 @@ function ProjectListPage() {
       {/* 功能：筛选栏——阶段下拉+状态下拉+搜索/重置按钮 */}
       <Card id="project-search-bar" style={{ marginBottom: 16, borderRadius: 8 }}>
         <Space wrap size="middle">
+          <Input
+            placeholder="项目编码"
+            value={filters.projectCode || ''}
+            onChange={(e) => setFilters((f) => ({ ...f, projectCode: e.target.value }))}
+            allowClear
+            style={{ width: 180 }}
+            onPressEnter={handleSearch}
+          />
           <Select
             placeholder="项目阶段"
             value={filters.stage || undefined}
@@ -366,7 +375,7 @@ function ProjectListPage() {
           <Form.Item name="projectCode" label="项目编码" rules={[{ required: true, message: '请输入项目编码' }]}>
             <Input placeholder="如 PRJ2025001" maxLength={50} />
           </Form.Item>
-          <Form.Item name="projectName" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}>
+          <Form.Item name="projectCode" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}>
             <Input placeholder="项目名称" maxLength={100} />
           </Form.Item>
           <Form.Item name="projectStage" label="项目阶段" rules={[{ required: true, message: '请选择项目阶段' }]}>

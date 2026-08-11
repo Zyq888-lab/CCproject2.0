@@ -25,7 +25,8 @@ import java.util.List;
 public class ProjectService extends BaseService<ProjectMapper, Project> {
 
     // 功能：分页查询项目列表，支持按 projectStage 和 status 筛选
-    public PageResult<ProjectDTO> listProjects(PageQuery query, String stage, String status, Boolean includeInactive) {
+    public PageResult<ProjectDTO> listProjects(PageQuery query, String stage, String status,
+            Boolean includeInactive, String projectCode) {
         LambdaQueryWrapper<Project> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(stage)) {
             wrapper.eq(Project::getProjectStage, stage);
@@ -35,6 +36,9 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         }
         if (!Boolean.TRUE.equals(includeInactive)) {
             wrapper.ne(Project::getStatus, "INACTIVE");
+        }
+        if (StringUtils.hasText(projectCode)) {
+            wrapper.like(Project::getProjectCode, projectCode);
         }
         wrapper.orderByAsc(Project::getProjectCode);
         PageResult<Project> page = selectPage(query, wrapper);

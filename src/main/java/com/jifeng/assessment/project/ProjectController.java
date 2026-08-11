@@ -27,11 +27,12 @@ public class ProjectController extends BaseController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String stage,
             @RequestParam(required = false) String status,
-            @RequestParam(defaultValue = "false") Boolean includeInactive) {
+            @RequestParam(defaultValue = "false") Boolean includeInactive,
+            @RequestParam(required = false) String projectCode) {
         PageQuery query = new PageQuery();
         query.setPage(page);
         query.setSize(size);
-        return ok(projectService.listProjects(query, stage, status, includeInactive));
+        return ok(projectService.listProjects(query, stage, status, includeInactive, projectCode));
     }
 
     // 功能：创建项目——校验 projectCode 非空不重复，projectStage 为有效枚举值
