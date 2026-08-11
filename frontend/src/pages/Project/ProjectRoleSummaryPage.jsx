@@ -36,9 +36,10 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
   // 功能：获取角色列表——用于筛选下拉
   const fetchRoles = useCallback(async () => {
     try {
-      const res = await client.get('/project-roles', { params: { isActive: true } });
-      if (mountedRef.current && Array.isArray(res.data)) {
-        setRoleOptions(res.data.map((r) => ({ label: `${r.roleCode} — ${r.roleName}`, value: r.roleCode })));
+      const res = await client.get('/project-roles', { params: { isActive: true, size: 999 } });
+      const list = res.data?.list || [];
+      if (mountedRef.current) {
+        setRoleOptions(list.map((r) => ({ label: `${r.roleCode} — ${r.roleName}`, value: r.roleCode })));
       }
     } catch (_) { /* 非关键数据 */ }
   }, []);
