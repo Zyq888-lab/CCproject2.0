@@ -5,9 +5,8 @@ package com.jifeng.assessment.projectrole;
 
 import com.jifeng.assessment.common.ApiResponse;
 import com.jifeng.assessment.common.BaseController;
+import com.jifeng.assessment.common.PageResult;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -22,11 +21,21 @@ public class ProjectRoleController extends BaseController {
 
     private final ProjectRoleService projectRoleService;
 
-    // 功能：查询所有项目角色，可选 ?isActive=true 过滤已启用
+    // 功能：分页查询项目角色，支持 roleCode/roleName 模糊搜索和 isActive 筛选
     @GetMapping
-    public ApiResponse<List<ProjectRoleDTO>> list(
+    public ApiResponse<PageResult<ProjectRoleDTO>> list(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String roleCode,
+            @RequestParam(required = false) String roleName,
             @RequestParam(required = false) Boolean isActive) {
-        return ok(projectRoleService.listProjectRoles(isActive));
+        return ok(projectRoleService.listProjectRoles(page, size, roleCode, roleName, isActive));
+    }
+
+    // 功能：批量导入项目角色
+    @PostMapping("/import")
+    public ApiResponse<PageResult<ProjectRoleDTO>> importRoles(@RequestBody List<ProjectRole> roles) {
+        return ok(projectRoleService.importRoles(roles));
     }
 
     // 功能：新增项目角色——校验 roleCode 非空且不重复

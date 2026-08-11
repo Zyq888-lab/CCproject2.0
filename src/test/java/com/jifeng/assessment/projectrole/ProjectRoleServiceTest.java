@@ -151,11 +151,11 @@ class ProjectRoleServiceTest {
         inactive.setIsActive(false);
         projectRoleService.createProjectRole(inactive);
 
-        List<ProjectRoleDTO> activeOnly = projectRoleService.listProjectRoles(true);
+        List<ProjectRoleDTO> activeOnly = projectRoleService.listProjectRoles(1, 100, null, null, true).getList();
         assertTrue(activeOnly.stream().anyMatch(r -> "ACTIVE_ROLE".equals(r.getRoleCode())));
         assertTrue(activeOnly.stream().noneMatch(r -> "INACTIVE_ROLE".equals(r.getRoleCode())));
 
-        List<ProjectRoleDTO> all = projectRoleService.listProjectRoles(null);
+        List<ProjectRoleDTO> all = projectRoleService.listProjectRoles(1, 100, null, null, null).getList();
         assertTrue(all.stream().anyMatch(r -> "ACTIVE_ROLE".equals(r.getRoleCode())));
         assertTrue(all.stream().anyMatch(r -> "INACTIVE_ROLE".equals(r.getRoleCode())));
     }
@@ -235,7 +235,7 @@ class ProjectRoleServiceTest {
         assertEquals("新项目总监", recreated.getRoleName());
         assertEquals("重建后的角色", recreated.getDescription());
 
-        List<ProjectRoleDTO> list = projectRoleService.listProjectRoles(null);
+        List<ProjectRoleDTO> list = projectRoleService.listProjectRoles(1, 100, null, null, null).getList();
         long count = list.stream().filter(r -> "PDL".equals(r.getRoleCode())).count();
         assertEquals(1, count);
     }

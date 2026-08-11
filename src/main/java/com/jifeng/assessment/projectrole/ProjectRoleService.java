@@ -4,8 +4,11 @@
 package com.jifeng.assessment.projectrole;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jifeng.assessment.common.BaseService;
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.common.PageResult;
 import com.jifeng.assessment.kpi.ProjectKpiConfig;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
@@ -26,16 +29,37 @@ public class ProjectRoleService extends BaseService<ProjectRoleMapper, ProjectRo
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
     private final ProjectKpiMapper projectKpiMapper;
 
-    // 功能：查询所有项目角色，支持按 isActive 过滤
-    public List<ProjectRoleDTO> listProjectRoles(Boolean isActive) {
+    // 功能：分页查询项目角色，支持按 roleCode/roleName 模糊搜索和 isActive 筛选
+    public PageResult<ProjectRoleDTO> listProjectRoles(int page, int size,
+            String roleCode, String roleName, Boolean isActive) {
         LambdaQueryWrapper<ProjectRole> wrapper = new LambdaQueryWrapper<>();
+        if (StringUtils.hasText(roleCode)) {
+            wrapper.like(ProjectRole::getRoleCode, roleCode);
+        }
+        if (StringUtils.hasText(roleName)) {
+            wrapper.like(ProjectRole::getRoleName, roleName);
+        }
         if (isActive != null) {
             wrapper.eq(ProjectRole::getIsActive, isActive);
         }
         wrapper.orderByAsc(ProjectRole::getRoleCode);
-        return baseMapper.selectList(wrapper).stream()
-                .map(this::toDTO)
-                .toList();
+        IPage<ProjectRole> mpPage = baseMapper.selectPage(new Page<>(page, size), wrapper);
+        List<ProjectRoleDTO> dtoList = mpPage.getRecords().stream().map(this::toDTO).toList();
+        return PageResult.of(mpPage.getTotal(), page, size, dtoList);
+    }
+
+    // 功能：批量导入项目角色
+    @Transactional
+    public PageResult<ProjectRoleDTO> importRoles(List<ProjectRole> roles) {
+        int success = 0;
+        for (ProjectRole role : roles) {
+            if (!StringUtils.hasText(role.getRoleCode())) continue;
+            if (baseMapper.selectById(role.getRoleCode()) != null) continue;
+            role.setIsActive(role.getIsActive() != null ? role.getIsActive() : true);
+            baseMapper.insert(role);
+            success++;
+        }
+        return PageResult.of((long) success, 1, success, List.of());
     }
 
     // 功能：新增项目角色——校验 roleCode 非空、不重复；支持逻辑删除后重建
