@@ -281,7 +281,7 @@ function ProjectListPage() {
           <Input
             placeholder="项目编码"
             value={filters.projectCode || ''}
-            onChange={(e) => setFilters((f) => ({ ...f, projectCode: e.target.value }))}
+            onChange={(e) => setFilters((f) => ({ ...f, projectCode: e.target.value.toUpperCase() }))}
             allowClear
             style={{ width: 180 }}
             onPressEnter={handleSearch}

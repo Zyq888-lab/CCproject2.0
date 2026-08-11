@@ -38,7 +38,8 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
             wrapper.ne(Project::getStatus, "INACTIVE");
         }
         if (StringUtils.hasText(projectCode)) {
-            wrapper.like(Project::getProjectCode, projectCode);
+            wrapper.apply("LOWER(project_code) LIKE {0}",
+                    "%" + projectCode.toLowerCase() + "%");
         }
         wrapper.orderByAsc(Project::getProjectCode);
         PageResult<Project> page = selectPage(query, wrapper);
