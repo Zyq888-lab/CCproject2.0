@@ -217,7 +217,7 @@ function ProjectListPage() {
   // 功能：表格列定义——编码/名称/阶段/状态/确认状态/确认人/确认时间/操作
   const columns = [
     { title: '项目编码', dataIndex: 'projectCode', key: 'projectCode', width: 140 },
-    { title: '项目名称', dataIndex: 'projectCode', key: 'projectCode', width: 160 },
+    { title: '项目名称', dataIndex: 'projectName', key: 'projectName', width: 160 },
     {
       title: '阶段', dataIndex: 'projectStage', key: 'projectStage', width: 80,
       render: (s) => <Tag color={STAGE_COLOR_MAP[s] || 'default'}>{s || '-'}</Tag>,
@@ -375,7 +375,7 @@ function ProjectListPage() {
           <Form.Item name="projectCode" label="项目编码" rules={[{ required: true, message: '请输入项目编码' }]}>
             <Input placeholder="如 PRJ2025001" maxLength={50} />
           </Form.Item>
-          <Form.Item name="projectCode" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}>
+          <Form.Item name="projectName" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}>
             <Input placeholder="项目名称" maxLength={100} />
           </Form.Item>
           <Form.Item name="projectStage" label="项目阶段" rules={[{ required: true, message: '请选择项目阶段' }]}>
