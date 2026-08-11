@@ -13,6 +13,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -184,5 +188,53 @@ public class KpiConfigController extends BaseController {
         private String evaluationCriteria;
         private BigDecimal weight;
         private Integer sortOrder;
+    }
+
+    // 批量导入项目KPI
+    @PostMapping("/api/v1/kpi-configs/project-kpi/import")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    public ApiResponse<Map<String, Object>> importProjectKpi(@RequestBody List<ProjectKpiImportRequest> requests) {
+        int success = 0; List<String> errors = new ArrayList<>();
+        for (ProjectKpiImportRequest req : requests) {
+            try {
+                ProjectKpiConfig c = new ProjectKpiConfig();
+                c.setProjectRoleCode(req.getProjectRoleCode()); c.setProjectStage(req.getProjectStage());
+                c.setKpiName(req.getKpiName()); c.setEvaluationCriteria(req.getEvaluationCriteria());
+                c.setWeight(req.getWeight() != null ? req.getWeight() : java.math.BigDecimal.ZERO);
+                c.setSortOrder(req.getSortOrder());
+                kpiConfigService.createProjectKpi(c);
+                success++;
+            } catch (Exception e) { errors.add(req.getProjectRoleCode() + "/" + req.getProjectStage() + ": " + e.getMessage()); }
+        }
+        return ok(Map.of("success", success, "errors", errors));
+    }
+
+    @Data public static class ProjectKpiImportRequest {
+        private String projectRoleCode; private String projectStage; private String kpiName;
+        private String evaluationCriteria; private java.math.BigDecimal weight; private Integer sortOrder;
+    }
+
+    // 批量导入职能KPI
+    @PostMapping("/api/v1/kpi-configs/func-kpi/import")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    public ApiResponse<Map<String, Object>> importFuncKpi(@RequestBody List<FuncKpiImportRequest> requests) {
+        int success = 0; List<String> errors = new ArrayList<>();
+        for (FuncKpiImportRequest req : requests) {
+            try {
+                FuncKpiConfig fc = new FuncKpiConfig();
+                fc.setCategory(req.getCategory()); fc.setPosition(req.getPosition());
+                fc.setKpiName(req.getKpiName()); fc.setEvaluationCriteria(req.getEvaluationCriteria());
+                fc.setWeight(req.getWeight() != null ? req.getWeight() : java.math.BigDecimal.ZERO);
+                fc.setSortOrder(req.getSortOrder());
+                kpiConfigService.createFuncKpi(fc);
+                success++;
+            } catch (Exception e) { errors.add(req.getCategory() + "/" + req.getPosition() + ": " + e.getMessage()); }
+        }
+        return ok(Map.of("success", success, "errors", errors));
+    }
+
+    @Data public static class FuncKpiImportRequest {
+        private String category; private String position; private String kpiName;
+        private String evaluationCriteria; private java.math.BigDecimal weight; private Integer sortOrder;
     }
 }

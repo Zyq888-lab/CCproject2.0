@@ -3,11 +3,14 @@
 {/* 修改注意：创建时权重发送整数(0-100)，更新时发送小数(0-1)；GET返回小数，显示时×100 */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Tag, Space, Modal, Form, Input, Select, InputNumber, Switch, message, Card, Spin, Result,
+  Table, Button, Tag, Space, Modal, Form, Input, Select, InputNumber, Switch, message, Card, Spin, Result, Upload,
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, DeleteOutlined, LineChartOutlined, ReloadOutlined,
+  PlusOutlined, EditOutlined, DeleteOutlined, LineChartOutlined, ReloadOutlined, DownloadOutlined, InboxOutlined,
 } from '@ant-design/icons';
+import * as XLSX from 'xlsx';
+
+const { Dragger } = Upload;
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
@@ -34,6 +37,9 @@ function ProjectKpiPage() {
   const [form] = Form.useForm();
 
   const mountedRef = useRef(true);
+  const [importVisible, setImportVisible] = useState(false);
+  const [importData, setImportData] = useState([]);
+  const [importing, setImporting] = useState(false);
 
   const fetchData = useCallback(async (filterParams) => {
     setLoading(true);
@@ -55,10 +61,9 @@ function ProjectKpiPage() {
   useEffect(() => {
     mountedRef.current = true;
     fetchData(filters);
-    client.get('/project-roles', { params: { isActive: true } }).then((res) => {
-      if (mountedRef.current && Array.isArray(res.data)) {
-        setRoleOptions(res.data.map((r) => ({ label: r.roleCode, value: r.roleCode })));
-      }
+    client.get('/project-roles', { params: { isActive: true, size: 999 } }).then((res) => {
+      const list = res.data?.list || [];
+      if (mountedRef.current) setRoleOptions(list.map((r) => ({ label: r.roleCode, value: r.roleCode })));
     }).catch(() => {});
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -148,6 +153,44 @@ function ProjectKpiPage() {
     }, `${record.projectRoleCode} — ${record.kpiName}`);
   };
 
+  const COL_MAP = { '项目角色': 'projectRoleCode', '阶段': 'projectStage', 'KPI指标': 'kpiName', '评价标准': 'evaluationCriteria', '权重': 'weight', '排序': 'sortOrder' };
+  const handleFileParse = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        setImportData(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map((row, idx) => {
+          const mapped = { _key: idx };
+          Object.entries(COL_MAP).forEach(([col, field]) => { mapped[field] = String(row[col] || '').trim(); });
+          mapped._valid = !!mapped.projectRoleCode && !!mapped.projectStage && !!mapped.kpiName && mapped.weight;
+          return mapped;
+        }));
+      } catch (_) { message.error({ content: '文件解析失败' }); }
+    };
+    reader.readAsArrayBuffer(file);
+    return false;
+  };
+  const handleImport = async () => {
+    const valid = importData.filter(r => r._valid);
+    if (!valid.length) { message.warning({ content: '无有效数据' }); return; }
+    setImporting(true);
+    try {
+      const payload = valid.map(({ _key, _valid, ...rest }) => ({ ...rest, weight: parseFloat(rest.weight) || 0 }));
+      const res = await client.post('/kpi-configs/project-kpi/import', payload);
+      const result = res.data || {};
+      const fail = (result.errors || []).length;
+      if (fail > 0) { message.warning({ content: `成功 ${result.success || 0} 条，失败 ${fail} 条`, duration: 5 }); result.errors.slice(0, 5).forEach(e => message.error({ content: e })); }
+      else message.success({ content: `成功导入 ${result.success} 条`, duration: 3 });
+      if (result.success > 0 || fail === 0) { setImportVisible(false); setImportData([]); fetchData(filters); }
+    } catch (err) { message.error({ content: err?.message || '导入失败' }); }
+    finally { setImporting(false); }
+  };
+  const downloadTemplate = () => {
+    const ws = XLSX.utils.json_to_sheet([{ '项目角色': 'PDL', '阶段': 'P2', 'KPI指标': '指标名称', '评价标准': '1-5分', '权重': '30', '排序': '1' }]);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '项目KPI导入模板');
+    XLSX.writeFile(wb, '项目KPI导入模板.xlsx');
+  };
+
   const columns = [
     { title: '项目角色', dataIndex: 'projectRoleCode', key: 'projectRoleCode', width: 100 },
     { title: '阶段', dataIndex: 'projectStage', key: 'projectStage', width: 70,
@@ -196,7 +239,7 @@ function ProjectKpiPage() {
       <PageHeader
         title="项目KPI配置"
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
-        actions={[{ label: '新增KPI', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate }]}
+        actions={[{ label: '批量导入', icon: <DownloadOutlined />, onClick: () => setImportVisible(true) }, { label: '新增KPI', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate }]}
       />
 
       <Card id="project-kpi-search-bar" style={{ marginBottom: 16, borderRadius: 8 }}>
@@ -297,6 +340,16 @@ function ProjectKpiPage() {
           </div>
           <WeightSumHint data={data} editingRecord={editingRecord} form={form} />
         </Form>
+      </Modal>
+
+      <Modal title="批量导入项目KPI" open={importVisible} onCancel={() => { setImportVisible(false); setImportData([]); }}
+        width={850} footer={<Space>{importData.length > 0 && <Button type="primary" loading={importing} onClick={handleImport}>确认导入 ({importData.filter(r => r._valid).length} 条)</Button>}<Button onClick={() => { setImportVisible(false); setImportData([]); }}>关闭</Button></Space>}>
+        {!importData.length ? (
+          <div><Dragger accept=".xlsx,.xls" maxCount={1} beforeUpload={handleFileParse} showUploadList={false}><p className="ant-upload-drag-icon"><InboxOutlined /></p><p className="ant-upload-text">点击或拖拽Excel文件上传</p><p className="ant-upload-hint">列：项目角色、阶段、KPI指标、评价标准、权重、排序</p></Dragger>
+            <div style={{ marginTop: 16, textAlign: 'center' }}><Button type="link" icon={<DownloadOutlined />} onClick={downloadTemplate}>下载导入模板</Button></div></div>
+        ) : (
+          <Table columns={[{ title: '项目角色', dataIndex: 'projectRoleCode', width: 110 },{ title: '阶段', dataIndex: 'projectStage', width: 80 },{ title: 'KPI指标', dataIndex: 'kpiName', width: 150 },{ title: '权重', dataIndex: 'weight', width: 70 },{ title: '校验', dataIndex: '_valid', width: 60, render: (v) => <Tag color={v ? 'green' : 'red'}>{v ? '有效' : '无效'}</Tag> }]} dataSource={importData} rowKey="_key" size="small" scroll={{ y: 360 }} pagination={false} />
+        )}
       </Modal>
     </div>
   );

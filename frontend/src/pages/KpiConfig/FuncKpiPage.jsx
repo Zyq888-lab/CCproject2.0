@@ -3,11 +3,13 @@
 {/* 修改注意：创建时权重发送整数(0-100)，更新时发送小数(0-1)；GET返回小数，显示时×100 */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Space, Modal, Form, Input, Select, InputNumber, Switch, message, Card, Spin, Result,
+  Table, Button, Space, Modal, Form, Input, Select, InputNumber, Switch, message, Card, Spin, Result, Upload, Tag
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, DeleteOutlined, LineChartOutlined, ReloadOutlined,
+  PlusOutlined, EditOutlined, DeleteOutlined, LineChartOutlined, ReloadOutlined, DownloadOutlined, InboxOutlined,
 } from '@ant-design/icons';
+import * as XLSX from 'xlsx';
+const { Dragger } = Upload;
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
@@ -27,6 +29,17 @@ function FuncKpiPage() {
 
   const mountedRef = useRef(true);
   const [categoryOptions] = useCategories();
+  const [allPositionConfigs, setAllPositionConfigs] = useState([]);
+  const [positionOptions, setPositionOptions] = useState([]);
+  const [importVisible, setImportVisible] = useState(false);
+
+  const updatePositionOptions = (configs, cat) => {
+    const filtered = cat ? configs.filter((p) => p.category === cat) : configs;
+    const names = [...new Set(filtered.map((p) => p.position).filter(Boolean))].sort();
+    setPositionOptions(names.map((n) => ({ label: n, value: n })));
+  };
+  const [importData, setImportData] = useState([]);
+  const [importing, setImporting] = useState(false);
 
   const fetchData = useCallback(async (filterParams) => {
     setLoading(true);
@@ -47,6 +60,11 @@ function FuncKpiPage() {
   useEffect(() => {
     mountedRef.current = true;
     fetchData(filters);
+    client.get('/position-configs', { params: { size: 9999 } }).then((res) => {
+      const list = res.data?.list || [];
+      setAllPositionConfigs(list);
+      updatePositionOptions(list, filters.category);
+    }).catch(() => {});
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -148,6 +166,43 @@ function FuncKpiPage() {
     }, `${record.category} — ${record.kpiName}`);
   };
 
+  const FMAP = { '岗位分类': 'category', '岗位': 'position', 'KPI指标': 'kpiName', '评价标准': 'evaluationCriteria', '权重': 'weight', '排序': 'sortOrder' };
+  const handleFileParse = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        setImportData(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map((row, idx) => {
+          const mapped = { _key: idx };
+          Object.entries(FMAP).forEach(([col, field]) => { mapped[field] = String(row[col] || '').trim(); });
+          mapped._valid = !!mapped.category && !!mapped.kpiName && mapped.weight;
+          return mapped;
+        }));
+      } catch (_) { message.error({ content: '文件解析失败' }); }
+    };
+    reader.readAsArrayBuffer(file);
+    return false;
+  };
+  const handleImport = async () => {
+    const valid = importData.filter(r => r._valid);
+    if (!valid.length) { message.warning({ content: '无有效数据' }); return; }
+    setImporting(true);
+    try {
+      const res = await client.post('/kpi-configs/func-kpi/import', valid.map(({ _key, _valid, ...rest }) => ({ ...rest, weight: parseFloat(rest.weight) || 0 })));
+      const result = res.data || {};
+      const fail = (result.errors || []).length;
+      if (fail > 0) { message.warning({ content: `成功 ${result.success || 0} 条，失败 ${fail} 条`, duration: 5 }); result.errors.slice(0, 5).forEach(e => message.error({ content: e })); }
+      else message.success({ content: `成功导入 ${result.success} 条`, duration: 3 });
+      if (result.success > 0 || fail === 0) { setImportVisible(false); setImportData([]); fetchData(filters); }
+    } catch (err) { message.error({ content: err?.message || '导入失败' }); }
+    finally { setImporting(false); }
+  };
+  const downloadTemplate = () => {
+    const ws = XLSX.utils.json_to_sheet([{ '岗位分类': '研发技术类', '岗位': '整椅研发工程师', 'KPI指标': '指标名称', '评价标准': '1-5分', '权重': '30', '排序': '1' }]);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '职能KPI导入模板');
+    XLSX.writeFile(wb, '职能KPI导入模板.xlsx');
+  };
+
   const columns = [
     { title: '岗位分类', dataIndex: 'category', key: 'category', width: 110 },
     { title: '岗位名称', dataIndex: 'position', key: 'position', width: 120 },
@@ -195,7 +250,7 @@ function FuncKpiPage() {
       <PageHeader
         title="职能KPI配置"
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
-        actions={[{ label: '新增KPI', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate }]}
+        actions={[{ label: '批量导入', icon: <DownloadOutlined />, onClick: () => setImportVisible(true) }, { label: '新增KPI', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate }]}
       />
 
       <Card id="func-kpi-search-bar" style={{ marginBottom: 16, borderRadius: 8 }}>
@@ -203,18 +258,20 @@ function FuncKpiPage() {
           <Select
             placeholder="岗位分类"
             value={filters.category || undefined}
-            onChange={(v) => setFilters((f) => ({ ...f, category: v || '' }))}
+            onChange={(v) => { const cat = v || ''; setFilters((f) => ({ ...f, category: cat, position: '' })); updatePositionOptions(allPositionConfigs, cat); }}
             allowClear
             style={{ width: 140 }}
             options={categoryOptions}
           />
-          <Input
+          <Select
             placeholder="岗位名称"
-            value={filters.position}
-            onChange={(e) => setFilters((f) => ({ ...f, position: e.target.value }))}
-            onPressEnter={handleSearch}
-            style={{ width: 140 }}
+            value={filters.position || undefined}
+            onChange={(v) => setFilters((f) => ({ ...f, position: v || '' }))}
             allowClear
+            showSearch
+            optionFilterProp="label"
+            style={{ width: 180 }}
+            options={positionOptions}
           />
           <Button type="primary" onClick={handleSearch}>搜索</Button>
           <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
@@ -266,8 +323,8 @@ function FuncKpiPage() {
           <Form.Item name="category" label="岗位分类" rules={[{ required: true, message: '请选择岗位分类' }]}>
             <Select placeholder="选择岗位分类" options={categoryOptions} disabled={!!editingRecord} />
           </Form.Item>
-          <Form.Item name="position" label="岗位名称" rules={[{ required: true, message: '请输入岗位名称' }]}>
-            <Input placeholder="如 整椅研发岗" maxLength={50} disabled={!!editingRecord} />
+          <Form.Item name="position" label="岗位名称" rules={[{ required: true, message: '请选择岗位名称' }]}>
+            <Select placeholder="选择岗位" showSearch optionFilterProp="label" options={positionOptions} disabled={!!editingRecord} />
           </Form.Item>
           <Form.Item name="kpiName" label="KPI指标名称" rules={[{ required: true, message: '请输入KPI名称' }]}>
             <Input placeholder="如 技术文档完整性" maxLength={50} />
@@ -285,6 +342,16 @@ function FuncKpiPage() {
           </div>
           <WeightSumHint data={data} editingRecord={editingRecord} form={form} />
         </Form>
+      </Modal>
+
+      <Modal title="批量导入职能KPI" open={importVisible} onCancel={() => { setImportVisible(false); setImportData([]); }}
+        width={850} footer={<Space>{importData.length > 0 && <Button type="primary" loading={importing} onClick={handleImport}>确认导入 ({importData.filter(r => r._valid).length} 条)</Button>}<Button onClick={() => { setImportVisible(false); setImportData([]); }}>关闭</Button></Space>}>
+        {!importData.length ? (
+          <div><Dragger accept=".xlsx,.xls" maxCount={1} beforeUpload={handleFileParse} showUploadList={false}><p className="ant-upload-drag-icon"><InboxOutlined /></p><p className="ant-upload-text">点击或拖拽Excel文件上传</p><p className="ant-upload-hint">列：岗位分类、岗位、KPI指标、评价标准、权重、排序</p></Dragger>
+            <div style={{ marginTop: 16, textAlign: 'center' }}><Button type="link" icon={<DownloadOutlined />} onClick={downloadTemplate}>下载导入模板</Button></div></div>
+        ) : (
+          <Table columns={[{ title: '岗位分类', dataIndex: 'category', width: 120 },{ title: '岗位', dataIndex: 'position', width: 130 },{ title: 'KPI指标', dataIndex: 'kpiName', width: 150 },{ title: '权重', dataIndex: 'weight', width: 70 },{ title: '校验', dataIndex: '_valid', width: 60, render: (v) => <Tag color={v ? 'green' : 'red'}>{v ? '有效' : '无效'}</Tag> }]} dataSource={importData} rowKey="_key" size="small" scroll={{ y: 360 }} pagination={false} />
+        )}
       </Modal>
     </div>
   );
