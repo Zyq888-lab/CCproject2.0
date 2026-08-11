@@ -15,7 +15,7 @@ public interface ProjectRoleAssignmentMapper extends BaseMapper<ProjectRoleAssig
             + "e.category AS employee_category, e.position AS employee_position, e.org_name, "
             + "a.is_primary_pd, a.created_at "
             + "FROM project_role_assignment a "
-            + "JOIN project p ON p.project_code = a.project_code AND p.deleted = 0 "
+            + "JOIN project p ON p.project_code = a.project_code AND p.project_stage = a.project_stage AND p.deleted = 0 "
             + "JOIN project_role r ON r.role_code = a.project_role_code AND r.deleted = 0 "
             + "JOIN employee e ON e.employee_id = a.employee_id AND e.deleted = 0 "
             + "WHERE a.deleted = 0 "
