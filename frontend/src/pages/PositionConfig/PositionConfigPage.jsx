@@ -217,7 +217,10 @@ function PositionConfigPage() {
     finally { setImporting(false); }
   };
   const downloadTemplate = () => {
-    XLSX.writeFile(XLSX.utils.book_new(XLSX.utils.json_to_sheet([{ '岗位分类': '研发技术类', '岗位名称': '整椅研发工程师', '是否项目制(是/否)': '是', '默认项目角色': 'PDL', '项目考核权重': 70, '职能考核权重': 30, '职能考核模式': 'DIRECT_LEADER' }]), '岗位配置导入模板'), '岗位配置导入模板.xlsx');
+    const ws = XLSX.utils.json_to_sheet([{ '岗位分类': '研发技术类', '岗位名称': '整椅研发工程师', '是否项目制(是/否)': '是', '默认项目角色': 'PDL', '项目考核权重': 70, '职能考核权重': 30, '职能考核模式': 'DIRECT_LEADER' }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '导入模板');
+    XLSX.writeFile(wb, '岗位配置导入模板.xlsx');
   };
 
   // --- 考核人角色子管理 ---
