@@ -64,6 +64,14 @@ public class ProjectController extends BaseController {
         return ok(projectService.resetStage(projectCode, projectStage));
     }
 
+    // 功能：删除项目——仅当无角色分配引用时允许，逻辑删除
+    @DeleteMapping("/{projectCode}/{projectStage}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Void> delete(@PathVariable String projectCode, @PathVariable String projectStage) {
+        projectService.deleteProject(projectCode, projectStage);
+        return ok("已删除", null);
+    }
+
     // 功能：归档已完成的项目阶段——只有 COMPLETED 状态可归档，变为 INACTIVE
     @PutMapping("/{projectCode}/{projectStage}/archive")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM')")

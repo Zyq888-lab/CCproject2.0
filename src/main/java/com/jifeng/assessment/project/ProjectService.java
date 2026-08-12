@@ -9,6 +9,7 @@ import com.jifeng.assessment.common.BaseService;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.common.PageQuery;
 import com.jifeng.assessment.common.PageResult;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.core.Authentication;
@@ -23,6 +24,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class ProjectService extends BaseService<ProjectMapper, Project> {
+
+    private final ProjectRoleAssignmentMapper roleAssignmentMapper;
 
     // 功能：分页查询项目列表，支持按 projectStage 和 status 筛选
     public PageResult<ProjectDTO> listProjects(PageQuery query, String stage, String status,
@@ -129,6 +132,26 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         existing.setUpdatedAt(LocalDateTime.now());
         updateProject(existing);
         return toDTO(baseMapper.selectByCodeAndStage(projectCode, projectStage));
+    }
+
+    // 功能：删除项目——仅当无角色分配引用时允许，使用逻辑删除(@TableLogic)
+    @Transactional
+    public void deleteProject(String projectCode, String projectStage) {
+        Project existing = baseMapper.selectByCodeAndStage(projectCode, projectStage);
+        if (existing == null) {
+            throw new BusinessException(404, "项目不存在: " + projectCode + " / " + projectStage);
+        }
+        // 检查角色分配引用
+        Long assignmentCount = roleAssignmentMapper.selectCount(
+                new LambdaQueryWrapper<com.jifeng.assessment.roleassignment.ProjectRoleAssignment>()
+                        .eq(com.jifeng.assessment.roleassignment.ProjectRoleAssignment::getProjectCode, projectCode)
+                        .eq(com.jifeng.assessment.roleassignment.ProjectRoleAssignment::getProjectStage, projectStage));
+        if (assignmentCount > 0) {
+            throw new BusinessException(409, "该项目阶段已有 " + assignmentCount + " 条角色分配，请先清空分配后再删除");
+        }
+        baseMapper.delete(new LambdaQueryWrapper<Project>()
+                .eq(Project::getProjectCode, projectCode)
+                .eq(Project::getProjectStage, projectStage));
     }
 
     // 功能：联合主键安全更新——WHERE (project_code, project_stage, version)，不影响同编码其他阶段

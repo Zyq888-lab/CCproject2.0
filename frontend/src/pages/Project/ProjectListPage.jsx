@@ -6,7 +6,7 @@ import {
   Table, Button, Tag, Space, Modal, Form, Input, Select, message, Card, Tooltip, Upload,
 } from 'antd';
 import {
-  PlusOutlined, FolderOutlined, CheckCircleOutlined, RollbackOutlined, ReloadOutlined, LinkOutlined, InboxOutlined, DownloadOutlined,
+  PlusOutlined, FolderOutlined, CheckCircleOutlined, RollbackOutlined, ReloadOutlined, LinkOutlined, InboxOutlined, DownloadOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import * as XLSX from 'xlsx';
 
@@ -14,7 +14,7 @@ const { Dragger } = Upload;
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
-import { showConfirm, showConflictWarning } from '../../components/ConfirmModal';
+import { showConfirm, showConflictWarning, showDeleteConfirm } from '../../components/ConfirmModal';
 import client from '../../api/client';
 
 const STAGE_OPTIONS = [
@@ -220,6 +220,23 @@ function ProjectListPage() {
     });
   };
 
+  // 功能：删除项目——二次确认后 DELETE，有角色分配引用时后端返回409
+  const handleDelete = (record) => {
+    showDeleteConfirm(async () => {
+      try {
+        await client.delete(`/projects/${record.projectCode}/${record.projectStage}`);
+        message.success({ content: '已删除', duration: 3 });
+        fetchProjects(pagination.current, pagination.pageSize, filters);
+      } catch (err) {
+        if (err?.code === 409) {
+          message.error({ content: err.message || '该项目阶段已有角色分配，请先清空后再删除' });
+        } else {
+          message.error({ content: err?.message || '删除失败' });
+        }
+      }
+    }, `${record.projectCode} — ${record.projectStage}`);
+  };
+
   // --- 批量导入 ---
   const ICMAP = { '项目编码': 'projectCode', '项目名称': 'projectName', '项目阶段': 'projectStage', '描述': 'description', '状态': 'status' };
 
@@ -311,6 +328,9 @@ function ProjectListPage() {
               归档
             </Button>
           )}
+          <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
+            删除
+          </Button>
         </Space>
       ),
     },
