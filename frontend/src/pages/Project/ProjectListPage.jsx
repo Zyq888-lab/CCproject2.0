@@ -3,11 +3,14 @@
 {/* 修改注意：确认/重置使用后端乐观锁，409冲突调用showConflictWarning，ADMIN专属操作用danger按钮 */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Tag, Space, Modal, Form, Input, Select, message, Card,
+  Table, Button, Tag, Space, Modal, Form, Input, Select, message, Card, Tooltip, Upload,
 } from 'antd';
 import {
-  PlusOutlined, FolderOutlined, CheckCircleOutlined, RollbackOutlined, ReloadOutlined, LinkOutlined, InboxOutlined,
+  PlusOutlined, FolderOutlined, CheckCircleOutlined, RollbackOutlined, ReloadOutlined, LinkOutlined, InboxOutlined, DownloadOutlined,
 } from '@ant-design/icons';
+import * as XLSX from 'xlsx';
+
+const { Dragger } = Upload;
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
@@ -41,6 +44,9 @@ function ProjectListPage() {
   const [modalVisible, setModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+  const [importVisible, setImportVisible] = useState(false);
+  const [importData, setImportData] = useState([]);
+  const [importing, setImporting] = useState(false);
   const mountedRef = useRef(true);
   const navigate = useNavigate();
 
@@ -214,6 +220,53 @@ function ProjectListPage() {
     });
   };
 
+  // --- 批量导入 ---
+  const ICMAP = { '项目编码': 'projectCode', '项目名称': 'projectName', '项目阶段': 'projectStage', '描述': 'description', '状态': 'status' };
+
+  const handleFileParse = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        setImportData(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map((row, idx) => {
+          const m = { _key: idx };
+          Object.entries(ICMAP).forEach(([col, field]) => { m[field] = String(row[col] || '').trim(); });
+          if (m.status && !['ACTIVE', 'COMPLETED', 'INACTIVE'].includes(m.status.toUpperCase())) {
+            m._statusErr = true;
+          }
+          m.status = m.status?.toUpperCase() || 'ACTIVE';
+          if (m.projectStage) m.projectStage = m.projectStage.toUpperCase();
+          m._valid = !!m.projectCode && !!m.projectName && !!m.projectStage
+            && ['P1', 'P2', 'P3', 'P4', 'P5'].includes(m.projectStage) && !m._statusErr;
+          return m;
+        }));
+      } catch (_) { message.error({ content: '文件解析失败' }); }
+    };
+    reader.readAsArrayBuffer(file);
+    return false;
+  };
+
+  const handleImport = async () => {
+    const valid = importData.filter((r) => r._valid);
+    if (!valid.length) { message.warning({ content: '无有效数据' }); return; }
+    setImporting(true);
+    try {
+      const res = await client.post('/projects/import', valid.map(({ _key, _valid, _statusErr, ...rest }) => rest));
+      const r = res.data || {}; const fail = (r.errors || []).length;
+      if (fail > 0) { message.warning({ content: `成功 ${r.success || 0} 条，失败 ${fail} 条`, duration: 5 }); r.errors.slice(0, 5).forEach((e) => message.error({ content: e })); }
+      else message.success({ content: `成功导入 ${r.success} 条`, duration: 3 });
+      if (r.success > 0 || fail === 0) { setImportVisible(false); setImportData([]); fetchProjects(pagination.current, pagination.pageSize, filters); }
+    } catch (err) { message.error({ content: err?.message || '导入失败' }); }
+    finally { setImporting(false); }
+  };
+
+  const downloadTemplate = () => {
+    const ws = XLSX.utils.json_to_sheet([{ '项目编码': 'PRJ2025001', '项目名称': '示例项目', '项目阶段': 'P2', '描述': '项目描述（可选）', '状态': 'ACTIVE' }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '导入模板');
+    XLSX.writeFile(wb, '项目导入模板.xlsx');
+  };
+
   // 功能：表格列定义——编码/名称/阶段/状态/确认状态/确认人/确认时间/操作
   const columns = [
     { title: '项目编码', dataIndex: 'projectCode', key: 'projectCode', width: 140 },
@@ -271,6 +324,7 @@ function ProjectListPage() {
         title="项目管理"
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
         actions={[
+          { label: '批量导入', icon: <DownloadOutlined />, onClick: () => setImportVisible(true) },
           { label: '新增项目', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate },
         ]}
       />
@@ -388,6 +442,17 @@ function ProjectListPage() {
             <Select placeholder="选择状态" options={STATUS_OPTIONS} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 功能：批量导入弹窗——Excel上传+预览+确认导入 */}
+      <Modal title="批量导入项目" open={importVisible} onCancel={() => { setImportVisible(false); setImportData([]); }}
+        width={900} footer={<Space>{importData.length > 0 && <Button type="primary" loading={importing} onClick={handleImport}>确认导入 ({importData.filter((r) => r._valid).length} 条)</Button>}<Button onClick={() => { setImportVisible(false); setImportData([]); }}>关闭</Button></Space>}>
+        {!importData.length ? (
+          <div><Dragger accept=".xlsx,.xls" maxCount={1} beforeUpload={handleFileParse} showUploadList={false}><p className="ant-upload-drag-icon"><InboxOutlined /></p><p className="ant-upload-text">点击或拖拽Excel文件上传</p><p className="ant-upload-hint">列：项目编码、项目名称、项目阶段、描述(可选)、状态(ACTIVE/COMPLETED/INACTIVE)</p></Dragger>
+            <div style={{ marginTop: 16, textAlign: 'center' }}><Button type="link" icon={<DownloadOutlined />} onClick={downloadTemplate}>下载导入模板</Button></div></div>
+        ) : (
+          <Table columns={[{ title: '项目编码', dataIndex: 'projectCode', width: 140 },{ title: '项目名称', dataIndex: 'projectName', width: 160 },{ title: '项目阶段', dataIndex: 'projectStage', width: 80, render: (v) => <Tag color={v === 'P1' ? 'cyan' : v === 'P2' ? 'blue' : v === 'P3' ? 'green' : v === 'P4' ? 'orange' : v === 'P5' ? 'red' : 'default'}>{v}</Tag> },{ title: '状态', dataIndex: 'status', width: 80, render: (v) => <Tag color={v === 'ACTIVE' ? 'green' : v === 'COMPLETED' ? 'blue' : 'default'}>{v === 'ACTIVE' ? '活跃' : v === 'COMPLETED' ? '已完成' : v === 'INACTIVE' ? '归档' : v}</Tag> },{ title: '校验', dataIndex: '_valid', width: 60, render: (v) => <Tag color={v ? 'green' : 'red'}>{v ? '有效' : '无效'}</Tag> }]} dataSource={importData} rowKey="_key" size="small" scroll={{ y: 360 }} pagination={false} />
+        )}
       </Modal>
     </div>
   );

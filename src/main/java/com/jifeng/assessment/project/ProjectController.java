@@ -5,12 +5,20 @@ package com.jifeng.assessment.project;
 
 import com.jifeng.assessment.common.ApiResponse;
 import com.jifeng.assessment.common.BaseController;
+import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.common.PageQuery;
 import com.jifeng.assessment.common.PageResult;
 import jakarta.validation.Valid;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1/projects")
@@ -61,5 +69,59 @@ public class ProjectController extends BaseController {
     @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
     public ApiResponse<ProjectDTO> archiveStage(@PathVariable String projectCode, @PathVariable String projectStage) {
         return ok(projectService.archiveStage(projectCode, projectStage));
+    }
+
+    // 批量导入项目——逐行校验编码/名称/阶段/状态
+    private static final Set<String> VALID_STAGES = Set.of("P1", "P2", "P3", "P4", "P5");
+    private static final Set<String> VALID_STATUSES = Set.of("ACTIVE", "COMPLETED", "INACTIVE");
+
+    @PostMapping("/import")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Map<String, Object>> importProjects(@RequestBody List<ImportProjectRequest> requests) {
+        int success = 0; List<String> errors = new ArrayList<>();
+        int rowNum = 0;
+        for (ImportProjectRequest req : requests) {
+            rowNum++;
+            String label = "第" + rowNum + "行(" + req.getProjectCode() + ")";
+            try {
+                if (!StringUtils.hasText(req.getProjectCode())) {
+                    errors.add(label + ": 项目编码不能为空"); continue;
+                }
+                if (!StringUtils.hasText(req.getProjectName())) {
+                    errors.add(label + ": 项目名称不能为空"); continue;
+                }
+                if (!StringUtils.hasText(req.getProjectStage()) || !VALID_STAGES.contains(req.getProjectStage().toUpperCase())) {
+                    errors.add(label + ": 无效的项目阶段'" + req.getProjectStage() + "'，有效值: P1-P5"); continue;
+                }
+                String status = StringUtils.hasText(req.getStatus())
+                        ? req.getStatus().toUpperCase() : "ACTIVE";
+                if (!VALID_STATUSES.contains(status)) {
+                    errors.add(label + ": 无效的状态'" + status + "'，有效值: ACTIVE, COMPLETED, INACTIVE"); continue;
+                }
+
+                Project project = new Project();
+                project.setProjectCode(req.getProjectCode().trim());
+                project.setProjectName(req.getProjectName().trim());
+                project.setProjectStage(req.getProjectStage().trim().toUpperCase());
+                project.setDescription(req.getDescription());
+                project.setStatus(status);
+                projectService.createProject(project);
+                success++;
+            } catch (BusinessException e) {
+                errors.add(label + ": " + e.getMessage());
+            } catch (Exception e) {
+                errors.add(label + ": 系统错误——" + e.getMessage());
+            }
+        }
+        return ok(Map.of("success", success, "errors", errors));
+    }
+
+    @Data
+    public static class ImportProjectRequest {
+        private String projectCode;
+        private String projectName;
+        private String projectStage;
+        private String description;
+        private String status;
     }
 }
