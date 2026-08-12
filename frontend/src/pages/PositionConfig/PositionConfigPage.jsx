@@ -3,11 +3,14 @@
 {/* 修改注意：权重在前端为百分制整数(0-100)，GET返回小数需×100显示，POST/PUT直接发送整数 */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Tag, Space, Modal, Form, Input, Select, InputNumber, Switch, message, Card, Spin, Result, Tooltip,
+  Table, Button, Tag, Space, Modal, Form, Input, Select, InputNumber, Switch, message, Card, Spin, Result, Tooltip, Upload,
 } from 'antd';
 import {
-  PlusOutlined, SettingOutlined, EditOutlined, DeleteOutlined, UserOutlined, ReloadOutlined, TagsOutlined,
+  PlusOutlined, SettingOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, TagsOutlined, DownloadOutlined, InboxOutlined,
 } from '@ant-design/icons';
+import * as XLSX from 'xlsx';
+
+const { Dragger } = Upload;
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
@@ -52,6 +55,9 @@ function PositionConfigPage() {
 
   const mountedRef = useRef(true);
   const [categoryOptions] = useCategories();
+  const [importVisible, setImportVisible] = useState(false);
+  const [importData, setImportData] = useState([]);
+  const [importing, setImporting] = useState(false);
 
   // 功能：分页获取岗位配置——支持 category 精确匹配 + position 模糊搜索
   const fetchConfigs = useCallback(async (page, size, filterParams) => {
@@ -175,6 +181,43 @@ function PositionConfigPage() {
         message.error({ content: err?.message || '删除失败' });
       }
     }, `${record.category} — ${record.position}`);
+  };
+
+  // --- 批量导入 ---
+  const ICMAP = { '岗位分类': 'category', '岗位名称': 'position', '是否项目制(是/否)': 'isProjectBased', '默认项目角色': 'defaultProjectRole', '项目考核权重': 'projectWeight', '职能考核权重': 'funcWeight', '职能考核模式': 'funcAssessMode' };
+  const handleFileParse = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        setImportData(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map((row, idx) => {
+          const m = { _key: idx };
+          Object.entries(ICMAP).forEach(([col, field]) => { m[field] = String(row[col] || '').trim(); });
+          m.isProjectBased = m.isProjectBased === '是' || m.isProjectBased === 'true';
+          m.projectWeight = parseFloat(m.projectWeight) || 70; m.funcWeight = parseFloat(m.funcWeight) || 30;
+          m._valid = !!m.category && !!m.position;
+          return m;
+        }));
+      } catch (_) { message.error({ content: '文件解析失败' }); }
+    };
+    reader.readAsArrayBuffer(file);
+    return false;
+  };
+  const handleImport = async () => {
+    const valid = importData.filter(r => r._valid);
+    if (!valid.length) { message.warning({ content: '无有效数据' }); return; }
+    setImporting(true);
+    try {
+      const res = await client.post('/position-configs/import', valid.map(({ _key, _valid, ...rest }) => rest));
+      const r = res.data || {}; const fail = (r.errors || []).length;
+      if (fail > 0) { message.warning({ content: `成功 ${r.success || 0} 条，失败 ${fail} 条`, duration: 5 }); r.errors.slice(0, 5).forEach(e => message.error({ content: e })); }
+      else message.success({ content: `成功导入 ${r.success} 条`, duration: 3 });
+      if (r.success > 0 || fail === 0) { setImportVisible(false); setImportData([]); fetchConfigs(pagination.current, pagination.pageSize, filters); }
+    } catch (err) { message.error({ content: err?.message || '导入失败' }); }
+    finally { setImporting(false); }
+  };
+  const downloadTemplate = () => {
+    XLSX.writeFile(XLSX.utils.book_new(XLSX.utils.json_to_sheet([{ '岗位分类': '研发技术类', '岗位名称': '整椅研发工程师', '是否项目制(是/否)': '是', '默认项目角色': 'PDL', '项目考核权重': 70, '职能考核权重': 30, '职能考核模式': 'DIRECT_LEADER' }]), '岗位配置导入模板'), '岗位配置导入模板.xlsx');
   };
 
   // --- 考核人角色子管理 ---
@@ -386,7 +429,7 @@ function PositionConfigPage() {
       <PageHeader
         title="岗位配置"
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
-        actions={[{ label: '新增配置', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate }]}
+        actions={[{ label: '批量导入', icon: <DownloadOutlined />, onClick: () => setImportVisible(true) }, { label: '新增配置', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate }]}
       />
 
       {/* 功能：筛选栏——岗位分类下拉+岗位名称搜索 */}
@@ -569,6 +612,16 @@ function PositionConfigPage() {
             </Form.Item>
           </Form>
         </Modal>
+      </Modal>
+
+      <Modal title="批量导入岗位配置" open={importVisible} onCancel={() => { setImportVisible(false); setImportData([]); }}
+        width={900} footer={<Space>{importData.length > 0 && <Button type="primary" loading={importing} onClick={handleImport}>确认导入 ({importData.filter(r => r._valid).length} 条)</Button>}<Button onClick={() => { setImportVisible(false); setImportData([]); }}>关闭</Button></Space>}>
+        {!importData.length ? (
+          <div><Dragger accept=".xlsx,.xls" maxCount={1} beforeUpload={handleFileParse} showUploadList={false}><p className="ant-upload-drag-icon"><InboxOutlined /></p><p className="ant-upload-text">点击或拖拽Excel文件上传</p><p className="ant-upload-hint">列：岗位分类、岗位名称、是否项目制(是/否)、默认项目角色、项目考核权重、职能考核权重、职能考核模式</p></Dragger>
+            <div style={{ marginTop: 16, textAlign: 'center' }}><Button type="link" icon={<DownloadOutlined />} onClick={downloadTemplate}>下载导入模板</Button></div></div>
+        ) : (
+          <Table columns={[{ title: '岗位分类', dataIndex: 'category', width: 120 },{ title: '岗位名称', dataIndex: 'position', width: 140 },{ title: '项目权重', dataIndex: 'projectWeight', width: 80 },{ title: '职能权重', dataIndex: 'funcWeight', width: 80 },{ title: '校验', dataIndex: '_valid', width: 60, render: (v) => <Tag color={v ? 'green' : 'red'}>{v ? '有效' : '无效'}</Tag> }]} dataSource={importData} rowKey="_key" size="small" scroll={{ y: 360 }} pagination={false} />
+        )}
       </Modal>
     </div>
   );

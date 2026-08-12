@@ -15,6 +15,11 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import java.math.BigDecimal;
 import java.util.List;
 
 @RestController
@@ -141,5 +146,33 @@ public class PositionConfigController extends BaseController {
     public static class AssessorRoleRequest {
         @NotBlank
         private String roleCode;
+    }
+
+    // 批量导入岗位配置
+    @PostMapping("/api/v1/position-configs/import")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Map<String, Object>> importConfigs(@RequestBody List<ImportConfigRequest> requests) {
+        int success = 0; List<String> errors = new ArrayList<>();
+        for (ImportConfigRequest req : requests) {
+            try {
+                PositionAssessmentConfig c = new PositionAssessmentConfig();
+                c.setCategory(req.getCategory()); c.setPosition(req.getPosition());
+                c.setIsProjectBased(req.getIsProjectBased() != null ? req.getIsProjectBased() : true);
+                c.setDefaultProjectRole(req.getDefaultProjectRole());
+                c.setFuncAssessMode(req.getFuncAssessMode());
+                c.setProjectWeight(req.getProjectWeight() != null ? req.getProjectWeight() : BigDecimal.valueOf(70));
+                c.setFuncWeight(req.getFuncWeight() != null ? req.getFuncWeight() : BigDecimal.valueOf(30));
+                positionConfigService.createConfig(c);
+                success++;
+            } catch (Exception e) { errors.add(req.getCategory() + "/" + req.getPosition() + ": " + e.getMessage()); }
+        }
+        return ok(Map.of("success", success, "errors", errors));
+    }
+
+    @Data
+    public static class ImportConfigRequest {
+        private String category; private String position; private Boolean isProjectBased;
+        private String defaultProjectRole; private String funcAssessMode;
+        private BigDecimal projectWeight; private BigDecimal funcWeight;
     }
 }
