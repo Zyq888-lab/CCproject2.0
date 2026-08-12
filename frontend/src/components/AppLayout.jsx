@@ -1,7 +1,7 @@
 {/* 模块用途：AppLayout——全局布局组件，左侧边栏+顶部导航+内容区域的三明治结构 */}
 {/* 依赖组件：react-router-dom, Ant Design Menu/Layout */}
 {/* 修改注意：菜单项变更时同步更新 menuItems 数组和路由配置 */}
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { Layout, Menu, Dropdown } from 'antd';
 import {
@@ -20,24 +20,41 @@ import client from '../api/client';
 
 const { Sider, Header, Content } = Layout;
 
-const menuItems = [
-  { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', group: 'top' },
-  { type: 'divider', label: '配置中心', group: 'config' },
-  { key: '/employee-management', icon: <TeamOutlined />, label: '员工管理' },
-  { key: '/project/list', icon: <FolderOutlined />, label: '项目管理' },
-  { key: '/project-role', icon: <AimOutlined />, label: '项目角色管理' },
-  { key: '/position-config', icon: <SettingOutlined />, label: '岗位配置' },
-  { key: '/kpi-config', icon: <LineChartOutlined />, label: 'KPI配置' },
-  { key: '/period-config', icon: <CalendarOutlined />, label: '考核周期' },
-  { type: 'divider', label: '系统设置', group: 'system' },
-  { key: '/user-role', icon: <UserOutlined />, label: '用户管理' },
-  { key: '/system-param', icon: <ToolOutlined />, label: '系统参数' },
+const allMenuItems = [
+  { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', roles: ['ROLE_ADMIN', 'ROLE_PM'], group: 'top' },
+  { type: 'divider', label: '配置中心', roles: ['ROLE_ADMIN', 'ROLE_PM'], group: 'config' },
+  { key: '/employee-management', icon: <TeamOutlined />, label: '员工管理', roles: ['ROLE_ADMIN'] },
+  { key: '/project/list', icon: <FolderOutlined />, label: '项目管理', roles: ['ROLE_ADMIN', 'ROLE_PM'] },
+  { key: '/project-role', icon: <AimOutlined />, label: '项目角色管理', roles: ['ROLE_ADMIN'] },
+  { key: '/position-config', icon: <SettingOutlined />, label: '岗位配置', roles: ['ROLE_ADMIN'] },
+  { key: '/kpi-config', icon: <LineChartOutlined />, label: 'KPI配置', roles: ['ROLE_ADMIN', 'ROLE_PM'] },
+  { key: '/period-config', icon: <CalendarOutlined />, label: '考核周期', roles: ['ROLE_ADMIN', 'ROLE_PM'] },
+  { type: 'divider', label: '系统设置', roles: ['ROLE_ADMIN'], group: 'system' },
+  { key: '/user-role', icon: <UserOutlined />, label: '用户管理', roles: ['ROLE_ADMIN'] },
+  { key: '/system-param', icon: <ToolOutlined />, label: '系统参数', roles: ['ROLE_ADMIN'] },
 ];
 
 function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
+  const [userRoles, setUserRoles] = useState([]);
+  const [username, setUsername] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
+
+  // 功能：获取当前用户信息，用于角色菜单过滤
+  useEffect(() => {
+    client.get('/auth/me').then((res) => {
+      const data = res.data || res;
+      setUserRoles(data.roles || []);
+      setUsername(data.username || '');
+    }).catch(() => { /* 非关键 */ });
+  }, []);
+
+  // 功能：根据用户角色过滤可见菜单项
+  const menuItems = allMenuItems.filter((item) => {
+    if (!item.roles) return true; // divider, no roles check
+    return item.roles.some((r) => userRoles.includes(r));
+  });
 
   // 功能：选中当前路径对应的菜单项，匹配不到时回退到仪表盘
   const selectedKey = menuItems.find(
@@ -134,7 +151,7 @@ function AppLayout() {
               onMouseLeave={(e) => { e.currentTarget.style.color = '#1890FF'; }}
             >
               <UserOutlined style={{ marginRight: 6 }} />
-              管理员{loggingOut ? '…' : ''}
+              {username || '用户'}{loggingOut ? '…' : ''}
             </span>
           </Dropdown>
         </Header>
