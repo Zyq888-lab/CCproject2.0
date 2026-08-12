@@ -476,32 +476,10 @@ function PositionConfigPage() {
           <Form.Item name="isProjectBased" label="是否纳入项目制考核" valuePropName="checked">
             <Switch checkedChildren="是" unCheckedChildren="否" />
           </Form.Item>
-          <Form.Item name="defaultProjectRole" label="默认项目角色">
-            <Select placeholder="选择默认角色（可选）" options={projectRoleOptions} showSearch optionFilterProp="label" allowClear />
-          </Form.Item>
-          <div style={{ display: 'flex', gap: 16 }}>
-            <Form.Item name="projectWeight" label="项目考核权重(%)" rules={[{ required: true, message: '请输入' }]} style={{ flex: 1 }}>
-              <InputNumber min={0} max={100} precision={0} style={{ width: '100%' }} placeholder="如 70" />
-            </Form.Item>
-            <Form.Item name="funcWeight" label="职能考核权重(%)" rules={[{ required: true, message: '请输入' }, ({ getFieldValue }) => ({
-              validator(_, value) {
-                const pw = getFieldValue('projectWeight');
-                if (value != null && pw != null && pw + value !== 100) {
-                  return Promise.reject(new Error(`项目权重(${pw}) + 职能权重(${value}) 应等于 100`));
-                }
-                return Promise.resolve();
-              },
-            })]} style={{ flex: 1 }}>
-              <InputNumber min={0} max={100} precision={0} style={{ width: '100%' }} placeholder="如 30" />
-            </Form.Item>
-          </div>
-          <Form.Item name="funcAssessMode" label="职能考核模式">
-            <Select placeholder="选择考核模式" options={FUNC_MODE_OPTIONS} allowClear />
-          </Form.Item>
 
           {editingConfig && (
             <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-              <div style={{ fontWeight: 500, marginBottom: 8 }}>考核人角色</div>
+              <div style={{ fontWeight: 500, marginBottom: 8 }}>项目考核人角色</div>
               {assessorLoading ? <Spin size="small" /> : (
                 assessorRoles.length > 0 ? (
                   <Table columns={[
@@ -525,6 +503,29 @@ function PositionConfigPage() {
               </Space.Compact>
             </div>
           )}
+
+          <Form.Item name="defaultProjectRole" label="默认项目角色">
+            <Select placeholder="选择默认角色（可选）" options={projectRoleOptions} showSearch optionFilterProp="label" allowClear />
+          </Form.Item>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <Form.Item name="projectWeight" label="项目考核权重(%)" rules={[{ required: true, message: '请输入' }]} style={{ flex: 1 }}>
+              <InputNumber min={0} max={100} precision={0} style={{ width: '100%' }} placeholder="如 70" />
+            </Form.Item>
+            <Form.Item name="funcWeight" label="职能考核权重(%)" rules={[{ required: true, message: '请输入' }, ({ getFieldValue }) => ({
+              validator(_, value) {
+                const pw = getFieldValue('projectWeight');
+                if (value != null && pw != null && pw + value !== 100) {
+                  return Promise.reject(new Error(`项目权重(${pw}) + 职能权重(${value}) 应等于 100`));
+                }
+                return Promise.resolve();
+              },
+            })]} style={{ flex: 1 }}>
+              <InputNumber min={0} max={100} precision={0} style={{ width: '100%' }} placeholder="如 30" />
+            </Form.Item>
+          </div>
+          <Form.Item name="funcAssessMode" label="职能考核模式">
+            <Select placeholder="选择考核模式" options={FUNC_MODE_OPTIONS} allowClear />
+          </Form.Item>
         </Form>
       </Modal>
 
