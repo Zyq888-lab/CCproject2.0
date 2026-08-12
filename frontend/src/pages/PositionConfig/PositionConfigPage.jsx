@@ -77,8 +77,8 @@ function PositionConfigPage() {
   // 功能：获取启用的项目角色——用于默认项目角色下拉、考核人角色下拉和名称解析
   const fetchProjectRoles = useCallback(async () => {
     try {
-      const res = await client.get('/project-roles', { params: { isActive: true } });
-      if (mountedRef.current) setProjectRoles(Array.isArray(res.data) ? res.data : []);
+      const res = await client.get('/project-roles', { params: { isActive: true, size: 999 } });
+      if (mountedRef.current) setProjectRoles(res.data?.list || []);
     } catch (_) { /* 非关键数据，失败不影响主流程 */ }
   }, []);
 
@@ -124,6 +124,8 @@ function PositionConfigPage() {
       projectWeight: record.projectWeight != null ? Math.round(record.projectWeight * 100) : 70,
       funcWeight: record.funcWeight != null ? Math.round(record.funcWeight * 100) : 30,
     });
+    setAssessorConfig(record);
+    fetchAssessorRoles(record.id);
     setModalVisible(true);
   };
 
@@ -351,10 +353,9 @@ function PositionConfigPage() {
       render: (names) => names && names.length > 0
         ? names.map((name) => <Tag key={name} color="blue">{name}</Tag>)
         : <span style={{ color: '#BFBFBF' }}>—</span> },
-    { title: '操作', key: 'action', width: 220,
+    { title: '操作', key: 'action', width: 160,
       render: (_, record) => (
         <Space size="small">
-          <Button type="link" size="small" icon={<UserOutlined />} onClick={() => handleManageAssessors(record)}>考核人</Button>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>编辑</Button>
           <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>删除</Button>
         </Space>
@@ -497,63 +498,34 @@ function PositionConfigPage() {
           <Form.Item name="funcAssessMode" label="职能考核模式">
             <Select placeholder="选择考核模式" options={FUNC_MODE_OPTIONS} allowClear />
           </Form.Item>
+
+          {editingConfig && (
+            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+              <div style={{ fontWeight: 500, marginBottom: 8 }}>考核人角色</div>
+              {assessorLoading ? <Spin size="small" /> : (
+                assessorRoles.length > 0 ? (
+                  <Table columns={[
+                    { title: '角色编码', dataIndex: 'roleCode', key: 'roleCode', width: 120 },
+                    { title: '角色名称', dataIndex: 'roleName', key: 'roleName', width: 120 },
+                    { title: '', key: 'action', width: 60,
+                      render: (_, r) => r.roleCode === editingConfig?.defaultProjectRole
+                        ? <Tooltip title="默认角色不可移除"><Button type="link" size="small" danger disabled>移除</Button></Tooltip>
+                        : <Button type="link" size="small" danger onClick={() => handleRemoveAssessor(r.id)}>移除</Button>
+                    },
+                  ]} dataSource={assessorRoles} rowKey="id" size="small" pagination={false} />
+                ) : <span style={{ color: '#BFBFBF' }}>暂无</span>
+              )}
+              <Space.Compact style={{ width: '100%', marginTop: 8 }}>
+                <Form form={assessorForm} layout="inline">
+                  <Form.Item name="roleCode" rules={[{ required: true, message: '请选择' }]} style={{ marginBottom: 0 }}>
+                    <Select placeholder="添加考核人角色" style={{ width: 200 }} options={assessorRoleOptions} showSearch optionFilterProp="label" />
+                  </Form.Item>
+                </Form>
+                <Button type="primary" size="small" onClick={handleAddAssessor} loading={assessorSubmitting}>添加</Button>
+              </Space.Compact>
+            </div>
+          )}
         </Form>
-      </Modal>
-
-      {/* 功能：考核人角色子管理弹窗——已添加角色表格+下拉添加 */}
-      <Modal
-        title={`考核人角色 — ${assessorConfig?.position || ''}`}
-        open={assessorModalVisible}
-        onCancel={() => setAssessorModalVisible(false)}
-        footer={null}
-        width={500}
-      >
-        <div style={{ marginBottom: 16 }}>
-          <Space.Compact style={{ width: '100%' }}>
-            <Form form={assessorForm} layout="inline">
-              <Form.Item name="roleCode" rules={[{ required: true, message: '请选择' }]} style={{ marginBottom: 0 }}>
-                <Select
-                  placeholder="选择考核人角色"
-                  style={{ width: 240 }}
-                  options={assessorRoleOptions}
-                  showSearch
-                  optionFilterProp="label"
-                  notFoundContent={excludedCodes.size >= projectRoles.length ? '所有角色已添加' : '无匹配角色'}
-                />
-              </Form.Item>
-            </Form>
-            <Button type="primary" onClick={handleAddAssessor} loading={assessorSubmitting}>添加</Button>
-          </Space.Compact>
-        </div>
-
-        {assessorLoading ? (
-          <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
-        ) : assessorRoles.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 24, color: '#8C8C8C' }}>暂无考核人角色，在上方选择添加</div>
-        ) : (
-          <Table
-            columns={[
-              { title: '角色编码', dataIndex: 'roleCode', key: 'roleCode', width: 120 },
-              { title: '角色名称', dataIndex: 'roleName', key: 'roleName', width: 150, render: (v) => v || '-' },
-              { title: '操作', key: 'action', width: 80,
-                render: (_, record) => {
-                  const isDefault = record.roleCode === assessorConfig?.defaultProjectRole;
-                  return isDefault ? (
-                    <Tooltip title="默认角色不可直接移除，请先修改默认项目角色">
-                      <Button type="link" size="small" danger disabled>移除</Button>
-                    </Tooltip>
-                  ) : (
-                    <Button type="link" size="small" danger onClick={() => handleRemoveAssessor(record.id)} disabled={assessorSubmitting}>移除</Button>
-                  );
-                },
-              },
-            ]}
-            dataSource={assessorRoles}
-            rowKey="id"
-            size="small"
-            pagination={false}
-          />
-        )}
       </Modal>
 
       {/* 功能：岗位分类管理弹窗——内嵌表格+新增/编辑子弹窗 */}
