@@ -40,7 +40,6 @@ function App() {
           <Route path="/period-config" element={<PeriodConfigPage />} />
           <Route path="/user-role" element={<UserRolePage />} />
           <Route path="/system-param" element={<SystemParamPage />} />
-          <Route path="/leader-config" element={<Navigate to="/employee-management" replace />} />
         </Route>
 
         {/* 功能：根路径重定向到仪表盘 */}
