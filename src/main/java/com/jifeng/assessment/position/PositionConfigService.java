@@ -41,14 +41,17 @@ public class PositionConfigService extends BaseService<PositionConfigMapper, Pos
                 .toList();
     }
 
-    // 功能：分页查询岗位配置列表，支持按岗位分类和岗位名称筛选，附带考核人角色名称
-    public PageResult<PositionAssessmentConfig> listConfigs(int pageNum, int pageSize, String category, String position) {
+    // 功能：分页查询岗位配置列表，支持按岗位分类、岗位名称、默认角色筛选，附带考核人角色名称
+    public PageResult<PositionAssessmentConfig> listConfigs(int pageNum, int pageSize, String category, String position, String defaultProjectRole) {
         LambdaQueryWrapper<PositionAssessmentConfig> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(category)) {
             wrapper.eq(PositionAssessmentConfig::getCategory, category);
         }
         if (StringUtils.hasText(position)) {
             wrapper.like(PositionAssessmentConfig::getPosition, position);
+        }
+        if (StringUtils.hasText(defaultProjectRole)) {
+            wrapper.eq(PositionAssessmentConfig::getDefaultProjectRole, defaultProjectRole);
         }
         wrapper.orderByAsc(PositionAssessmentConfig::getId);
         Page<PositionAssessmentConfig> page = new Page<>(pageNum, pageSize);

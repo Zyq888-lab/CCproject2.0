@@ -131,7 +131,7 @@ class PositionConfigServiceTest {
         PositionAssessmentConfig config = createTestConfig("研发技术类", "整椅研发岗");
         positionConfigService.deleteConfig(config.getId());
 
-        PageResult<PositionAssessmentConfig> page = positionConfigService.listConfigs(1, 20, null, null);
+        PageResult<PositionAssessmentConfig> page = positionConfigService.listConfigs(1, 20, null, null, null);
         assertTrue(page.getList().isEmpty());
     }
 
@@ -189,7 +189,7 @@ class PositionConfigServiceTest {
         createTestConfig("研发技术类", "骨架研发岗");
         createTestConfig("职能管理类", "财务岗");
 
-        PageResult<PositionAssessmentConfig> page = positionConfigService.listConfigs(1, 20, "研发技术类", null);
+        PageResult<PositionAssessmentConfig> page = positionConfigService.listConfigs(1, 20, "研发技术类", null, null);
         assertEquals(2, page.getList().size());
     }
 

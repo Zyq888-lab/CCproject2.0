@@ -29,7 +29,7 @@ function PositionConfigPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
-  const [filters, setFilters] = useState({ category: '', position: '' });
+  const [filters, setFilters] = useState({ category: '', position: '', defaultProjectRole: '' });
   const [modalVisible, setModalVisible] = useState(false);
   const [editingConfig, setEditingConfig] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -68,6 +68,7 @@ function PositionConfigPage() {
       const params = { page, size };
       if (filterParams?.category) params.category = filterParams.category;
       if (filterParams?.position) params.position = filterParams.position;
+      if (filterParams?.defaultProjectRole) params.defaultProjectRole = filterParams.defaultProjectRole;
       const res = await client.get('/position-configs', { params });
       if (mountedRef.current) {
         const pageData = res.data || {};
@@ -98,7 +99,7 @@ function PositionConfigPage() {
 
   const handleSearch = () => fetchConfigs(1, pagination.pageSize, filters);
   const handleReset = () => {
-    const empty = { category: '', position: '' };
+    const empty = { category: '', position: '', defaultProjectRole: '' };
     setFilters(empty);
     fetchConfigs(1, pagination.pageSize, empty);
   };
@@ -484,6 +485,16 @@ function PositionConfigPage() {
               allowClear
               style={{ width: 140 }}
               options={categoryOptions}
+            />
+            <Select
+              placeholder="默认角色"
+              value={filters.defaultProjectRole || undefined}
+              onChange={(v) => setFilters((f) => ({ ...f, defaultProjectRole: v || '' }))}
+              allowClear
+              style={{ width: 160 }}
+              options={projectRoleOptions}
+              showSearch
+              optionFilterProp="label"
             />
             <Input
               placeholder="岗位名称"
