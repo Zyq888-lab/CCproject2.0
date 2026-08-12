@@ -42,6 +42,7 @@ function PositionConfigPage() {
   const [assessorLoading, setAssessorLoading] = useState(false);
   const [assessorSubmitting, setAssessorSubmitting] = useState(false);
   const [assessorForm] = Form.useForm();
+  const [createAssessorRoles, setCreateAssessorRoles] = useState([]);
 
   // --- 岗位分类管理 ---
   const [categoryData, setCategoryData] = useState([]);
@@ -112,6 +113,10 @@ function PositionConfigPage() {
   // 功能：打开新增弹窗——表单默认值：isProjectBased=true, projectWeight=70, funcWeight=30
   const handleCreate = () => {
     setEditingConfig(null);
+    setAssessorConfig(null);
+    setAssessorRoles([]);
+    setAssessorLoading(false);
+    setCreateAssessorRoles([]);
     form.resetFields();
     form.setFieldsValue({ isProjectBased: true, projectWeight: 70, funcWeight: 30 });
     setModalVisible(true);
@@ -154,8 +159,23 @@ function PositionConfigPage() {
         await client.put(`/position-configs/${editingConfig.id}`, payload);
         message.success({ content: '保存成功', duration: 3 });
       } else {
-        await client.post('/position-configs', payload);
-        message.success({ content: '创建成功', duration: 3 });
+        const res = await client.post('/position-configs', payload);
+        const newConfig = res.data;
+        if (createAssessorRoles.length > 0) {
+          const addResults = await Promise.allSettled(
+            createAssessorRoles.map((ar) =>
+              client.post(`/position-configs/${newConfig.id}/assessor-roles`, { roleCode: ar.roleCode })
+            )
+          );
+          const failed = addResults.filter((r) => r.status === 'rejected').length;
+          if (failed > 0) {
+            message.warning({ content: `配置已创建，但 ${failed} 个考核人角色添加失败`, duration: 5 });
+          } else {
+            message.success({ content: '创建成功', duration: 3 });
+          }
+        } else {
+          message.success({ content: '创建成功', duration: 3 });
+        }
       }
       setModalVisible(false);
       fetchConfigs(pagination.current, pagination.pageSize, filters);
@@ -184,7 +204,7 @@ function PositionConfigPage() {
   };
 
   // --- 批量导入 ---
-  const ICMAP = { '岗位分类': 'category', '岗位名称': 'position', '是否项目制(是/否)': 'isProjectBased', '默认项目角色': 'defaultProjectRole', '项目考核权重': 'projectWeight', '职能考核权重': 'funcWeight', '职能考核模式': 'funcAssessMode' };
+  const ICMAP = { '岗位分类': 'category', '岗位名称': 'position', '是否项目制(是/否)': 'isProjectBased', '默认项目角色编码': 'defaultProjectRole', '项目考核权重': 'projectWeight', '职能考核权重': 'funcWeight' };
   const handleFileParse = (file) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -217,7 +237,7 @@ function PositionConfigPage() {
     finally { setImporting(false); }
   };
   const downloadTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([{ '岗位分类': '研发技术类', '岗位名称': '整椅研发工程师', '是否项目制(是/否)': '是', '默认项目角色': 'PDL', '项目考核权重': 70, '职能考核权重': 30, '职能考核模式': 'DIRECT_LEADER' }]);
+    const ws = XLSX.utils.json_to_sheet([{ '岗位分类': '研发技术类', '岗位名称': '整椅研发工程师', '是否项目制(是/否)': '是', '默认项目角色编码': 'PDL', '项目考核权重': 70, '职能考核权重': 30 }]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '导入模板');
     XLSX.writeFile(wb, '岗位配置导入模板.xlsx');
@@ -277,12 +297,30 @@ function PositionConfigPage() {
     }
   };
 
+  // 功能：新增模式下本地添加考核人角色——创建成功后批量保存
+  const handleAddAssessorCreate = () => {
+    assessorForm.validateFields().then((values) => {
+      const role = projectRoles.find((r) => r.roleCode === values.roleCode);
+      setCreateAssessorRoles((prev) => [...prev, { roleCode: values.roleCode, roleName: role?.roleName || values.roleCode }]);
+      assessorForm.resetFields();
+    }).catch(() => {});
+  };
+
+  // 功能：新增模式下本地移除考核人角色
+  const handleRemoveAssessorCreate = (roleCode) => {
+    setCreateAssessorRoles((prev) => prev.filter((r) => r.roleCode !== roleCode));
+  };
+
   const getRoleName = (code) => {
     const r = projectRoles.find((x) => x.roleCode === code);
     return r ? r.roleName : code;
   };
 
-  const excludedCodes = new Set([...assessorRoles.map((r) => r.roleCode), assessorConfig?.defaultProjectRole].filter(Boolean));
+  const isCreateMode = !editingConfig;
+  const watchedDefaultRole = Form.useWatch('defaultProjectRole', form);
+  const activeAssessorRoles = isCreateMode ? createAssessorRoles : assessorRoles;
+  const activeDefaultRole = isCreateMode ? watchedDefaultRole : assessorConfig?.defaultProjectRole;
+  const excludedCodes = new Set([...activeAssessorRoles.map((r) => r.roleCode), activeDefaultRole].filter(Boolean));
   const assessorRoleOptions = projectRoles
     .filter((r) => !excludedCodes.has(r.roleCode))
     .map((r) => ({ label: `${r.roleCode} — ${r.roleName}`, value: r.roleCode }));
@@ -394,7 +432,7 @@ function PositionConfigPage() {
     { title: '职能考核', dataIndex: 'funcAssessMode', key: 'funcAssessMode', width: 130,
       render: (v) => FUNC_MODE_LABEL[v] || v || '-' },
     { title: '默认角色', dataIndex: 'defaultProjectRole', key: 'defaultProjectRole', width: 100,
-      render: (v) => v || '-' },
+      render: (v) => v ? getRoleName(v) : '-' },
     { title: '考核人角色', dataIndex: 'assessorRoleNames', key: 'assessorRoleNames', width: 200,
       render: (names) => names && names.length > 0
         ? names.map((name) => <Tag key={name} color="blue">{name}</Tag>)
@@ -523,10 +561,24 @@ function PositionConfigPage() {
             <Switch checkedChildren="是" unCheckedChildren="否" />
           </Form.Item>
 
-          {editingConfig && (
-            <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-              <div style={{ fontWeight: 500, marginBottom: 8 }}>项目考核人角色</div>
-              {assessorLoading ? <Spin size="small" /> : (
+          <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+            <div style={{ fontWeight: 500, marginBottom: 8 }}>项目考核人角色</div>
+            {isCreateMode ? (
+              /* 新增模式：本地管理考核人角色，创建成功后批量保存 */
+              createAssessorRoles.length > 0 ? (
+                <Table columns={[
+                  { title: '角色编码', dataIndex: 'roleCode', key: 'roleCode', width: 120 },
+                  { title: '角色名称', dataIndex: 'roleName', key: 'roleName', width: 120 },
+                  { title: '', key: 'action', width: 60,
+                    render: (_, r) => (
+                      <Button type="link" size="small" danger onClick={() => handleRemoveAssessorCreate(r.roleCode)}>移除</Button>
+                    ),
+                  },
+                ]} dataSource={createAssessorRoles} rowKey="roleCode" size="small" pagination={false} />
+              ) : <span style={{ color: '#BFBFBF' }}>暂无</span>
+            ) : (
+              /* 编辑模式：走 API */
+              assessorLoading ? <Spin size="small" /> : (
                 assessorRoles.length > 0 ? (
                   <Table columns={[
                     { title: '角色编码', dataIndex: 'roleCode', key: 'roleCode', width: 120 },
@@ -538,17 +590,19 @@ function PositionConfigPage() {
                     },
                   ]} dataSource={assessorRoles} rowKey="id" size="small" pagination={false} />
                 ) : <span style={{ color: '#BFBFBF' }}>暂无</span>
-              )}
-              <Space.Compact style={{ width: '100%', marginTop: 8 }}>
-                <Form form={assessorForm} layout="inline">
-                  <Form.Item name="roleCode" rules={[{ required: true, message: '请选择' }]} style={{ marginBottom: 0 }}>
-                    <Select placeholder="添加考核人角色" style={{ width: 200 }} options={assessorRoleOptions} showSearch optionFilterProp="label" />
-                  </Form.Item>
-                </Form>
-                <Button type="primary" size="small" onClick={handleAddAssessor} loading={assessorSubmitting}>添加</Button>
-              </Space.Compact>
-            </div>
-          )}
+              )
+            )}
+            <Space.Compact style={{ width: '100%', marginTop: 8 }}>
+              <Form form={assessorForm} layout="inline">
+                <Form.Item name="roleCode" rules={[{ required: true, message: '请选择' }]} style={{ marginBottom: 0 }}>
+                  <Select placeholder="添加考核人角色" style={{ width: 200 }} options={assessorRoleOptions} showSearch optionFilterProp="label" />
+                </Form.Item>
+              </Form>
+              <Button type="primary" size="small"
+                onClick={isCreateMode ? handleAddAssessorCreate : handleAddAssessor}
+                loading={!isCreateMode ? assessorSubmitting : false}>添加</Button>
+            </Space.Compact>
+          </div>
 
           <Form.Item name="defaultProjectRole" label="默认项目角色">
             <Select placeholder="选择默认角色（可选）" options={projectRoleOptions} showSearch optionFilterProp="label" allowClear />
@@ -620,7 +674,7 @@ function PositionConfigPage() {
       <Modal title="批量导入岗位配置" open={importVisible} onCancel={() => { setImportVisible(false); setImportData([]); }}
         width={900} footer={<Space>{importData.length > 0 && <Button type="primary" loading={importing} onClick={handleImport}>确认导入 ({importData.filter(r => r._valid).length} 条)</Button>}<Button onClick={() => { setImportVisible(false); setImportData([]); }}>关闭</Button></Space>}>
         {!importData.length ? (
-          <div><Dragger accept=".xlsx,.xls" maxCount={1} beforeUpload={handleFileParse} showUploadList={false}><p className="ant-upload-drag-icon"><InboxOutlined /></p><p className="ant-upload-text">点击或拖拽Excel文件上传</p><p className="ant-upload-hint">列：岗位分类、岗位名称、是否项目制(是/否)、默认项目角色、项目考核权重、职能考核权重、职能考核模式</p></Dragger>
+          <div><Dragger accept=".xlsx,.xls" maxCount={1} beforeUpload={handleFileParse} showUploadList={false}><p className="ant-upload-drag-icon"><InboxOutlined /></p><p className="ant-upload-text">点击或拖拽Excel文件上传</p><p className="ant-upload-hint">列：岗位分类、岗位名称、是否项目制(是/否)、默认项目角色编码、项目考核权重、职能考核权重</p></Dragger>
             <div style={{ marginTop: 16, textAlign: 'center' }}><Button type="link" icon={<DownloadOutlined />} onClick={downloadTemplate}>下载导入模板</Button></div></div>
         ) : (
           <Table columns={[{ title: '岗位分类', dataIndex: 'category', width: 120 },{ title: '岗位名称', dataIndex: 'position', width: 140 },{ title: '项目权重', dataIndex: 'projectWeight', width: 80 },{ title: '职能权重', dataIndex: 'funcWeight', width: 80 },{ title: '校验', dataIndex: '_valid', width: 60, render: (v) => <Tag color={v ? 'green' : 'red'}>{v ? '有效' : '无效'}</Tag> }]} dataSource={importData} rowKey="_key" size="small" scroll={{ y: 360 }} pagination={false} />
