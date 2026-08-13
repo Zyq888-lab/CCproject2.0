@@ -45,6 +45,7 @@ public class NotificationService extends BaseService<NotificationMapper, Notific
                 }
                 baseMapper.insert(n);
             }
+            log.info("批量通知发送成功，共 {} 条", notifications.size());
         } catch (Exception e) {
             log.error("批量通知发送失败，共 {} 条: {}", notifications.size(), e.getMessage(), e);
         }

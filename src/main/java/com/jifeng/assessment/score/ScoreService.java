@@ -148,6 +148,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
     }
 
     // 功能：凭证上传——校验文件大小≤10MB，返回访问 URL
+    @Transactional
     public String uploadEvidence(Long scoreId, MultipartFile file) {
         AssessmentScore score = baseMapper.selectById(scoreId);
         if (score == null) {
