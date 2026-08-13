@@ -2,6 +2,7 @@
 {/* 依赖组件：PageHeader, EmptyState, client.js, Ant Design Tabs/Table/Select/Input/Tag/Space/Card */}
 {/* 修改注意：状态Tag颜色 PENDING=orange/IN_PROGRESS=blue/SUBMITTED=green/RETURNED=red/CONFIRMED=cyan/CANCELED=default */}
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Table, Button, Select, Input, Space, Tag, Card, Tabs, message,
 } from 'antd';
@@ -42,6 +43,7 @@ const STATUS_COLOR_MAP = {
 const TASK_TYPE_LABEL = { 'PROJECT': '项目考核', 'FUNCTIONAL': '职能考核' };
 
 function TaskListPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -113,12 +115,15 @@ function TaskListPage() {
     }
   };
 
-  // 功能：开始评分——PENDING → IN_PROGRESS，跳转到打分页（T10 实现后接入）
+  // 功能：开始评分——PENDING → IN_PROGRESS，跳转到打分页
   const handleStart = async (record) => {
     try {
       await client.put(`/tasks/${record.id}/start`);
       message.success({ content: '已开始评分', duration: 2 });
-      fetchTasks(pagination.current, pagination.pageSize, filters);
+      const path = record.taskType === 'FUNCTIONAL'
+        ? `/assessment/score/functional?taskId=${record.id}`
+        : `/assessment/score/project?taskId=${record.id}`;
+      navigate(path);
     } catch (err) {
       message.error({ content: err?.message || '操作失败' });
     }
