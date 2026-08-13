@@ -15,6 +15,10 @@ import PositionConfigPage from './pages/PositionConfig/PositionConfigPage';
 import KpiConfigView from './pages/KpiConfig/KpiConfigView';
 import SystemParamPage from './pages/SystemParam/SystemParamPage';
 import PeriodConfigPage from './pages/PeriodConfig/PeriodConfigPage';
+import ParticipationPage from './pages/Participation/ParticipationPage';
+import TaskListPage from './pages/Tasks/TaskListPage';
+import ProjectScorePage from './pages/Assessment/ProjectScorePage';
+import FuncScorePage from './pages/Assessment/FuncScorePage';
 
 function App() {
   return (
@@ -40,11 +44,10 @@ function App() {
           <Route path="/period-config" element={<PeriodConfigPage />} />
           <Route path="/user-role" element={<UserRolePage />} />
           <Route path="/system-param" element={<SystemParamPage />} />
-          {/* TODO(T8-T11): Phase 2.0 路由——参与录入 / 任务列表 / 项目打分 / 职能打分，前端页面开发时填充 */}
-          {/* <Route path="/participation" element={<ParticipationPage />} /> */}
-          {/* <Route path="/tasks" element={<TaskListPage />} /> */}
-          {/* <Route path="/assessment/score/project" element={<ProjectScorePage />} /> */}
-          {/* <Route path="/assessment/score/functional" element={<FuncScorePage />} /> */}
+          <Route path="/participation" element={<ParticipationPage />} />
+          <Route path="/tasks" element={<TaskListPage />} />
+          <Route path="/assessment/score/project" element={<ProjectScorePage />} />
+          <Route path="/assessment/score/functional" element={<FuncScorePage />} />
         </Route>
 
         {/* 功能：根路径重定向到仪表盘 */}

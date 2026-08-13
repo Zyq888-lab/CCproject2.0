@@ -27,12 +27,13 @@ public class TaskController extends BaseController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String periodId,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String projectCode,
             @RequestParam(required = false) String assessorId,
             @RequestParam(required = false) String assesseeId) {
         PageQuery query = new PageQuery();
         query.setPage(page);
         query.setSize(size);
-        return ok(taskService.listTasks(query, periodId, status, assessorId, assesseeId));
+        return ok(taskService.listTasks(query, periodId, status, projectCode, assessorId, assesseeId));
     }
 
     // 功能：开始评分——PENDING → IN_PROGRESS

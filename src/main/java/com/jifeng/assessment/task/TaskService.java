@@ -21,15 +21,18 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
 
     private final TaskStateMachine taskStateMachine;
 
-    // 功能：分页查询考核任务——支持按周期/状态/考核人/被考核人筛选
+    // 功能：分页查询考核任务——支持按周期/状态/项目编码/考核人/被考核人筛选
     public PageResult<AssessmentTask> listTasks(PageQuery query, String periodId, String status,
-                                                String assessorId, String assesseeId) {
+                                                String projectCode, String assessorId, String assesseeId) {
         LambdaQueryWrapper<AssessmentTask> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(periodId)) {
             wrapper.eq(AssessmentTask::getPeriodId, periodId);
         }
         if (StringUtils.hasText(status)) {
             wrapper.eq(AssessmentTask::getStatus, status);
+        }
+        if (StringUtils.hasText(projectCode)) {
+            wrapper.eq(AssessmentTask::getProjectCode, projectCode);
         }
         if (StringUtils.hasText(assessorId)) {
             wrapper.eq(AssessmentTask::getAssessorId, assessorId);

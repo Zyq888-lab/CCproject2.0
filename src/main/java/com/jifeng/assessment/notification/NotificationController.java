@@ -32,10 +32,13 @@ public class NotificationController extends BaseController {
         return ok(notificationService.listNotifications(query, recipientId, isRead));
     }
 
-    // 功能：未读计数——仪表盘红点数字
+    // 功能：未读计数——仪表盘红点数字（不传 recipientId 时自动解析当前用户）
     @GetMapping("/unread-count")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
-    public ApiResponse<Long> unreadCount(@RequestParam String recipientId) {
+    public ApiResponse<Long> unreadCount(@RequestParam(required = false) String recipientId) {
+        if (recipientId == null || recipientId.isEmpty()) {
+            return ok(notificationService.unreadCountForCurrentUser());
+        }
         return ok(notificationService.unreadCount(recipientId));
     }
 

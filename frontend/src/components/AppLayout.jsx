@@ -3,7 +3,7 @@
 {/* 修改注意：菜单项变更时同步更新 menuItems 数组和路由配置 */}
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { Layout, Menu, Dropdown } from 'antd';
+import { Layout, Menu, Dropdown, Badge } from 'antd';
 import {
   DashboardOutlined,
   TeamOutlined,
@@ -15,13 +15,19 @@ import {
   UserOutlined,
   ToolOutlined,
   LogoutOutlined,
+  CarryOutOutlined,
+  FormOutlined,
+  BellOutlined,
 } from '@ant-design/icons';
 import client from '../api/client';
 
 const { Sider, Header, Content } = Layout;
 
+// 功能：全员可见的角色集合（Phase 2.0 考核流程入口）
+const ALL_STAFF_ROLES = ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工'];
+
 const allMenuItems = [
-  { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', roles: ['ROLE_ADMIN', 'ROLE_PM'], group: 'top' },
+  { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', roles: ALL_STAFF_ROLES, group: 'top' },
   { type: 'divider', label: '配置中心', roles: ['ROLE_ADMIN', 'ROLE_PM'], group: 'config' },
   { key: '/employee-management', icon: <TeamOutlined />, label: '员工管理', roles: ['ROLE_ADMIN'] },
   { key: '/project/list', icon: <FolderOutlined />, label: '项目管理', roles: ['ROLE_ADMIN', 'ROLE_PM'] },
@@ -29,18 +35,19 @@ const allMenuItems = [
   { key: '/position-config', icon: <SettingOutlined />, label: '岗位配置', roles: ['ROLE_ADMIN'] },
   { key: '/kpi-config', icon: <LineChartOutlined />, label: 'KPI配置', roles: ['ROLE_ADMIN', 'ROLE_PM'] },
   { key: '/period-config', icon: <CalendarOutlined />, label: '考核周期', roles: ['ROLE_ADMIN', 'ROLE_PM'] },
+  { type: 'divider', label: '考核流程', roles: ALL_STAFF_ROLES, group: 'flow' },
+  { key: '/participation', icon: <FormOutlined />, label: '项目参与', roles: ALL_STAFF_ROLES },
+  { key: '/tasks', icon: <CarryOutOutlined />, label: '考核任务', roles: ALL_STAFF_ROLES },
   { type: 'divider', label: '系统设置', roles: ['ROLE_ADMIN'], group: 'system' },
   { key: '/user-role', icon: <UserOutlined />, label: '用户管理', roles: ['ROLE_ADMIN'] },
   { key: '/system-param', icon: <ToolOutlined />, label: '系统参数', roles: ['ROLE_ADMIN'] },
-  // TODO(T8-T11): Phase 2.0 菜单项——参与录入/任务列表/项目打分/职能打分，前端页面开发时填充
-  // { key: '/participation', icon: <FolderOutlined />, label: '项目参与', roles: ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工'] },
-  // { key: '/tasks', icon: <FolderOutlined />, label: '考核任务', roles: ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工'] },
 ];
 
 function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [userRoles, setUserRoles] = useState([]);
   const [username, setUsername] = useState('');
+  const [unreadCount, setUnreadCount] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -50,6 +57,13 @@ function AppLayout() {
       const data = res.data || res;
       setUserRoles(data.roles || []);
       setUsername(data.username || '');
+    }).catch(() => { /* 非关键 */ });
+  }, []);
+
+  // 功能：获取未读通知数量——顶部红点显示
+  useEffect(() => {
+    client.get('/notifications/unread-count').then((res) => {
+      setUnreadCount(res.data || 0);
     }).catch(() => { /* 非关键 */ });
   }, []);
 
@@ -137,6 +151,13 @@ function AppLayout() {
           borderBottom: '1px solid #F0F0F0',
           height: 56,
         }}>
+          {/* 功能：通知红点——未读数量，点击跳转任务列表 */}
+          <Badge count={unreadCount} size="small" style={{ marginRight: 24 }}>
+            <BellOutlined
+              style={{ fontSize: 18, color: '#1890FF', cursor: 'pointer' }}
+              onClick={() => navigate('/tasks')}
+            />
+          </Badge>
           <Dropdown
             menu={{
               items: [

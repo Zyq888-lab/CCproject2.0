@@ -8,9 +8,13 @@ import com.jifeng.assessment.common.BaseService;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.common.PageQuery;
 import com.jifeng.assessment.common.PageResult;
+import com.jifeng.assessment.user.SysUser;
+import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +25,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class NotificationService extends BaseService<NotificationMapper, Notification> {
+
+    private final SysUserMapper sysUserMapper;
 
     // 功能：异步批量发送通知——移出调用方事务，失败仅记录日志不影响主流程
     @Async
@@ -62,6 +68,26 @@ public class NotificationService extends BaseService<NotificationMapper, Notific
         return baseMapper.selectCount(new LambdaQueryWrapper<Notification>()
                 .eq(Notification::getRecipientId, recipientId)
                 .eq(Notification::getIsRead, false));
+    }
+
+    // 功能：当前用户未读计数——从 SecurityContext 反查 userId，供 AppLayout 顶部红点使用
+    public long unreadCountForCurrentUser() {
+        String userId = getCurrentUserId();
+        if (userId == null) {
+            return 0;
+        }
+        return unreadCount(userId);
+    }
+
+    // 功能：从 SecurityContext 用户名反查当前用户 userId
+    private String getCurrentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return null;
+        }
+        SysUser user = sysUserMapper.selectOne(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getUsername, auth.getName()));
+        return user != null ? user.getUserId() : null;
     }
 
     // 功能：标记已读——将 is_read 更新为 true

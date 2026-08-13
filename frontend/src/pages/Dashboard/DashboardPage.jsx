@@ -3,7 +3,7 @@
 {/* 修改注意：卡片顺序按推荐配置流程排列；config-progress API返回5项数据，缺失项默认"待配置" */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Progress, Spin, Result, Button, Tag } from 'antd';
+import { Card, Progress, Spin, Result, Button, Tag, Badge } from 'antd';
 import {
   CheckCircleFilled,
   TeamOutlined,
@@ -13,6 +13,7 @@ import {
   SettingOutlined,
   LineChartOutlined,
   CalendarOutlined,
+  CarryOutOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import client from '../../api/client';
@@ -46,6 +47,7 @@ function DashboardPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [pendingCount, setPendingCount] = useState(0);
   const navigate = useNavigate();
 
   const mountedRef = useRef(true);
@@ -70,11 +72,22 @@ function DashboardPage() {
     }
   }, []);
 
+  // 功能：获取待处理任务数——按角色返回（评估人=待评分/员工=待参与/PM=待审批/ADMIN=差异）
+  const fetchPendingCount = useCallback(async () => {
+    try {
+      const res = await client.get('/dashboard/pending-count');
+      if (mountedRef.current) {
+        setPendingCount(res.data || 0);
+      }
+    } catch (_) { /* 非关键 */ }
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     fetchProgress();
+    fetchPendingCount();
     return () => { mountedRef.current = false; };
-  }, [fetchProgress]);
+  }, [fetchProgress, fetchPendingCount]);
 
   // 功能：加载中——显示Spin旋转加载
   if (loading) {
@@ -118,6 +131,20 @@ function DashboardPage() {
         title="仪表盘"
         breadcrumb={[{ title: '首页' }]}
       />
+
+      {/* 功能：待处理任务卡——全员可见，显示按角色区分的待处理数 */}
+      <Card id="dashboard-pending-card" style={{ borderRadius: 8, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Badge count={pendingCount} size="small">
+            <CarryOutOutlined style={{ fontSize: 28, color: '#1890FF' }} />
+          </Badge>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>待处理任务</span>
+          <span style={{ fontSize: 20, fontWeight: 600, color: pendingCount > 0 ? '#FA8C16' : '#52C41A' }}>
+            {pendingCount}
+          </span>
+          <Button type="link" onClick={() => navigate('/tasks')}>查看任务 →</Button>
+        </div>
+      </Card>
 
       {/* 功能：配置完成度进度条——绿色百分比 */}
       <Card id="dashboard-progress-bar" style={{ borderRadius: 8, marginBottom: 16 }}>
