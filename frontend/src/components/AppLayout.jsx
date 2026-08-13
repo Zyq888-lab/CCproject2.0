@@ -32,6 +32,9 @@ const allMenuItems = [
   { type: 'divider', label: '系统设置', roles: ['ROLE_ADMIN'], group: 'system' },
   { key: '/user-role', icon: <UserOutlined />, label: '用户管理', roles: ['ROLE_ADMIN'] },
   { key: '/system-param', icon: <ToolOutlined />, label: '系统参数', roles: ['ROLE_ADMIN'] },
+  // TODO(T8-T11): Phase 2.0 菜单项——参与录入/任务列表/项目打分/职能打分，前端页面开发时填充
+  // { key: '/participation', icon: <FolderOutlined />, label: '项目参与', roles: ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工'] },
+  // { key: '/tasks', icon: <FolderOutlined />, label: '考核任务', roles: ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工'] },
 ];
 
 function AppLayout() {

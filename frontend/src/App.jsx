@@ -40,6 +40,11 @@ function App() {
           <Route path="/period-config" element={<PeriodConfigPage />} />
           <Route path="/user-role" element={<UserRolePage />} />
           <Route path="/system-param" element={<SystemParamPage />} />
+          {/* TODO(T8-T11): Phase 2.0 路由——参与录入 / 任务列表 / 项目打分 / 职能打分，前端页面开发时填充 */}
+          {/* <Route path="/participation" element={<ParticipationPage />} /> */}
+          {/* <Route path="/tasks" element={<TaskListPage />} /> */}
+          {/* <Route path="/assessment/score/project" element={<ProjectScorePage />} /> */}
+          {/* <Route path="/assessment/score/functional" element={<FuncScorePage />} /> */}
         </Route>
 
         {/* 功能：根路径重定向到仪表盘 */}

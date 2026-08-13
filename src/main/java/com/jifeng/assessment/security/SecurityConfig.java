@@ -64,6 +64,15 @@ public class SecurityConfig {
                 .requestMatchers("/h2-console/**").permitAll()
                 // 静态资源
                 .requestMatchers("/", "/index.html", "/static/**", "/assets/**").permitAll()
+                // Phase 2.0 端点——仅要求登录，细粒度角色权限由各 Controller 的 @PreAuthorize 控制
+                //   /api/v1/participations/**  员工/评估人/PM/PD/ADMIN
+                //   /api/v1/tasks/**           评估人/员工/PM/PD/ADMIN
+                //   /api/v1/scores/**          评估人（T5 实现）
+                //   /api/v1/notifications/**   全员
+                //   /api/v1/dashboard/**       全员
+                .requestMatchers("/api/v1/participations/**", "/api/v1/tasks/**",
+                        "/api/v1/scores/**", "/api/v1/notifications/**",
+                        "/api/v1/dashboard/**").authenticated()
                 // 所有 /api/* 需要登录
                 .requestMatchers("/api/**").authenticated()
                 // 其他放行
