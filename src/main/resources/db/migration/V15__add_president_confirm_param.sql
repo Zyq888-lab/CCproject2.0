@@ -4,4 +4,5 @@
 -- ============================================================
 
 INSERT INTO system_param (param_key, param_value, description)
-VALUES ('NEED_PRESIDENT_CONFIRM', 'true', '是否需要总裁确认环节（true/false）');
+VALUES ('NEED_PRESIDENT_CONFIRM', 'true', '是否需要总裁确认环节（true/false）')
+ON CONFLICT (param_key) DO NOTHING;

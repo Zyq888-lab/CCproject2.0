@@ -6,6 +6,7 @@ package com.jifeng.assessment.task;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
+import com.jifeng.assessment.notification.NotificationService;
 import com.jifeng.assessment.participation.EmployeeProjectParticipation;
 import com.jifeng.assessment.participation.ParticipationMapper;
 import com.jifeng.assessment.period.AssessmentPeriod;
@@ -18,6 +19,7 @@ import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
+import com.jifeng.assessment.user.SysUserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,6 +47,8 @@ class TaskGeneratorServiceTest {
     @Mock private PeriodMapper periodMapper;
     @Mock private ProjectMapper projectMapper;
     @Mock private DiscrepancyLogMapper discrepancyLogMapper;
+    @Mock private NotificationService notificationService;
+    @Mock private SysUserMapper sysUserMapper;
 
     @InjectMocks
     private TaskGeneratorService generatorService;
@@ -58,6 +62,8 @@ class TaskGeneratorServiceTest {
         initPeriod.setStatus("INIT");
         // 自注入代理 self 字段在纯 Mockito 测试中不注入，手动指向当前实例（markPeriodOngoing 直接走真实方法）
         ReflectionTestUtils.setField(generatorService, "self", generatorService);
+        // 通知相关依赖默认返回空——不干扰任务生成计数断言（lenient：部分用例提前返回不触发通知）
+        lenient().when(sysUserMapper.selectList(any())).thenReturn(List.of());
     }
 
     // 辅助方法：构建已确认阶段的 ACTIVE 项目

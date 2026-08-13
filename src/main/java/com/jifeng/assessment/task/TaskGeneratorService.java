@@ -19,6 +19,10 @@ import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
+import com.jifeng.assessment.notification.Notification;
+import com.jifeng.assessment.notification.NotificationService;
+import com.jifeng.assessment.user.SysUser;
+import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,7 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -45,6 +51,8 @@ public class TaskGeneratorService {
     private final PeriodMapper periodMapper;
     private final ProjectMapper projectMapper;
     private final DiscrepancyLogMapper discrepancyLogMapper;
+    private final NotificationService notificationService;
+    private final SysUserMapper sysUserMapper;
 
     private static final String TASK_TYPE_PROJECT = "PROJECT";
     private static final String TASK_TYPE_FUNCTIONAL = "FUNCTIONAL";
@@ -88,17 +96,22 @@ public class TaskGeneratorService {
 
         int taskCount = 0;
         int discrepancyCount = 0;
+        Set<String> allAssessors = new LinkedHashSet<>();
 
         // 逐员工生成任务——每个员工独立容错，缺配置/缺考核人跳过并写入差异
         for (Employee emp : activeEmployees) {
             GenerationResult result = generateTasksForEmployee(periodId, emp);
             taskCount += result.taskCount();
+            allAssessors.addAll(result.assessorIds());
             for (Discrepancy d : result.discrepancies()) {
                 discrepancyLogMapper.insert(buildDiscrepancy(periodId, emp, d.type(), d.detail()));
                 discrepancyCount++;
                 log.warn("员工 {} 考核任务生成异常 [{}]: {}", emp.getEmployeeId(), d.type(), d.detail());
             }
         }
+
+        // 功能：任务生成后通知所有被分配任务的评估人
+        notifyAssessors(allAssessors);
 
         return new LaunchResult(taskCount, discrepancyCount);
     }
@@ -114,10 +127,11 @@ public class TaskGeneratorService {
         }
     }
 
-    // 功能：为单个员工生成考核任务——返回任务数和差异列表，PROJECT 任务按角色分配，FUNCTIONAL 任务由直属上级考核
+    // 功能：为单个员工生成考核任务——返回任务数、差异列表、被分配的评估人集合
     private GenerationResult generateTasksForEmployee(String periodId, Employee emp) {
         List<Discrepancy> discrepancies = new ArrayList<>();
         int taskCount = 0;
+        Set<String> assessorIds = new LinkedHashSet<>();
 
         // Step 1: 查岗位配置
         PositionAssessmentConfig posConfig = positionConfigMapper.selectOne(
@@ -127,7 +141,7 @@ public class TaskGeneratorService {
                         .last("LIMIT 1"));
         if (posConfig == null) {
             discrepancies.add(new Discrepancy(DISCREPANCY_NO_POSITION_CONFIG, "缺岗位配置"));
-            return new GenerationResult(0, discrepancies);
+            return new GenerationResult(0, discrepancies, assessorIds);
         }
 
         // Step 2: 查考核人角色列表
@@ -156,6 +170,7 @@ public class TaskGeneratorService {
                     if (emp.getDirectLeaderId() != null) {
                         insertIgnore(periodId, emp.getDirectLeaderId(), emp.getEmployeeId(),
                                 p.getProjectCode(), p.getProjectStage(), TASK_TYPE_PROJECT);
+                        assessorIds.add(emp.getDirectLeaderId());
                         taskCount++;
                     } else {
                         discrepancies.add(new Discrepancy(DISCREPANCY_NO_ASSESSOR,
@@ -166,6 +181,7 @@ public class TaskGeneratorService {
                 for (ProjectRoleAssignment assign : assignedPersons) {
                     insertIgnore(periodId, assign.getEmployeeId(), emp.getEmployeeId(),
                             p.getProjectCode(), p.getProjectStage(), TASK_TYPE_PROJECT);
+                    assessorIds.add(assign.getEmployeeId());
                     taskCount++;
                 }
             }
@@ -175,15 +191,16 @@ public class TaskGeneratorService {
         if (emp.getDirectLeaderId() != null) {
             insertIgnore(periodId, emp.getDirectLeaderId(), emp.getEmployeeId(),
                     null, null, TASK_TYPE_FUNCTIONAL);
+            assessorIds.add(emp.getDirectLeaderId());
             taskCount++;
         } else {
             discrepancies.add(new Discrepancy(DISCREPANCY_NO_LEADER, "直属上级为空"));
         }
 
-        return new GenerationResult(taskCount, discrepancies);
+        return new GenerationResult(taskCount, discrepancies, assessorIds);
     }
 
-    // 功能：参与记录审批通过后的增量生成——为单条参与记录生成 PROJECT + FUNCTIONAL 任务
+    // 功能：参与记录审批通过后的增量生成——为单条参与记录生成 PROJECT + FUNCTIONAL 任务，并通知评估人
     // 去重：insertIgnore 使用 INSERT ON CONFLICT DO NOTHING，重复触发静默跳过
     @Transactional
     public void onParticipationApproved(EmployeeProjectParticipation participation) {
@@ -205,6 +222,8 @@ public class TaskGeneratorService {
                 new LambdaQueryWrapper<PositionAssessorRoleConfig>()
                         .eq(PositionAssessorRoleConfig::getPositionConfigId, posConfig.getId()));
 
+        Set<String> assessorIds = new LinkedHashSet<>();
+
         // 为该参与记录生成 PROJECT 任务
         for (PositionAssessorRoleConfig role : assessorRoles) {
             List<ProjectRoleAssignment> assignedPersons = roleAssignmentMapper.selectList(
@@ -217,12 +236,14 @@ public class TaskGeneratorService {
                 if (emp.getDirectLeaderId() != null) {
                     insertIgnore(participation.getPeriodId(), emp.getDirectLeaderId(), emp.getEmployeeId(),
                             participation.getProjectCode(), participation.getProjectStage(), TASK_TYPE_PROJECT);
+                    assessorIds.add(emp.getDirectLeaderId());
                 }
                 continue;
             }
             for (ProjectRoleAssignment assign : assignedPersons) {
                 insertIgnore(participation.getPeriodId(), assign.getEmployeeId(), emp.getEmployeeId(),
                         participation.getProjectCode(), participation.getProjectStage(), TASK_TYPE_PROJECT);
+                assessorIds.add(assign.getEmployeeId());
             }
         }
 
@@ -230,7 +251,33 @@ public class TaskGeneratorService {
         if (emp.getDirectLeaderId() != null) {
             insertIgnore(participation.getPeriodId(), emp.getDirectLeaderId(), emp.getEmployeeId(),
                     null, null, TASK_TYPE_FUNCTIONAL);
+            assessorIds.add(emp.getDirectLeaderId());
         }
+
+        notifyAssessors(assessorIds);
+    }
+
+    // 功能：通知被分配任务的评估人——将 employeeId 映射为 userId 后发站内通知
+    private void notifyAssessors(Set<String> assessorEmployeeIds) {
+        if (assessorEmployeeIds.isEmpty()) {
+            return;
+        }
+        List<SysUser> users = sysUserMapper.selectList(new LambdaQueryWrapper<SysUser>()
+                .in(SysUser::getEmployeeId, assessorEmployeeIds));
+        if (users.isEmpty()) {
+            return;
+        }
+        List<Notification> notifications = users.stream().map(user -> {
+            Notification n = new Notification();
+            n.setRecipientId(user.getUserId());
+            n.setTitle("新的考核任务待评分");
+            n.setContent("您有新的考核任务需要评分，请前往任务列表查看。");
+            n.setType("TASK_ASSIGNED");
+            n.setTargetUrl("/tasks");
+            n.setIsRead(false);
+            return n;
+        }).toList();
+        notificationService.notifyBatch(notifications);
     }
 
     // 功能：幂等插入考核任务——INSERT ON CONFLICT DO NOTHING，重复插入静默跳过
@@ -270,7 +317,7 @@ public class TaskGeneratorService {
     private record Discrepancy(String type, String detail) {
     }
 
-    // 功能：单员工任务生成结果——生成的任务数 + 差异列表
-    private record GenerationResult(int taskCount, List<Discrepancy> discrepancies) {
+    // 功能：单员工任务生成结果——生成的任务数 + 差异列表 + 被分配的评估人集合
+    private record GenerationResult(int taskCount, List<Discrepancy> discrepancies, Set<String> assessorIds) {
     }
 }

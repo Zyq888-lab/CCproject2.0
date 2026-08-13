@@ -49,4 +49,7 @@ public class AssessmentTask {
 
     @Version
     private Long version;
+
+    @TableField(exist = false)
+    private java.util.List<KpiIndicatorDTO> indicators;
 }

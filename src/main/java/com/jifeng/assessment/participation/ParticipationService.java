@@ -8,6 +8,7 @@ import com.jifeng.assessment.common.BaseService;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.common.PageQuery;
 import com.jifeng.assessment.common.PageResult;
+import com.jifeng.assessment.task.TaskGeneratorService;
 import com.jifeng.assessment.user.SysUser;
 import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ import java.util.List;
 public class ParticipationService extends BaseService<ParticipationMapper, EmployeeProjectParticipation> {
 
     private final SysUserMapper sysUserMapper;
+    private final TaskGeneratorService taskGeneratorService;
 
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final BigDecimal ONE = BigDecimal.ONE;
@@ -122,12 +124,10 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         participation.setUpdatedAt(LocalDateTime.now());
         updateWithOptimisticLock(participation);
 
-        // TODO(T3): 审批通过后调用 TaskGeneratorService 增量生成该员工的考核任务。
-        //   触发条件：participation.status == "APPROVED"
-        //   事务边界：本方法 @Transactional 已覆盖，任务生成失败时审批一并回滚
-        //   if ("APPROVED".equals(participation.getStatus())) {
-        //       taskGeneratorService.onParticipationApproved(participation);
-        //   }
+        // 功能：审批通过后增量生成该员工的考核任务（同事务，任务生成失败则审批一并回滚）
+        if ("APPROVED".equals(participation.getStatus())) {
+            taskGeneratorService.onParticipationApproved(participation);
+        }
 
         return participation;
     }
