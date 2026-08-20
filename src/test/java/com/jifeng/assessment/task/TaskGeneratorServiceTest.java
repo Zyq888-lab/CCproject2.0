@@ -6,6 +6,7 @@ package com.jifeng.assessment.task;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
+import com.jifeng.assessment.kpi.FuncKpiMapper;
 import com.jifeng.assessment.notification.NotificationService;
 import com.jifeng.assessment.participation.EmployeeProjectParticipation;
 import com.jifeng.assessment.participation.ParticipationMapper;
@@ -15,8 +16,6 @@ import com.jifeng.assessment.position.PositionAssessorRoleConfig;
 import com.jifeng.assessment.position.PositionAssessorRoleMapper;
 import com.jifeng.assessment.position.PositionAssessmentConfig;
 import com.jifeng.assessment.position.PositionConfigMapper;
-import com.jifeng.assessment.project.Project;
-import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import com.jifeng.assessment.user.SysUserMapper;
@@ -44,8 +43,8 @@ class TaskGeneratorServiceTest {
     @Mock private PositionAssessorRoleMapper assessorRoleMapper;
     @Mock private ProjectRoleAssignmentMapper roleAssignmentMapper;
     @Mock private EmployeeMapper employeeMapper;
+    @Mock private FuncKpiMapper funcKpiMapper;
     @Mock private PeriodMapper periodMapper;
-    @Mock private ProjectMapper projectMapper;
     @Mock private DiscrepancyLogMapper discrepancyLogMapper;
     @Mock private NotificationService notificationService;
     @Mock private SysUserMapper sysUserMapper;
@@ -64,16 +63,8 @@ class TaskGeneratorServiceTest {
         ReflectionTestUtils.setField(generatorService, "self", generatorService);
         // 通知相关依赖默认返回空——不干扰任务生成计数断言（lenient：部分用例提前返回不触发通知）
         lenient().when(sysUserMapper.selectList(any())).thenReturn(List.of());
-    }
-
-    // 辅助方法：构建已确认阶段的 ACTIVE 项目
-    private Project confirmedProject(String code, String stage) {
-        Project p = new Project();
-        p.setProjectCode(code);
-        p.setProjectStage(stage);
-        p.setStatus("ACTIVE");
-        p.setStageConfirmed(true);
-        return p;
+        // 默认有职能 KPI 配置（selectCount>0）——保证历史用例的 FUNCTIONAL 任务计数不因新增守卫而改变
+        lenient().when(funcKpiMapper.selectCount(any())).thenReturn(1L);
     }
 
     // 辅助方法：构建 ACTIVE 员工
@@ -106,6 +97,14 @@ class TaskGeneratorServiceTest {
         return r;
     }
 
+    // 辅助方法：构建 ONGOING 状态的考核周期（onParticipationApproved 的周期闸门需周期已发起才生成任务）
+    private AssessmentPeriod ongoingPeriod(String periodId) {
+        AssessmentPeriod p = new AssessmentPeriod();
+        p.setPeriodId(periodId);
+        p.setStatus("ONGOING");
+        return p;
+    }
+
     // 辅助方法：构建已审批的项目参与记录
     private EmployeeProjectParticipation approvedParticipation(String empId, String periodId,
                                                                String code, String stage) {
@@ -134,7 +133,6 @@ class TaskGeneratorServiceTest {
     @Test
     void launchShouldGenerateCorrectTaskCount() {
         when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
-        when(projectMapper.selectList(any())).thenReturn(List.of(confirmedProject("PRJ1", "P2")));
         when(employeeMapper.selectList(any())).thenReturn(List.of(
                 activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1")));
         when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
@@ -146,7 +144,7 @@ class TaskGeneratorServiceTest {
 
         TaskGeneratorService.LaunchResult result = generatorService.launch("PERIOD-001");
 
-        // 1 个 PROJECT 任务（ASSESSOR1 考核 EMP1）+ 1 个 FUNCTIONAL 任务（LEADER1 考核 EMP1）
+        // 1 PROJECT（ASSESSOR1 考核 EMP1）+ 1 FUNCTIONAL（LEADER1 考核 EMP1）
         assertEquals(2, result.taskCount());
         assertEquals(0, result.discrepancyCount());
         verify(taskMapper, times(2)).insertIgnore(any(AssessmentTask.class));
@@ -170,29 +168,11 @@ class TaskGeneratorServiceTest {
     }
 
     // ========================================
-    // 3. launchPeriod: 前置校验 → 未确认阶段项目拒绝
-    // ========================================
-    @Test
-    void launchShouldRejectUnconfirmedProject() {
-        when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
-        Project unconfirmed = confirmedProject("PRJ1", "P2");
-        unconfirmed.setStageConfirmed(false);
-        when(projectMapper.selectList(any())).thenReturn(List.of(unconfirmed));
-
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> generatorService.launch("PERIOD-001"));
-        assertEquals(400, ex.getCode());
-        assertTrue(ex.getMessage().contains("尚未确认阶段"));
-        verify(taskMapper, never()).insertIgnore(any());
-    }
-
-    // ========================================
-    // 4. launchPeriod: Savepoint 容错 → 缺配置员工跳过，其余正常生成
+    // 3. launchPeriod: Savepoint 容错 → 缺配置员工跳过，其余正常生成
     // ========================================
     @Test
     void launchShouldSkipEmployeeWithMissingConfig() {
         when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
-        when(projectMapper.selectList(any())).thenReturn(List.of(confirmedProject("PRJ1", "P2")));
         // 两个员工：EMP1 有配置，EMP2 缺配置
         Employee emp1 = activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1");
         Employee emp2 = activeEmployee("EMP2", "无配置类", "无配置岗", "LEADER2");
@@ -213,19 +193,18 @@ class TaskGeneratorServiceTest {
 
         TaskGeneratorService.LaunchResult result = generatorService.launch("PERIOD-001");
 
-        // EMP1 生成 2 条任务，EMP2 缺配置跳过并写入 1 条差异
+        // EMP1 生成 2 条任务（1 PROJECT + 1 FUNCTIONAL），EMP2 缺配置跳过并写入 1 条差异
         assertEquals(2, result.taskCount());
         assertEquals(1, result.discrepancyCount());
         verify(discrepancyLogMapper, times(1)).insert(any(DiscrepancyLog.class));
     }
 
     // ========================================
-    // 5. 岗位配置缺失 → 差异报告（与用例4同一场景，单独验证差异内容）
+    // 4. 岗位配置缺失 → 差异报告（与用例3同一场景，单独验证差异内容）
     // ========================================
     @Test
     void launchShouldWriteDiscrepancyForMissingConfig() {
         when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
-        when(projectMapper.selectList(any())).thenReturn(List.of(confirmedProject("PRJ1", "P2")));
         Employee emp = activeEmployee("EMP1", "无配置类", "无配置岗", "LEADER1");
         when(employeeMapper.selectList(any())).thenReturn(List.of(emp));
         when(positionConfigMapper.selectOne(any())).thenReturn(null);
@@ -239,12 +218,11 @@ class TaskGeneratorServiceTest {
     }
 
     // ========================================
-    // 6. 降级策略 → 无考核人有上级 → 上级代考
+    // 5. 降级策略 → 无考核人有上级 → 上级代考
     // ========================================
     @Test
     void launchShouldUseLeaderWhenNoAssessor() {
         when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
-        when(projectMapper.selectList(any())).thenReturn(List.of(confirmedProject("PRJ1", "P2")));
         when(employeeMapper.selectList(any())).thenReturn(List.of(
                 activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1")));
         when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
@@ -256,20 +234,19 @@ class TaskGeneratorServiceTest {
 
         TaskGeneratorService.LaunchResult result = generatorService.launch("PERIOD-001");
 
-        // 上级代考 PROJECT 任务 + 上级 FUNCTIONAL 任务
+        // 上级代考 PROJECT + 上级 FUNCTIONAL
         assertEquals(2, result.taskCount());
         assertEquals(0, result.discrepancyCount());
-        // 两条任务的考核人都应该是 LEADER1
+        // 两条代考任务的考核人都应该是 LEADER1
         verify(taskMapper, times(2)).insertIgnore(argThat(t -> "LEADER1".equals(t.getAssessorId())));
     }
 
     // ========================================
-    // 7. 降级策略 → 无考核人无上级 → 差异报告（记录 NO_ASSESSOR + NO_LEADER 两条差异）
+    // 6. 降级策略 → 无考核人无上级 → 差异报告（记录 NO_ASSESSOR + NO_LEADER 两条差异）
     // ========================================
     @Test
     void launchShouldRecordDiscrepancyWhenNoAssessorAndNoLeader() {
         when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
-        when(projectMapper.selectList(any())).thenReturn(List.of(confirmedProject("PRJ1", "P2")));
         // 无上级
         when(employeeMapper.selectList(any())).thenReturn(List.of(
                 activeEmployee("EMP1", "研发技术类", "整椅研发岗", null)));
@@ -281,7 +258,7 @@ class TaskGeneratorServiceTest {
 
         TaskGeneratorService.LaunchResult result = generatorService.launch("PERIOD-001");
 
-        // 无考核人（角色分配空）且无上级 → 无任务，但记录 NO_ASSESSOR + NO_LEADER 两条差异
+        // 无考核人（角色分配空）且无上级 → PROJECT/FUNCTIONAL 均无任务；记录 NO_ASSESSOR + NO_LEADER 两条差异
         assertEquals(0, result.taskCount());
         assertEquals(2, result.discrepancyCount());
         verify(taskMapper, never()).insertIgnore(any());
@@ -289,10 +266,11 @@ class TaskGeneratorServiceTest {
     }
 
     // ========================================
-    // 8. onParticipationApproved: 审批 → 增量生成 PROJECT 任务
+    // 7. onParticipationApproved: 审批 → 增量生成 PROJECT 任务
     // ========================================
     @Test
     void onParticipationApprovedShouldGenerateProjectTasks() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(ongoingPeriod("PERIOD-001"));
         Employee emp = activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1");
         when(employeeMapper.selectById("EMP1")).thenReturn(emp);
         when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
@@ -303,15 +281,16 @@ class TaskGeneratorServiceTest {
         EmployeeProjectParticipation participation = approvedParticipation("EMP1", "PERIOD-001", "PRJ1", "P2");
         generatorService.onParticipationApproved(participation);
 
-        // 1 个 PROJECT 任务 + 1 个 FUNCTIONAL 任务
+        // 1 PROJECT + 1 FUNCTIONAL
         verify(taskMapper, times(2)).insertIgnore(any(AssessmentTask.class));
     }
 
     // ========================================
-    // 9. onParticipationApproved: FUNCTIONAL 去重 → INSERT ON CONFLICT DO NOTHING（幂等）
+    // 8. onParticipationApproved: FUNCTIONAL 去重 → INSERT ON CONFLICT DO NOTHING（幂等）
     // ========================================
     @Test
     void onParticipationApprovedShouldUseIdempotentInsert() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(ongoingPeriod("PERIOD-001"));
         Employee emp = activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1");
         when(employeeMapper.selectById("EMP1")).thenReturn(emp);
         when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
@@ -328,10 +307,11 @@ class TaskGeneratorServiceTest {
     }
 
     // ========================================
-    // 10. createTask: 唯一约束冲突 → 静默跳过不抛异常（insertIgnore 返回 0 不影响流程）
+    // 9. createTask: 唯一约束冲突 → 静默跳过不抛异常（insertIgnore 返回 0 不影响流程）
     // ========================================
     @Test
     void insertIgnoreShouldNotThrowOnConflict() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(ongoingPeriod("PERIOD-001"));
         Employee emp = activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1");
         when(employeeMapper.selectById("EMP1")).thenReturn(emp);
         when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
@@ -344,5 +324,61 @@ class TaskGeneratorServiceTest {
         EmployeeProjectParticipation participation = approvedParticipation("EMP1", "PERIOD-001", "PRJ1", "P2");
         // 不应抛异常
         assertDoesNotThrow(() -> generatorService.onParticipationApproved(participation));
+    }
+
+    // ========================================
+    // 10. onParticipationApproved: 周期未发起(INIT) → 闸门拦截，不生成任务
+    // ========================================
+    @Test
+    void onParticipationApprovedShouldSkipWhenPeriodNotOngoing() {
+        AssessmentPeriod init = new AssessmentPeriod();
+        init.setPeriodId("PERIOD-001");
+        init.setStatus("INIT");
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(init);
+
+        EmployeeProjectParticipation participation = approvedParticipation("EMP1", "PERIOD-001", "PRJ1", "P2");
+        generatorService.onParticipationApproved(participation);
+
+        // 闸门拦截：不查询员工、不生成任何任务、不发通知
+        verify(employeeMapper, never()).selectById(any());
+        verify(taskMapper, never()).insertIgnore(any(AssessmentTask.class));
+    }
+
+    // ========================================
+    // 11. onParticipationApproved: 周期不存在 → 闸门拦截，不生成任务
+    // ========================================
+    @Test
+    void onParticipationApprovedShouldSkipWhenPeriodMissing() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(null);
+
+        EmployeeProjectParticipation participation = approvedParticipation("EMP1", "PERIOD-001", "PRJ1", "P2");
+        generatorService.onParticipationApproved(participation);
+
+        verify(taskMapper, never()).insertIgnore(any(AssessmentTask.class));
+    }
+
+    // ========================================
+    // 12. 职能 KPI 未配置 → 不生成空 FUNCTIONAL 任务（回归：避免空职能任务）
+    // ========================================
+    @Test
+    void launchShouldSkipFunctionalWhenNoKpiConfig() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
+        when(employeeMapper.selectList(any())).thenReturn(List.of(
+                activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1")));
+        when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
+        when(assessorRoleMapper.selectList(any())).thenReturn(List.of(assessorRole(1L, 1L, "PDL")));
+        when(participationMapper.selectList(any())).thenReturn(List.of(
+                approvedParticipation("EMP1", "PERIOD-001", "PRJ1", "P2")));
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of(
+                assignment("PRJ1", "P2", "PDL", "ASSESSOR1")));
+        // 无职能 KPI 配置 → selectCount 返回 0 → 跳过 FUNCTIONAL 任务
+        when(funcKpiMapper.selectCount(any())).thenReturn(0L);
+
+        TaskGeneratorService.LaunchResult result = generatorService.launch("PERIOD-001");
+
+        // 仅 1 条 PROJECT 任务（ASSESSOR1 考核 EMP1），FUNCTIONAL 被跳过
+        assertEquals(1, result.taskCount());
+        assertEquals(0, result.discrepancyCount());
+        verify(taskMapper, times(1)).insertIgnore(argThat(t -> "PROJECT".equals(t.getTaskType())));
     }
 }

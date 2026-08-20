@@ -44,6 +44,13 @@ public class PositionConfigController extends BaseController {
         return ok(positionConfigService.getDistinctCategories());
     }
 
+    // 功能：获取指定分类下所有不重复的岗位名称——供员工表单「岗位」级联下拉使用
+    @GetMapping("/api/v1/position-configs/positions")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    public ApiResponse<List<String>> getPositions(@RequestParam(name = "category", required = false) String category) {
+        return ok(positionConfigService.getDistinctPositions(category));
+    }
+
     // 功能：分页查询岗位配置，支持按岗位分类、岗位名称、默认角色筛选
     @GetMapping("/api/v1/position-configs")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM')")

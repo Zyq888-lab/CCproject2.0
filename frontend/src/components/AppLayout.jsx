@@ -17,6 +17,7 @@ import {
   LogoutOutlined,
   CarryOutOutlined,
   FormOutlined,
+  ProfileOutlined,
   BellOutlined,
 } from '@ant-design/icons';
 import client from '../api/client';
@@ -26,6 +27,9 @@ const { Sider, Header, Content } = Layout;
 // 功能：全员可见的角色集合（Phase 2.0 考核流程入口）
 const ALL_STAFF_ROLES = ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工'];
 
+// 功能：非 ADMIN 员工角色集合——「本人」视角页面（我的指标/考核任务）ADMIN 无需看到
+const STAFF_ROLES = ['ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工'];
+
 const allMenuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', roles: ALL_STAFF_ROLES, group: 'top' },
   { type: 'divider', label: '配置中心', roles: ['ROLE_ADMIN', 'ROLE_PM'], group: 'config' },
@@ -33,11 +37,12 @@ const allMenuItems = [
   { key: '/project/list', icon: <FolderOutlined />, label: '项目管理', roles: ['ROLE_ADMIN', 'ROLE_PM'] },
   { key: '/project-role', icon: <AimOutlined />, label: '项目角色管理', roles: ['ROLE_ADMIN'] },
   { key: '/position-config', icon: <SettingOutlined />, label: '岗位配置', roles: ['ROLE_ADMIN'] },
-  { key: '/kpi-config', icon: <LineChartOutlined />, label: 'KPI配置', roles: ['ROLE_ADMIN', 'ROLE_PM'] },
-  { key: '/period-config', icon: <CalendarOutlined />, label: '考核周期', roles: ['ROLE_ADMIN', 'ROLE_PM'] },
+  { key: '/kpi-config', icon: <LineChartOutlined />, label: 'KPI配置', roles: ['ROLE_ADMIN'] },
+  { key: '/period-config', icon: <CalendarOutlined />, label: '考核周期', roles: ['ROLE_ADMIN'] },
   { type: 'divider', label: '考核流程', roles: ALL_STAFF_ROLES, group: 'flow' },
   { key: '/participation', icon: <FormOutlined />, label: '项目参与', roles: ALL_STAFF_ROLES },
-  { key: '/tasks', icon: <CarryOutOutlined />, label: '考核任务', roles: ALL_STAFF_ROLES },
+  { key: '/my-assessment', icon: <ProfileOutlined />, label: '我的指标', roles: STAFF_ROLES },
+  { key: '/tasks', icon: <CarryOutOutlined />, label: '考核任务', roles: STAFF_ROLES },
   { type: 'divider', label: '系统设置', roles: ['ROLE_ADMIN'], group: 'system' },
   { key: '/user-role', icon: <UserOutlined />, label: '用户管理', roles: ['ROLE_ADMIN'] },
   { key: '/system-param', icon: <ToolOutlined />, label: '系统参数', roles: ['ROLE_ADMIN'] },
@@ -151,11 +156,11 @@ function AppLayout() {
           borderBottom: '1px solid #F0F0F0',
           height: 56,
         }}>
-          {/* 功能：通知红点——未读数量，点击跳转任务列表 */}
+          {/* 功能：通知红点——未读数量，点击跳转通知列表 */}
           <Badge count={unreadCount} size="small" style={{ marginRight: 24 }}>
             <BellOutlined
               style={{ fontSize: 18, color: '#1890FF', cursor: 'pointer' }}
-              onClick={() => navigate('/tasks')}
+              onClick={() => navigate('/notifications')}
             />
           </Badge>
           <Dropdown

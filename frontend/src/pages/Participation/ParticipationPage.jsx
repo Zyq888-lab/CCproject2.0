@@ -41,9 +41,12 @@ function ParticipationPage() {
   const [filters, setFilters] = useState({ periodId: '', status: '' });
   const [periods, setPeriods] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [employeeNameMap, setEmployeeNameMap] = useState({});
   const [modalVisible, setModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [rows, setRows] = useState([]);
+  const [editingRecord, setEditingRecord] = useState(null); // null=新增，非null=重新提交被拒记录
+  const [userRoles, setUserRoles] = useState([]);
   const [form] = Form.useForm();
   const mountedRef = useRef(true);
 
@@ -79,15 +82,32 @@ function ParticipationPage() {
   // 功能：获取项目列表（新增弹窗选项目用）
   const fetchProjects = async () => {
     try {
-      const res = await client.get('/projects', { params: { page: 1, size: 999 } });
+      const res = await client.get('/projects', { params: { page: 1, size: 999, scope: 'assigned' } });
       if (mountedRef.current) {
         const list = res.data?.list || [];
         setProjects(list.map((p) => ({
           label: `${p.projectCode} — ${p.projectName} (${p.projectStage})`,
-          value: p.projectCode,
+          value: `${p.projectCode}|${p.projectStage}`,
+          code: p.projectCode,
           stage: p.projectStage,
         })));
       }
+    } catch (_) { /* 非关键 */ }
+  };
+
+  // 功能：获取员工工号→姓名映射（表格姓名列展示用，接口对所有角色开放）
+  const fetchNames = async () => {
+    try {
+      const res = await client.get('/employees/names');
+      if (mountedRef.current) setEmployeeNameMap(res.data || {});
+    } catch (_) { /* 非关键 */ }
+  };
+
+  // 功能：获取当前用户角色——用于控制 ADMIN 删除按钮显隐
+  const fetchRoles = async () => {
+    try {
+      const res = await client.get('/auth/me');
+      if (mountedRef.current) setUserRoles(res.data?.roles || []);
     } catch (_) { /* 非关键 */ }
   };
 
@@ -96,6 +116,8 @@ function ParticipationPage() {
     fetchParticipations(pagination.current, pagination.pageSize, filters);
     fetchPeriods();
     fetchProjects();
+    fetchNames();
+    fetchRoles();
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -114,6 +136,7 @@ function ParticipationPage() {
   const handleCreate = () => {
     form.resetFields();
     setRows([{ key: Date.now(), projectCode: null, rate: null }]);
+    setEditingRecord(null);
     setModalVisible(true);
   };
 
@@ -139,8 +162,9 @@ function ParticipationPage() {
   const totalColor = totalRate === 100 ? '#52C41A' : totalRate < 100 ? '#FA8C16' : '#FF4D4F';
   const totalText = totalRate === 100 ? `${totalRate}% ✓` : totalRate < 100 ? `${totalRate}% (还需 ${100 - totalRate}%)` : `${totalRate}% (超出 ${totalRate - 100}%)`;
 
-  // 功能：提交新增参与——校验周期/项目行/比重合计
+  // 功能：提交参与——新增态校验周期/项目行/比重合计，重新提交态校验单条 1-100%
   const handleSubmit = async () => {
+    const isEdit = editingRecord != null;
     if (!form.getFieldValue('periodId')) {
       message.warning({ content: '请选择考核周期' });
       return;
@@ -159,33 +183,84 @@ function ParticipationPage() {
         return;
       }
     }
-    if (totalRate !== 100) {
+    // 重新提交（编辑态）：单条 1-100% 校验，不强制总和=100%（跨记录校验见 Phase 2.1 增强）
+    if (!isEdit && totalRate !== 100) {
       message.warning({ content: '投入比重总和必须等于100%' });
       return;
     }
 
     setSubmitting(true);
     try {
-      const payload = {
-        periodId: form.getFieldValue('periodId'),
-        items: rows.map((r) => ({
-          projectCode: r.projectCode,
-          projectStage: projects.find((p) => p.value === r.projectCode)?.stage,
-          participationRate: r.rate,
-        })),
-      };
-      await client.post('/participations', payload);
-      message.success({ content: '参与记录已提交', duration: 3 });
+      if (isEdit) {
+        await client.post(`/participations/${editingRecord.id}/resubmit`, {
+          participationRate: rows[0].rate,
+        });
+        message.success({ content: '已重新提交，等待审批', duration: 3 });
+      } else {
+        const payload = {
+          periodId: form.getFieldValue('periodId'),
+          items: rows.map((r) => {
+            const [code, stage] = String(r.projectCode || '').split('|');
+            return {
+              projectCode: code,
+              projectStage: stage,
+              participationRate: r.rate,
+            };
+          }),
+        };
+        await client.post('/participations', payload);
+        message.success({ content: '参与记录已提交', duration: 3 });
+      }
       setModalVisible(false);
+      setEditingRecord(null);
       fetchParticipations(pagination.current, pagination.pageSize, filters);
     } catch (err) {
-      message.error({ content: err?.message || '提交失败' });
+      message.error({ content: err?.message || (isEdit ? '重新提交失败' : '提交失败') });
     } finally {
       setSubmitting(false);
     }
   };
 
+  // 功能：重新提交被拒参与——打开编辑弹窗回填 projectCode/participationRate，锁定项目/周期，仅允许修改投入比重
+  const handleResubmit = (record) => {
+    form.setFieldsValue({ periodId: record.periodId });
+    setRows([{ key: Date.now(), projectCode: `${record.projectCode}|${record.projectStage}`, rate: record.participationRate }]);
+    setEditingRecord(record);
+    setModalVisible(true);
+  };
+
+  // 功能：ADMIN 删除参与记录——二次确认后调用 DELETE，成功后刷新列表
+  const handleDelete = (record) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定删除该参与记录吗？员工：${employeeNameMap[record.employeeId] || record.employeeId}，项目：${record.projectCode}。删除后不可恢复。`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await client.delete(`/participations/${record.id}`);
+          message.success({ content: '已删除', duration: 3 });
+          fetchParticipations(pagination.current, pagination.pageSize, filters);
+        } catch (err) {
+          message.error({ content: err?.message || '删除失败' });
+        }
+      },
+    });
+  };
+
+  // 功能：periodId → periodName 映射（复用已加载的 periods 列表，供表格「考核周期」列展示）
+  const periodNameMap = {};
+  periods.forEach((p) => { periodNameMap[p.periodId] = p.periodName; });
+
+  // 功能：可填写周期——排除已关闭(COMPLETED)，仅供新增弹窗选择；名称映射与筛选栏仍用全量 periods
+  const activePeriods = periods.filter((p) => p.status !== 'COMPLETED');
+
   const columns = [
+    { title: '员工姓名', dataIndex: 'employeeId', key: 'employeeName', width: 110,
+      render: (v) => employeeNameMap[v] || v || '-' },
+    { title: '考核周期', dataIndex: 'periodId', key: 'periodId', width: 140,
+      render: (v) => periodNameMap[v] || v || '-' },
     { title: '项目编码', dataIndex: 'projectCode', key: 'projectCode', width: 120 },
     { title: '项目阶段', dataIndex: 'projectStage', key: 'projectStage', width: 90 },
     { title: '投入比重', dataIndex: 'participationRate', key: 'participationRate', width: 100,
@@ -196,6 +271,21 @@ function ParticipationPage() {
       render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{STATUS_LABEL_MAP[s] || s || '-'}</Tag> },
     { title: '提交时间', dataIndex: 'createdAt', key: 'createdAt', width: 170,
       render: (v) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
+    { title: '操作', key: 'action', width: 160, fixed: 'right',
+      render: (_, record) => (
+        <Space size={0}>
+          {record.status === 'REJECTED' && (
+            <Button type="link" size="small" onClick={() => handleResubmit(record)}>
+              重新提交
+            </Button>
+          )}
+          {userRoles.includes('ROLE_ADMIN') && (
+            <Button type="link" size="small" danger onClick={() => handleDelete(record)}>
+              删除
+            </Button>
+          )}
+        </Space>
+      ) },
   ];
 
   const isEmpty = !loading && !error && data.length === 0 && !filters.periodId && !filters.status;
@@ -267,14 +357,14 @@ function ParticipationPage() {
               pageSizeOptions: [10, 20, 50],
               showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
             }}
-            scroll={{ x: 780 }}
+            scroll={{ x: 1140 }}
           />
         </Card>
       )}
 
       {/* 功能：新增参与弹窗——多项目行 + 比重实时校验（绿/橙/红） */}
       <Modal
-        title="新增项目参与"
+        title={editingRecord ? '重新提交参与' : '新增项目参与'}
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
@@ -287,14 +377,23 @@ function ParticipationPage() {
           <Form.Item name="periodId" label="考核周期" rules={[{ required: true, message: '请选择考核周期' }]}>
             <Select
               placeholder="选择考核周期"
-              options={periods.map((p) => ({ label: p.periodName, value: p.periodId }))}
+              disabled={!!editingRecord}
+              options={activePeriods.map((p) => ({ label: p.periodName, value: p.periodId }))}
             />
           </Form.Item>
 
           <div style={{ marginBottom: 8 }}>
             <span style={{ fontWeight: 500 }}>项目投入比重</span>
-            <span style={{ color: '#8C8C8C', marginLeft: 8, fontSize: 12 }}>（单项≥1%，总和须=100%）</span>
+            <span style={{ color: '#8C8C8C', marginLeft: 8, fontSize: 12 }}>
+              {editingRecord ? '（单项≥1%，重新提交可修改投入比重）' : '（单项≥1%，总和须=100%）'}
+            </span>
           </div>
+
+          {editingRecord?.suggestedRate != null && (
+            <div style={{ marginBottom: 8, color: '#FA8C16', fontSize: 12 }}>
+              审批人建议投入比重：{editingRecord.suggestedRate}%，可参考调整
+            </div>
+          )}
 
           {/* 功能：多项目行——每行 项目下拉 + 比重输入 + 删除按钮 */}
           {rows.map((row) => (
@@ -304,6 +403,7 @@ function ParticipationPage() {
                 style={{ width: 300 }}
                 value={row.projectCode || undefined}
                 onChange={(v) => handleRowChange(row.key, 'projectCode', v)}
+                disabled={!!editingRecord}
                 options={projects}
                 showSearch
                 optionFilterProp="label"
@@ -327,23 +427,40 @@ function ParticipationPage() {
             </Space>
           ))}
 
-          <Button type="dashed" block icon={<PlusOutlined />} onClick={handleAddRow} style={{ marginBottom: 12 }}>
-            添加项目行
-          </Button>
+          {!editingRecord && (
+            <Button type="dashed" block icon={<PlusOutlined />} onClick={handleAddRow} style={{ marginBottom: 12 }}>
+              添加项目行
+            </Button>
+          )}
 
-          {/* 功能：比重合计实时显示——绿=100% / 橙<100% / 红>100% */}
-          <Tooltip title={totalRate === 100 ? '已满足100%' : totalRate < 100 ? '未达到100%' : '超出100%'}>
-            <div style={{
-              padding: '10px 12px',
-              borderRadius: 6,
-              background: '#FAFAFA',
-              border: `1px solid ${totalColor}`,
-              color: totalColor,
-              fontWeight: 500,
-            }}>
-              投入比重合计：{totalText}
-            </div>
-          </Tooltip>
+          {/* 功能：比重校验提示——新增态显示合计(绿=100%/橙<100%/红>100%)，重新提交态显示单条 1-100% 校验 */}
+          {editingRecord ? (
+            <Tooltip title={totalRate >= 1 && totalRate <= 100 ? '投入比重有效' : '投入比重须在1%-100%之间'}>
+              <div style={{
+                padding: '10px 12px',
+                borderRadius: 6,
+                background: '#FAFAFA',
+                border: `1px solid ${totalRate >= 1 && totalRate <= 100 ? '#52C41A' : '#FF4D4F'}`,
+                color: totalRate >= 1 && totalRate <= 100 ? '#52C41A' : '#FF4D4F',
+                fontWeight: 500,
+              }}>
+                投入比重：{rows[0]?.rate != null ? `${rows[0].rate}%` : '未填写'}
+              </div>
+            </Tooltip>
+          ) : (
+            <Tooltip title={totalRate === 100 ? '已满足100%' : totalRate < 100 ? '未达到100%' : '超出100%'}>
+              <div style={{
+                padding: '10px 12px',
+                borderRadius: 6,
+                background: '#FAFAFA',
+                border: `1px solid ${totalColor}`,
+                color: totalColor,
+                fontWeight: 500,
+              }}>
+                投入比重合计：{totalText}
+              </div>
+            </Tooltip>
+          )}
         </Form>
       </Modal>
     </div>

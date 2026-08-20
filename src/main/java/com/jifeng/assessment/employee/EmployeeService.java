@@ -23,7 +23,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -69,6 +71,19 @@ public class EmployeeService extends BaseService<EmployeeMapper, Employee> {
     public EmployeeDTO getEmployee(String employeeId) {
         Employee emp = baseMapper.selectById(employeeId);
         return emp != null ? toDTO(emp) : null;
+    }
+
+    // 功能：只读返回全员工号→姓名映射，供任务列表等场景展示姓名（不含敏感字段，权限由控制器放开到所有角色）
+    public Map<String, String> listEmployeeNames() {
+        List<Employee> employees = baseMapper.selectList(new LambdaQueryWrapper<Employee>()
+                .select(Employee::getEmployeeId, Employee::getName));
+        Map<String, String> map = new LinkedHashMap<>();
+        for (Employee e : employees) {
+            if (e.getEmployeeId() != null) {
+                map.put(e.getEmployeeId(), e.getName());
+            }
+        }
+        return map;
     }
 
     // 功能：新增员工——校验工号不重复、必填字段完整、直属上级工号存在，通过后写入数据库

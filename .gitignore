@@ -35,6 +35,9 @@ target/
 *.log
 logs/
 .gstack/
+
+# Local-only scripts (do not commit to remote)
+scripts/clean-test-data.sql
 phase2-需求清单.md
 phase2-技术增量设计.md
 phase2-eng-review-2026-08-12.md

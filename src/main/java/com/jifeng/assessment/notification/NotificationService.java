@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,7 +53,15 @@ public class NotificationService extends BaseService<NotificationMapper, Notific
     }
 
     // 功能：分页查询通知列表——按接收人筛选，支持按已读/未读过滤
+    // 数据隔离：非 ADMIN 忽略传入的 recipientId，强制只查当前登录用户自己的通知
     public PageResult<Notification> listNotifications(PageQuery query, String recipientId, Boolean isRead) {
+        String role = getPrimaryRole();
+        String currentUserId = getCurrentUserId();
+        if (!"ADMIN".equals(role)) {
+            recipientId = currentUserId;
+        } else if (recipientId == null || recipientId.isEmpty()) {
+            recipientId = currentUserId;
+        }
         LambdaQueryWrapper<Notification> wrapper = new LambdaQueryWrapper<>();
         if (recipientId != null && !recipientId.isEmpty()) {
             wrapper.eq(Notification::getRecipientId, recipientId);
@@ -64,8 +73,14 @@ public class NotificationService extends BaseService<NotificationMapper, Notific
         return selectPage(query, wrapper);
     }
 
-    // 功能：未读计数——过滤 is_read=false，用于仪表盘红点
+    // 功能：未读计数——过滤 is_read=false，用于仪表盘红点；非 ADMIN 忽略传入的 recipientId，强制统计当前用户
     public long unreadCount(String recipientId) {
+        if (!"ADMIN".equals(getPrimaryRole())) {
+            recipientId = getCurrentUserId();
+        }
+        if (recipientId == null || recipientId.isEmpty()) {
+            return 0;
+        }
         return baseMapper.selectCount(new LambdaQueryWrapper<Notification>()
                 .eq(Notification::getRecipientId, recipientId)
                 .eq(Notification::getIsRead, false));
@@ -91,15 +106,39 @@ public class NotificationService extends BaseService<NotificationMapper, Notific
         return user != null ? user.getUserId() : null;
     }
 
-    // 功能：标记已读——将 is_read 更新为 true
+    // 功能：标记已读——将 is_read 更新为 true；非 ADMIN 仅能标记自己的通知
     @Transactional
     public Notification markRead(Long id) {
         Notification notification = baseMapper.selectById(id);
         if (notification == null) {
             throw new BusinessException(404, "通知不存在: " + id);
         }
+        // 归属校验：非 ADMIN 只能操作本人通知，越权抛 403
+        if (!"ADMIN".equals(getPrimaryRole())) {
+            String currentUserId = getCurrentUserId();
+            if (currentUserId == null || !currentUserId.equals(notification.getRecipientId())) {
+                throw new BusinessException(403, "无权操作他人通知");
+            }
+        }
         notification.setIsRead(true);
         baseMapper.updateById(notification);
         return notification;
+    }
+
+    // 功能：获取当前用户主角色——取权限列表中第一个匹配的已知角色，未认证返回空
+    private String getPrimaryRole() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return "";
+        }
+        for (GrantedAuthority authority : auth.getAuthorities()) {
+            String a = authority.getAuthority();
+            for (String role : new String[]{"ADMIN", "PM", "PD", "评估人", "员工"}) {
+                if (a.equals("ROLE_" + role)) {
+                    return role;
+                }
+            }
+        }
+        return "";
     }
 }

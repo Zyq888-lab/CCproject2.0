@@ -192,7 +192,7 @@ public class KpiConfigController extends BaseController {
 
     // 批量导入项目KPI
     @PostMapping("/api/v1/kpi-configs/project-kpi/import")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Map<String, Object>> importProjectKpi(@RequestBody List<ProjectKpiImportRequest> requests) {
         int success = 0; List<String> errors = new ArrayList<>();
         for (ProjectKpiImportRequest req : requests) {
@@ -216,7 +216,7 @@ public class KpiConfigController extends BaseController {
 
     // 批量导入职能KPI
     @PostMapping("/api/v1/kpi-configs/func-kpi/import")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Map<String, Object>> importFuncKpi(@RequestBody List<FuncKpiImportRequest> requests) {
         int success = 0; List<String> errors = new ArrayList<>();
         for (FuncKpiImportRequest req : requests) {

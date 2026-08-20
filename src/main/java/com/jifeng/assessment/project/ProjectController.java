@@ -27,25 +27,26 @@ public class ProjectController extends BaseController {
 
     private final ProjectService projectService;
 
-    // 功能：分页查询项目列表，可选 ?stage=&status= 筛选
+    // 功能：分页查询项目列表，可选 ?stage=&status= 筛选——员工录入参与需选项目，故对所有角色开放只读
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
     public ApiResponse<PageResult<ProjectDTO>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String stage,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "false") Boolean includeInactive,
-            @RequestParam(required = false) String projectCode) {
+            @RequestParam(required = false) String projectCode,
+            @RequestParam(required = false) String scope) {
         PageQuery query = new PageQuery();
         query.setPage(page);
         query.setSize(size);
-        return ok(projectService.listProjects(query, stage, status, includeInactive, projectCode));
+        return ok(projectService.listProjects(query, stage, status, includeInactive, projectCode, scope));
     }
 
     // 功能：创建项目——校验 projectCode 非空不重复，projectStage 为有效枚举值
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
     public ApiResponse<ProjectDTO> create(@Valid @RequestBody Project project) {
         return ok(projectService.createProject(project));
     }

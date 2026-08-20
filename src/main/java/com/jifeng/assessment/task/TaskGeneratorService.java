@@ -7,6 +7,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
+import com.jifeng.assessment.kpi.FuncKpiConfig;
+import com.jifeng.assessment.kpi.FuncKpiMapper;
 import com.jifeng.assessment.participation.EmployeeProjectParticipation;
 import com.jifeng.assessment.participation.ParticipationMapper;
 import com.jifeng.assessment.period.AssessmentPeriod;
@@ -15,8 +17,6 @@ import com.jifeng.assessment.position.PositionAssessorRoleConfig;
 import com.jifeng.assessment.position.PositionAssessorRoleMapper;
 import com.jifeng.assessment.position.PositionAssessmentConfig;
 import com.jifeng.assessment.position.PositionConfigMapper;
-import com.jifeng.assessment.project.Project;
-import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import com.jifeng.assessment.notification.Notification;
@@ -48,8 +48,8 @@ public class TaskGeneratorService {
     private final PositionAssessorRoleMapper assessorRoleMapper;
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
     private final EmployeeMapper employeeMapper;
+    private final FuncKpiMapper funcKpiMapper;
     private final PeriodMapper periodMapper;
-    private final ProjectMapper projectMapper;
     private final DiscrepancyLogMapper discrepancyLogMapper;
     private final NotificationService notificationService;
     private final SysUserMapper sysUserMapper;
@@ -66,7 +66,7 @@ public class TaskGeneratorService {
     @Autowired
     private TaskGeneratorService self;
 
-    // 功能：发起考核——校验项目已确认阶段，周期状态先行提交，遍历员工批量生成考核任务
+    // 功能：发起考核——周期状态先行提交，遍历员工批量生成考核任务
     // 容错：周期状态更新走 REQUIRES_NEW 独立事务，后续任务生成失败不影响周期进入 ONGOING
     @Transactional
     public LaunchResult launch(String periodId) {
@@ -78,14 +78,8 @@ public class TaskGeneratorService {
             throw new BusinessException(400, "仅未开始周期可发起");
         }
 
-        // 前置校验：所有 ACTIVE 项目必须已确认阶段
-        List<Project> projects = projectMapper.selectList(
-                new LambdaQueryWrapper<Project>().eq(Project::getStatus, "ACTIVE"));
-        for (Project p : projects) {
-            if (!Boolean.TRUE.equals(p.getStageConfirmed())) {
-                throw new BusinessException(400, "项目" + p.getProjectCode() + "尚未确认阶段");
-            }
-        }
+        // 数据完整性由参与记录/角色分配 + 差异报告保证（缺配置/缺考核人跳过并记录差异），
+        // 不再要求项目维度手动确认阶段（stage_confirmed）——项目可跨多个考核周期，阶段确认是项目维度操作，不应阻塞发起考核
 
         // 周期状态先行提交（REQUIRES_NEW 独立事务，即使后续任务生成失败也不回滚）
         self.markPeriodOngoing(periodId);
@@ -187,14 +181,14 @@ public class TaskGeneratorService {
             }
         }
 
-        // Step 5: 生成 FUNCTIONAL 任务（直属上级考核职能）；无上级则记录差异
-        if (emp.getDirectLeaderId() != null) {
+        // Step 5: 生成 FUNCTIONAL 任务（直属上级考核职能）；无上级则记录差异；无职能 KPI 配置则不生成空职能任务
+        if (emp.getDirectLeaderId() == null) {
+            discrepancies.add(new Discrepancy(DISCREPANCY_NO_LEADER, "直属上级为空"));
+        } else if (hasFunctionalKpi(emp)) {
             insertIgnore(periodId, emp.getDirectLeaderId(), emp.getEmployeeId(),
                     null, null, TASK_TYPE_FUNCTIONAL);
             assessorIds.add(emp.getDirectLeaderId());
             taskCount++;
-        } else {
-            discrepancies.add(new Discrepancy(DISCREPANCY_NO_LEADER, "直属上级为空"));
         }
 
         return new GenerationResult(taskCount, discrepancies, assessorIds);
@@ -204,6 +198,13 @@ public class TaskGeneratorService {
     // 去重：insertIgnore 使用 INSERT ON CONFLICT DO NOTHING，重复触发静默跳过
     @Transactional
     public void onParticipationApproved(EmployeeProjectParticipation participation) {
+        // 周期状态闸门：仅已发起(ONGOING)的周期在审批通过时增量生成任务；
+        // 未发起(INIT)/已关闭(COMPLETED)/校准(CALIBRATING)等状态交由 launch 统一生成，避免提前暴露评分入口
+        AssessmentPeriod period = periodMapper.selectById(participation.getPeriodId());
+        if (period == null || !"ONGOING".equals(period.getStatus())) {
+            return;
+        }
+
         Employee emp = employeeMapper.selectById(participation.getEmployeeId());
         if (emp == null) {
             return;
@@ -247,8 +248,8 @@ public class TaskGeneratorService {
             }
         }
 
-        // 确保 FUNCTIONAL 任务存在（幂等插入，已存在则跳过）
-        if (emp.getDirectLeaderId() != null) {
+        // 确保 FUNCTIONAL 任务存在（幂等插入，已存在则跳过）；无职能 KPI 配置则不生成空职能任务
+        if (emp.getDirectLeaderId() != null && hasFunctionalKpi(emp)) {
             insertIgnore(participation.getPeriodId(), emp.getDirectLeaderId(), emp.getEmployeeId(),
                     null, null, TASK_TYPE_FUNCTIONAL);
             assessorIds.add(emp.getDirectLeaderId());
@@ -294,6 +295,15 @@ public class TaskGeneratorService {
         task.setReturnCount(0);
         task.setMaxReturns(3);
         taskMapper.insertIgnore(task);
+    }
+
+    // 功能：判断员工是否有职能 KPI 配置——category+position 无 func_kpi_config 时不生成空职能任务
+    private boolean hasFunctionalKpi(Employee emp) {
+        Long count = funcKpiMapper.selectCount(new LambdaQueryWrapper<FuncKpiConfig>()
+                .eq(FuncKpiConfig::getCategory, emp.getCategory())
+                .eq(FuncKpiConfig::getPosition, emp.getPosition())
+                .eq(FuncKpiConfig::getIsActive, true));
+        return count != null && count > 0;
     }
 
     // 功能：构建差异报告记录——type 显式传入（NO_POSITION_CONFIG / NO_ASSESSOR / NO_LEADER）

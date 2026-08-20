@@ -48,9 +48,24 @@ function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pendingCount, setPendingCount] = useState(0);
+  const [rolesLoaded, setRolesLoaded] = useState(false);
+  const [isConfigRole, setIsConfigRole] = useState(false);
   const navigate = useNavigate();
 
   const mountedRef = useRef(true);
+
+  // 功能：获取当前用户角色——区分「配置角色」(ADMIN/PM) 与普通员工，决定是否加载配置进度
+  useEffect(() => {
+    client.get('/auth/me').then((res) => {
+      const data = res.data || res;
+      const roles = data.roles || [];
+      setIsConfigRole(roles.includes('ROLE_ADMIN') || roles.includes('ROLE_PM'));
+      setRolesLoaded(true);
+    }).catch(() => {
+      setIsConfigRole(false);
+      setRolesLoaded(true);
+    });
+  }, []);
 
   // 功能：获取配置进度——挂载时调用，出错后可重试
   const fetchProgress = useCallback(async () => {
@@ -84,13 +99,18 @@ function DashboardPage() {
 
   useEffect(() => {
     mountedRef.current = true;
-    fetchProgress();
+    if (!rolesLoaded) return () => { mountedRef.current = false; };
     fetchPendingCount();
+    if (isConfigRole) {
+      fetchProgress();
+    } else {
+      setLoading(false);
+    }
     return () => { mountedRef.current = false; };
-  }, [fetchProgress, fetchPendingCount]);
+  }, [rolesLoaded, isConfigRole, fetchProgress, fetchPendingCount]);
 
-  // 功能：加载中——显示Spin旋转加载
-  if (loading) {
+  // 功能：加载中——显示Spin旋转加载（角色未确认或配置数据加载中）
+  if (!rolesLoaded || loading) {
     return (
       <div id="dashboard-loading-area" style={{
         display: 'flex',
@@ -105,8 +125,8 @@ function DashboardPage() {
     );
   }
 
-  // 功能：加载失败——显示错误结果+重试按钮
-  if (error) {
+  // 功能：加载失败——仅配置角色(ADMIN/PM)配置进度加载失败时显示错误+重试
+  if (isConfigRole && error) {
     return (
       <Result
         status="error"
@@ -146,8 +166,10 @@ function DashboardPage() {
         </div>
       </Card>
 
-      {/* 功能：配置完成度进度条——绿色百分比 */}
-      <Card id="dashboard-progress-bar" style={{ borderRadius: 8, marginBottom: 16 }}>
+      {isConfigRole && (
+        <>
+          {/* 功能：配置完成度进度条——绿色百分比 */}
+          <Card id="dashboard-progress-bar" style={{ borderRadius: 8, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <span style={{ fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap' }}>
             配置完成度
@@ -210,6 +232,8 @@ function DashboardPage() {
           );
         })}
       </div>
+        </>
+      )}
     </div>
   );
 }

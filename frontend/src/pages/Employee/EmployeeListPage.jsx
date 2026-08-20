@@ -49,6 +49,10 @@ function EmployeeListPage() {
   const [batchForm] = Form.useForm();
   const [allEmployees, setAllEmployees] = useState([]);
   const [employeeNameMap, setEmployeeNameMap] = useState({});
+  const [positionOptions, setPositionOptions] = useState([]);
+  const [batchPositionOptions, setBatchPositionOptions] = useState([]);
+  const watchedCategory = Form.useWatch('category', form);
+  const watchedBatchCategory = Form.useWatch('category', batchForm);
 
   // 功能：分页获取员工列表——支持关键字、岗位分类、状态筛选
   const fetchEmployees = useCallback(async (page, size, filterParams) => {
@@ -107,6 +111,42 @@ function EmployeeListPage() {
     fetchAllEmployees();
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 功能：岗位分类变化时，按分类加载岗位配置里已配置的岗位名称（级联下拉）
+  useEffect(() => {
+    if (!watchedCategory) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await client.get('/position-configs/positions', { params: { category: watchedCategory } });
+        if (cancelled || !mountedRef.current) return;
+        const list = Array.isArray(res.data) ? res.data : [];
+        const current = form.getFieldValue('position');
+        const merged = current && !list.includes(current) ? [current, ...list] : list;
+        setPositionOptions(merged.map((p) => ({ label: p, value: p })));
+      } catch {
+        if (!cancelled) setPositionOptions([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [watchedCategory, form]);
+
+  // 功能：批量编辑——岗位分类变化时按分类加载岗位名称
+  useEffect(() => {
+    if (!watchedBatchCategory) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await client.get('/position-configs/positions', { params: { category: watchedBatchCategory } });
+        if (cancelled || !mountedRef.current) return;
+        const list = Array.isArray(res.data) ? res.data : [];
+        setBatchPositionOptions(list.map((p) => ({ label: p, value: p })));
+      } catch {
+        if (!cancelled) setBatchPositionOptions([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [watchedBatchCategory]);
 
   // 功能：搜索——重置到第一页
   const handleSearch = () => {
@@ -404,10 +444,18 @@ function EmployeeListPage() {
                       <Input placeholder="如 zhangsan@jifeng.com" maxLength={100} />
                     </Form.Item>
                     <Form.Item name="category" label="岗位分类" rules={[{ required: true, message: '请选择岗位分类' }]}>
-                      <Select placeholder="选择岗位分类" allowClear options={categoryOptions} />
+                      <Select placeholder="选择岗位分类" allowClear options={categoryOptions}
+                        onChange={() => { form.setFieldValue('position', undefined); setPositionOptions([]); }} />
                     </Form.Item>
-                    <Form.Item name="position" label="岗位" rules={[{ required: true, message: '请输入岗位名称' }]}>
-                      <Input placeholder="如 整椅研发工程师" maxLength={50} />
+                    <Form.Item name="position" label="岗位" rules={[{ required: true, message: '请选择岗位' }]}>
+                      <Select
+                        placeholder="请先选择岗位分类"
+                        options={positionOptions}
+                        showSearch
+                        optionFilterProp="label"
+                        disabled={!watchedCategory}
+                        notFoundContent={watchedCategory ? '该分类下暂无已配置的岗位' : '请先选择岗位分类'}
+                      />
                     </Form.Item>
                     <Form.Item name="orgName" label="部门" rules={[{ required: true, message: '请输入部门' }]}>
                       <Input placeholder="如 研发中心" maxLength={100} />
@@ -434,10 +482,19 @@ function EmployeeListPage() {
                 >
                   <Form form={batchForm} layout="vertical" style={{ marginTop: 16 }}>
                     <Form.Item name="category" label="岗位分类（留空不修改）">
-                      <Select placeholder="选择岗位分类" allowClear options={categoryOptions} />
+                      <Select placeholder="选择岗位分类" allowClear options={categoryOptions}
+                        onChange={() => { batchForm.setFieldValue('position', undefined); setBatchPositionOptions([]); }} />
                     </Form.Item>
                     <Form.Item name="position" label="岗位名称（留空不修改）">
-                      <Input placeholder="如 整椅研发工程师" maxLength={50} />
+                      <Select
+                        placeholder="请先选择岗位分类"
+                        options={batchPositionOptions}
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        disabled={!watchedBatchCategory}
+                        notFoundContent={watchedBatchCategory ? '该分类下暂无已配置的岗位' : '请先选择岗位分类'}
+                      />
                     </Form.Item>
                     <Form.Item name="orgName" label="部门（留空不修改）">
                       <Input placeholder="如 研发中心" maxLength={100} />

@@ -112,4 +112,34 @@ public class PeriodService {
         periodMapper.updateById(period);
         return period;
     }
+
+    // 功能：校验周期未关闭——周期已 COMPLETED 时拒绝所有写操作（评分/审批/提交参与/上传凭证等）
+    // 返回400而非403：这是业务状态锁，不是权限问题
+    public void assertNotCompleted(String periodId, String action) {
+        if (!StringUtils.hasText(periodId)) {
+            return; // 无周期信息的记录（历史遗留）不拦截
+        }
+        AssessmentPeriod period = periodMapper.selectById(periodId);
+        if (period != null && COMPLETED.equals(period.getStatus())) {
+            throw new BusinessException(400, "考核周期已关闭，不可再" + action);
+        }
+    }
+
+    // 功能：校验周期已发起且未关闭——评分/开始评分等操作要求周期必须为 ONGOING；
+    //   COMPLETED 抛「已关闭」，INIT/CALIBRATING 等非 ONGOING 状态抛「尚未发起」
+    public void assertOngoing(String periodId, String action) {
+        if (!StringUtils.hasText(periodId)) {
+            return; // 无周期信息的记录（历史遗留）不拦截
+        }
+        AssessmentPeriod period = periodMapper.selectById(periodId);
+        if (period == null) {
+            return;
+        }
+        if (COMPLETED.equals(period.getStatus())) {
+            throw new BusinessException(400, "考核周期已关闭，不可再" + action);
+        }
+        if (!ONGOING.equals(period.getStatus())) {
+            throw new BusinessException(400, "考核尚未发起，不可" + action);
+        }
+    }
 }

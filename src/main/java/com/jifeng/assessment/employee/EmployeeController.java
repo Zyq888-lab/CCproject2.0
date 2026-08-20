@@ -13,6 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/employees")
@@ -47,6 +48,13 @@ public class EmployeeController extends BaseController {
             return fail(404, "员工不存在: " + employeeId);
         }
         return ok(dto);
+    }
+
+    // 功能：只读返回全员工号→姓名映射，供任务列表展示姓名（方法级权限覆盖类级 ADMIN 限制，放开到所有角色）
+    @GetMapping("/names")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
+    public ApiResponse<Map<String, String>> names() {
+        return ok(employeeService.listEmployeeNames());
     }
 
     // 功能：新增员工——校验工号不重复、必填字段完整、直属上级存在，通过后返回员工信息

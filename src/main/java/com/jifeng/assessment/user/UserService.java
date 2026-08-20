@@ -12,6 +12,8 @@ import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -114,7 +116,7 @@ public class UserService extends BaseService<SysUserMapper, SysUser> {
         return dto;
     }
 
-    // 功能：覆盖式更新用户角色——先删除该用户所有角色，再插入新角色列表
+    // 功能：覆盖式更新用户角色——物理删除原有角色后插入去重后的新角色列表
     @Transactional
     public List<String> updateUserRoles(String userId, List<String> roleTypes) {
         SysUser user = baseMapper.selectById(userId);
@@ -129,20 +131,27 @@ public class UserService extends BaseService<SysUserMapper, SysUser> {
             }
         }
 
-        // 删除用户原有角色（物理删除，不走逻辑删除）
-        LambdaQueryWrapper<UserRole> deleteWrapper = new LambdaQueryWrapper<>();
-        deleteWrapper.eq(UserRole::getUserId, userId);
-        userRoleMapper.delete(deleteWrapper);
+        // 去重：同一角色只保留一条，避免插入触发 uk_user_role 唯一约束
+        List<String> distinctRoleTypes = roleTypes.stream().distinct().toList();
+
+        // 操作人自身保护：禁止移除自己的管理员角色，避免把系统锁死
+        String currentUserId = getCurrentUserId();
+        if (userId.equals(currentUserId) && isCurrentUserAdmin() && !distinctRoleTypes.contains("ADMIN")) {
+            throw new BusinessException(400, "不能移除自己的管理员角色");
+        }
+
+        // 物理删除用户原有角色（绕过全局逻辑删除，避免 deleted=1 残留行积累导致唯一约束冲突）
+        userRoleMapper.deletePhysicallyByUserId(userId);
 
         // 插入新角色列表
-        for (String roleType : roleTypes) {
+        for (String roleType : distinctRoleTypes) {
             UserRole role = new UserRole();
             role.setUserId(userId);
             role.setRoleType(roleType);
             userRoleMapper.insert(role);
         }
 
-        return roleTypes;
+        return distinctRoleTypes;
     }
 
     // 功能：根据 userId 查询用户的角色列表
@@ -166,5 +175,26 @@ public class UserService extends BaseService<SysUserMapper, SysUser> {
         String lastId = lastUser.getUserId();
         int num = Integer.parseInt(lastId.substring(1));
         return String.format("U%03d", num + 1);
+    }
+
+    // 功能：从安全上下文反查当前登录用户的 userId——用于角色变更自身保护
+    private String getCurrentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return null;
+        }
+        SysUser user = baseMapper.selectOne(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getUsername, auth.getName()));
+        return user != null ? user.getUserId() : null;
+    }
+
+    // 功能：判断当前登录用户是否 ADMIN——角色变更自身保护用
+    private boolean isCurrentUserAdmin() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
     }
 }

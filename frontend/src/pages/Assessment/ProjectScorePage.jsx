@@ -22,20 +22,31 @@ function ProjectScorePage({ kpiType = 'PROJECT' }) {
   const [evidences, setEvidences] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const mountedRef = useRef(true);
 
   // 功能：从 URL query 参数解析 taskId
   const taskId = new URLSearchParams(window.location.search).get('taskId');
 
-  // 功能：加载任务详情 + KPI 指标列表
+  // 功能：加载任务详情 + KPI 指标列表，并校验当前用户是否为该任务考核人（越权拦截）
   const fetchTask = async () => {
     setLoading(true);
     setError(null);
+    setAccessDenied(false);
     try {
-      const res = await client.get(`/tasks/${taskId}`);
-      const data = res.data || {};
+      const [taskRes, meRes] = await Promise.all([
+        client.get(`/tasks/${taskId}`),
+        client.get('/auth/me').catch(() => null),
+      ]);
+      const data = taskRes.data || {};
+      const myEmployeeId = meRes ? (meRes.data || {}).employeeId : null;
       if (mountedRef.current) {
+        // 越权拦截：当前登录用户必须为该任务的考核人，否则显示无权访问
+        if (myEmployeeId && data.assessorId && data.assessorId !== myEmployeeId) {
+          setAccessDenied(true);
+          return;
+        }
         setTask(data);
         const list = data.indicators || [];
         setIndicators(list);
@@ -50,7 +61,10 @@ function ProjectScorePage({ kpiType = 'PROJECT' }) {
         setEvidences(initEvidences);
       }
     } catch (err) {
-      if (mountedRef.current) setError(err?.message || '加载失败');
+      if (mountedRef.current) {
+        if (err?.code === 403) setAccessDenied(true);
+        else setError(err?.message || '加载失败');
+      }
     } finally {
       if (mountedRef.current) setLoading(false);
     }
@@ -68,9 +82,25 @@ function ProjectScorePage({ kpiType = 'PROJECT' }) {
     setScores((prev) => ({ ...prev, [kpiConfigId]: value }));
   };
 
-  // 功能：凭证拖拽上传——beforeUpload 返回 false 阻止自动上传，本地暂存文件名
-  const handleEvidenceChange = (kpiConfigId, file) => {
-    setEvidences((prev) => ({ ...prev, [kpiConfigId]: file.name }));
+  // 功能：凭证拖拽上传——先确保评分草稿行存在拿到 scoreId，再调 /scores/{scoreId}/evidence 上传，返回 URL 存入 evidenceUrl
+  const handleEvidenceChange = async (kpiConfigId, file) => {
+    try {
+      const ind = indicators.find((i) => i.kpiConfigId === kpiConfigId);
+      const kpiTypeVal = ind?.kpiType || kpiType;
+      const ensureRes = await client.post(`/tasks/${taskId}/scores/ensure`, null, {
+        params: { kpiConfigId, kpiType: kpiTypeVal },
+      });
+      const scoreId = ensureRes.data;
+      const fd = new FormData();
+      fd.append('file', file);
+      const upRes = await client.post(`/scores/${scoreId}/evidence`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setEvidences((prev) => ({ ...prev, [kpiConfigId]: upRes.data }));
+      message.success({ content: '凭证已上传', duration: 2 });
+    } catch (err) {
+      message.error({ content: err?.message || '凭证上传失败' });
+    }
     return false;
   };
 
@@ -80,7 +110,7 @@ function ProjectScorePage({ kpiType = 'PROJECT' }) {
   // 功能：构建提交 payload
   const buildItems = () => indicators.map((ind) => ({
     kpiConfigId: ind.kpiConfigId,
-    kpiType,
+    kpiType: ind.kpiType || kpiType,
     score: scores[ind.kpiConfigId],
     evidenceUrl: evidences[ind.kpiConfigId] || null,
   }));
@@ -159,7 +189,7 @@ function ProjectScorePage({ kpiType = 'PROJECT' }) {
           style={{ padding: '4px 8px' }}
         >
           <p className="ant-upload-text" style={{ fontSize: 12, margin: 0 }}>
-            {evidences[ind.kpiConfigId] ? `已上传: ${evidences[ind.kpiConfigId]}` : '点击或拖拽上传凭证'}
+            {evidences[ind.kpiConfigId] ? '已上传凭证' : '点击或拖拽上传凭证'}
           </p>
         </Dragger>
       ) },
@@ -172,6 +202,13 @@ function ProjectScorePage({ kpiType = 'PROJECT' }) {
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
         <Spin size="large"><div style={{ padding: 50, textAlign: 'center', color: '#8C8C8C' }}>加载中…</div></Spin>
       </div>
+    );
+  }
+
+  if (accessDenied) {
+    return (
+      <Result status="403" title="无权访问" subTitle="您不是该任务的考核人，无权访问此评分页"
+        extra={<Button type="primary" onClick={goBack}>返回</Button>} />
     );
   }
 

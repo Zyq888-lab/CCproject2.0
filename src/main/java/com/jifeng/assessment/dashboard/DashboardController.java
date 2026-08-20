@@ -28,7 +28,7 @@ public class DashboardController extends BaseController {
 
     // 功能：返回各配置模块的数据量和配置状态
     @GetMapping("/api/v1/dashboard/config-progress")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
     public ApiResponse<List<DashboardService.ConfigProgressItem>> configProgress() {
         return ok(dashboardService.configProgress());
     }

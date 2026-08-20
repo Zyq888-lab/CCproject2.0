@@ -29,23 +29,24 @@ public class TaskController extends BaseController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String projectCode,
             @RequestParam(required = false) String assessorId,
-            @RequestParam(required = false) String assesseeId) {
+            @RequestParam(required = false) String assesseeId,
+            @RequestParam(required = false) String scope) {
         PageQuery query = new PageQuery();
         query.setPage(page);
         query.setSize(size);
-        return ok(taskService.listTasks(query, periodId, status, projectCode, assessorId, assesseeId));
+        return ok(taskService.listTasks(query, periodId, status, projectCode, assessorId, assesseeId, scope));
     }
 
     // 功能：查询任务详情——返回任务 + 关联 KPI 指标列表（打分页加载用）
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
     public ApiResponse<AssessmentTask> detail(@PathVariable Long id) {
         return ok(taskService.getTaskDetail(id));
     }
 
     // 功能：开始评分——PENDING → IN_PROGRESS
     @PutMapping("/{id}/start")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
     public ApiResponse<AssessmentTask> start(@PathVariable Long id) {
         return ok(taskService.start(id));
     }

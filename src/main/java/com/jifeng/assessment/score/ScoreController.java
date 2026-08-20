@@ -25,7 +25,7 @@ public class ScoreController extends BaseController {
 
     // 功能：提交评分——校验完整性+范围+类型，任务状态→SUBMITTED
     @PostMapping("/tasks/{taskId}/scores")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
     public ApiResponse<AssessmentTask> submit(@PathVariable Long taskId,
                                               @Valid @RequestBody SubmitRequest request) {
         return ok(scoreService.submit(taskId, request.getItems()));
@@ -33,7 +33,7 @@ public class ScoreController extends BaseController {
 
     // 功能：暂存草稿——可只填部分指标，不改变任务状态
     @PutMapping("/tasks/{taskId}/scores")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
     public ApiResponse<Void> saveDraft(@PathVariable Long taskId,
                                        @Valid @RequestBody SubmitRequest request) {
         scoreService.saveDraft(taskId, request.getItems());
@@ -42,10 +42,19 @@ public class ScoreController extends BaseController {
 
     // 功能：凭证上传——文件大小≤10MB，返回访问URL
     @PostMapping("/scores/{scoreId}/evidence")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
     public ApiResponse<String> uploadEvidence(@PathVariable Long scoreId,
                                               @RequestParam("file") MultipartFile file) {
         return ok(scoreService.uploadEvidence(scoreId, file));
+    }
+
+    // 功能：确保评分草稿行存在并返回 scoreId（凭证上传前置，前端拿到 scoreId 再上传文件）
+    @PostMapping("/tasks/{taskId}/scores/ensure")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
+    public ApiResponse<Long> ensure(@PathVariable Long taskId,
+                                    @RequestParam Long kpiConfigId,
+                                    @RequestParam String kpiType) {
+        return ok(scoreService.ensureScore(taskId, kpiConfigId, kpiType));
     }
 
     @Data

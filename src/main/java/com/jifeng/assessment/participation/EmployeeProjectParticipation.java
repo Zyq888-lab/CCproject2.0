@@ -28,15 +28,18 @@ public class EmployeeProjectParticipation {
     @TableField("participation_rate")
     private BigDecimal participationRate;
 
-    @TableField("suggested_rate")
+    @TableField(value = "suggested_rate", updateStrategy = FieldStrategy.IGNORED)
     private BigDecimal suggestedRate;
+
+    @TableField(value = "approval_comment", updateStrategy = FieldStrategy.IGNORED)
+    private String approvalComment;
 
     private String status;
 
-    @TableField("approved_by")
+    @TableField(value = "approved_by", updateStrategy = FieldStrategy.IGNORED)
     private String approvedBy;
 
-    @TableField("approved_at")
+    @TableField(value = "approved_at", updateStrategy = FieldStrategy.IGNORED)
     private LocalDateTime approvedAt;
 
     @TableField("period_id")

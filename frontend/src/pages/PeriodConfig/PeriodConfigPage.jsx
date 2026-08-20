@@ -2,11 +2,12 @@
 {/* 依赖组件：PageHeader, EmptyState, ConfirmModal, client.js, Ant Design Card/Modal/Form/Input/DatePicker/Tag/Row/Col */}
 {/* 修改注意：仅INIT状态可编辑；存在活跃周期时新增按钮禁用 */}
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Card, Button, Tag, Space, Modal, Form, Input, DatePicker, message, Row, Col, Spin, Result, Select,
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, CalendarOutlined, LockOutlined, PlayCircleOutlined,
+  PlusOutlined, EditOutlined, CalendarOutlined, LockOutlined, PlayCircleOutlined, BarChartOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
@@ -22,6 +23,7 @@ const STATUS_CONFIG = {
 };
 
 function PeriodConfigPage() {
+  const navigate = useNavigate();
   const [periods, setPeriods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -108,18 +110,22 @@ function PeriodConfigPage() {
     }
   };
 
-  const handleStart = (period) => {
+  const handleLaunch = (period) => {
     showConfirm({
-      title: `确定要开始考核周期"${period.periodName}"吗？`,
-      content: '开始后状态变为"进行中"，考核将正式启动。',
-      okText: '确认开始',
+      title: `确定要发起考核"${period.periodName}"吗？`,
+      content: '发起后将自动为所有员工生成考核任务，周期状态变为"进行中"。',
+      okText: '确认发起',
       onOk: async () => {
         try {
-          await client.put(`/periods/${period.periodId}/start`);
-          message.success({ content: '考核周期已开始', duration: 3 });
+          const res = await client.post(`/tasks/${period.periodId}/launch`);
+          const result = res.data || {};
+          const taskCount = result.taskCount ?? 0;
+          const discrepancyCount = result.discrepancyCount ?? 0;
+          const extra = discrepancyCount > 0 ? `，${discrepancyCount} 条差异待处理` : '';
+          message.success({ content: `考核已发起，共生成 ${taskCount} 个考核任务${extra}`, duration: 4 });
           fetchPeriods();
         } catch (err) {
-          message.error({ content: err?.message || '开始失败' });
+          message.error({ content: err?.message || '发起失败' });
         }
       },
     });
@@ -235,9 +241,9 @@ function PeriodConfigPage() {
                           type="link"
                           size="small"
                           icon={<PlayCircleOutlined />}
-                          onClick={() => handleStart(period)}
+                          onClick={() => handleLaunch(period)}
                         >
-                          开始
+                          发起考核
                         </Button>
                       ),
                       period.status === 'INIT' && (
@@ -248,6 +254,16 @@ function PeriodConfigPage() {
                           onClick={() => handleEdit(period)}
                         >
                           编辑
+                        </Button>
+                      ),
+                      (
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<BarChartOutlined />}
+                          onClick={() => navigate(`/period-monitor/${period.periodId}`)}
+                        >
+                          监控
                         </Button>
                       ),
                       period.status !== 'COMPLETED' && (

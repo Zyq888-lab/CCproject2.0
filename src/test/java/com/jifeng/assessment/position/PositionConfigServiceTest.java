@@ -221,4 +221,21 @@ class PositionConfigServiceTest {
                 () -> positionConfigService.createConfig(config));
         assertTrue(ex.getMessage().contains("无效的职能考核方式"));
     }
+
+    // 功能：按分类获取不重复岗位名称——供员工表单「岗位」级联下拉使用
+    @Test
+    void shouldGetDistinctPositionsByCategory() {
+        createTestConfig("研发技术类", "整椅研发岗");
+        createTestConfig("研发技术类", "骨架研发岗");
+        createTestConfig("职能管理类", "财务岗");
+
+        List<String> positions = positionConfigService.getDistinctPositions("研发技术类");
+        assertEquals(2, positions.size());
+        assertTrue(positions.contains("整椅研发岗"));
+        assertTrue(positions.contains("骨架研发岗"));
+        assertFalse(positions.contains("财务岗"));
+
+        // 无分类返回空列表
+        assertTrue(positionConfigService.getDistinctPositions("").isEmpty());
+    }
 }

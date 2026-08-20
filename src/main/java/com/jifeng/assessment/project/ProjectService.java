@@ -9,10 +9,14 @@ import com.jifeng.assessment.common.BaseService;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.common.PageQuery;
 import com.jifeng.assessment.common.PageResult;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
+import com.jifeng.assessment.user.SysUser;
+import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,10 +30,11 @@ import java.util.List;
 public class ProjectService extends BaseService<ProjectMapper, Project> {
 
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
+    private final SysUserMapper sysUserMapper;
 
-    // 功能：分页查询项目列表，支持按 projectStage 和 status 筛选
+    // 功能：分页查询项目列表，支持按 projectStage/status 筛选；scope=assigned 时员工仅见自己被分配项目角色的项目阶段
     public PageResult<ProjectDTO> listProjects(PageQuery query, String stage, String status,
-            Boolean includeInactive, String projectCode) {
+            Boolean includeInactive, String projectCode, String scope) {
         LambdaQueryWrapper<Project> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(stage)) {
             wrapper.eq(Project::getProjectStage, stage);
@@ -43,6 +48,37 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         if (StringUtils.hasText(projectCode)) {
             wrapper.apply("LOWER(project_code) LIKE {0}",
                     "%" + projectCode.toLowerCase() + "%");
+        }
+        // 数据隔离：PM 仅见自己负责的项目（project_role_assignment.employee_id=当前用户）；
+        //   员工在 scope=assigned 时仅见自己被分配项目角色的项目阶段；ADMIN 不过滤
+        String primaryRole = getPrimaryRole();
+        boolean scoped = "PM".equals(primaryRole)
+                || ("assigned".equals(scope) && "员工".equals(primaryRole));
+        if (scoped) {
+            String employeeId = getCurrentEmployeeId();
+            if (employeeId == null) {
+                return PageResult.of(0, query.getPage(), query.getSize(), List.of());
+            }
+            List<ProjectRoleAssignment> assignments = roleAssignmentMapper.selectList(
+                    new LambdaQueryWrapper<ProjectRoleAssignment>()
+                            .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
+                            .eq(ProjectRoleAssignment::getDeleted, 0));
+            if (assignments.isEmpty()) {
+                return PageResult.of(0, query.getPage(), query.getSize(), List.of());
+            }
+            wrapper.and(w -> {
+                boolean first = true;
+                for (ProjectRoleAssignment a : assignments) {
+                    if (first) {
+                        w.eq(Project::getProjectCode, a.getProjectCode())
+                         .eq(Project::getProjectStage, a.getProjectStage());
+                        first = false;
+                    } else {
+                        w.or().eq(Project::getProjectCode, a.getProjectCode())
+                               .eq(Project::getProjectStage, a.getProjectStage());
+                    }
+                }
+            });
         }
         wrapper.orderByAsc(Project::getProjectCode);
         PageResult<Project> page = selectPage(query, wrapper);
@@ -78,6 +114,19 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
             baseMapper.insert(project);
         } catch (DuplicateKeyException e) {
             throw new BusinessException(409, "项目编码" + project.getProjectCode() + "已存在");
+        }
+        // PM 创建项目后自动成为该项目的 PM（写入一条角色分配），否则数据隔离逻辑会将其新建项目过滤掉
+        if ("PM".equals(getPrimaryRole())) {
+            String creatorEmployeeId = getCurrentEmployeeId();
+            if (creatorEmployeeId != null) {
+                ProjectRoleAssignment selfAssign = new ProjectRoleAssignment();
+                selfAssign.setProjectCode(project.getProjectCode());
+                selfAssign.setProjectStage(project.getProjectStage());
+                selfAssign.setProjectRoleCode("PM");
+                selfAssign.setEmployeeId(creatorEmployeeId);
+                selfAssign.setIsPrimaryPd(true);
+                roleAssignmentMapper.insert(selfAssign);
+            }
         }
         return toDTO(project);
     }
@@ -177,6 +226,31 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
             return "system";
         }
         return auth.getName();
+    }
+
+    // 功能：获取当前用户主角色——取权限列表中第一个匹配的已知角色，未认证返回空
+    private String getPrimaryRole() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return "";
+        }
+        for (GrantedAuthority authority : auth.getAuthorities()) {
+            String a = authority.getAuthority();
+            for (String role : new String[]{"ADMIN", "PM", "PD", "评估人", "员工"}) {
+                if (a.equals("ROLE_" + role)) {
+                    return role;
+                }
+            }
+        }
+        return "";
+    }
+
+    // 功能：根据登录用户名反查员工工号——用于项目数据隔离
+    private String getCurrentEmployeeId() {
+        String username = getCurrentUsername();
+        SysUser user = sysUserMapper.selectOne(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getUsername, username));
+        return user != null ? user.getEmployeeId() : null;
     }
 
     // 功能：将 Project 实体转为 DTO，过滤 deleted 和 version 内部字段

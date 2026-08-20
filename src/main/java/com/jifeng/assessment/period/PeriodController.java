@@ -22,9 +22,9 @@ public class PeriodController extends BaseController {
 
     private final PeriodService periodService;
 
-    // 功能：查询考核周期列表，支持按状态筛选
+    // 功能：查询考核周期列表，支持按状态筛选——员工录入参与需选周期，故对所有角色开放只读
     @GetMapping("/api/v1/periods")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
     public ApiResponse<List<AssessmentPeriod>> list(
             @RequestParam(required = false) String status) {
         return ok(periodService.listPeriods(status));

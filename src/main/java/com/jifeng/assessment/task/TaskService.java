@@ -14,11 +14,16 @@ import com.jifeng.assessment.kpi.FuncKpiConfig;
 import com.jifeng.assessment.kpi.FuncKpiMapper;
 import com.jifeng.assessment.kpi.ProjectKpiConfig;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
+import com.jifeng.assessment.period.PeriodService;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import com.jifeng.assessment.score.AssessmentScore;
 import com.jifeng.assessment.score.ScoreMapper;
+import com.jifeng.assessment.user.SysUser;
+import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -39,11 +44,50 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
     private final EmployeeMapper employeeMapper;
     private final ScoreMapper scoreMapper;
+    private final SysUserMapper sysUserMapper;
+    private final PeriodService periodService;
 
-    // 功能：分页查询考核任务——支持按周期/状态/项目编码/考核人/被考核人筛选
+    // 功能：分页查询考核任务——支持按周期/状态/项目编码/考核人/被考核人筛选；scope=pending/progress 时按当前用户强制隔离
     public PageResult<AssessmentTask> listTasks(PageQuery query, String periodId, String status,
-                                                String projectCode, String assessorId, String assesseeId) {
+                                                String projectCode, String assessorId, String assesseeId, String scope) {
         LambdaQueryWrapper<AssessmentTask> wrapper = new LambdaQueryWrapper<>();
+
+        // 数据隔离：待评分(scope=pending)强制只看当前用户作为考核人的任务；我的进度(scope=progress)强制只看当前用户作为被考核人的任务；ADMIN 豁免可看全部
+        if (!isAdmin()) {
+            if ("pending".equals(scope)) {
+                assessorId = getCurrentEmployeeId();
+                if (assessorId == null) {
+                    return PageResult.of(0, query.getPage(), query.getSize(), List.of());
+                }
+            } else if ("progress".equals(scope)) {
+                assesseeId = getCurrentEmployeeId();
+                if (assesseeId == null) {
+                    return PageResult.of(0, query.getPage(), query.getSize(), List.of());
+                }
+            } else {
+                // 未指定或未知 scope：非 ADMIN 强制只看与自己相关的任务（作为考核人或被考核人），并忽略传入的 assessorId/assesseeId 防越权
+                String empId = getCurrentEmployeeId();
+                if (empId == null) {
+                    return PageResult.of(0, query.getPage(), query.getSize(), List.of());
+                }
+                assessorId = null;
+                assesseeId = null;
+                wrapper.and(w -> w.eq(AssessmentTask::getAssessorId, empId)
+                        .or().eq(AssessmentTask::getAssesseeId, empId));
+            }
+        }
+
+        // 自评已移除：所有列表一律排除历史 SELF 残留数据（存量数据清理前的兜底）
+        wrapper.ne(AssessmentTask::getTaskType, "SELF");
+
+        // 待评分列表：只显示可评分状态（PENDING/IN_PROGRESS/RETURNED），已提交/已确认/已取消移入「我的进度」
+        if ("pending".equals(scope)) {
+            wrapper.in(AssessmentTask::getStatus, "PENDING", "IN_PROGRESS", "RETURNED");
+            // 待评分列表仅返回已发起(ONGOING)周期的任务，避免 INIT 周期存量任务提前暴露评分入口
+            wrapper.inSql(AssessmentTask::getPeriodId,
+                    "SELECT period_id FROM assessment_period WHERE status = 'ONGOING' AND deleted = 0");
+        }
+
         if (StringUtils.hasText(periodId)) {
             wrapper.eq(AssessmentTask::getPeriodId, periodId);
         }
@@ -69,6 +113,10 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
+        // 权限校验：当前登录用户必须是该任务的考核人（ADMIN 豁免），否则 403
+        assertAssessor(task);
+        // 周期锁定：考核尚未发起或已关闭时拒绝查看评分页
+        periodService.assertOngoing(task.getPeriodId(), "查看评分");
 
         // 查询已有评分（草稿/已提交），按 kpiConfigId 回填 score 和 evidenceUrl
         List<AssessmentScore> existingScores = scoreMapper.selectList(
@@ -78,13 +126,15 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
                 .collect(Collectors.toMap(AssessmentScore::getKpiConfigId, s -> s, (a, b) -> a));
 
         List<KpiIndicatorDTO> indicators = new ArrayList<>();
-        if ("PROJECT".equals(task.getTaskType())) {
-            // PROJECT 任务：根据评估人在项目中的角色（project_role_assignment）确定 roleCode，再按 roleCode+stage 查项目 KPI
+        if (isProjectKpi(task)) {
+            // PROJECT 任务：按被考核人(assesseeId)在项目中的角色（project_role_assignment）确定 roleCode，再按 roleCode+stage 查项目 KPI；
+            // 原按评估人(assessorId)反查会展示评估人自身角色 KPI 而非被考核人的
+            String roleEmployeeId = task.getAssesseeId();
             List<ProjectRoleAssignment> assignments = roleAssignmentMapper.selectList(
                     new LambdaQueryWrapper<ProjectRoleAssignment>()
                             .eq(ProjectRoleAssignment::getProjectCode, task.getProjectCode())
                             .eq(ProjectRoleAssignment::getProjectStage, task.getProjectStage())
-                            .eq(ProjectRoleAssignment::getEmployeeId, task.getAssessorId()));
+                            .eq(ProjectRoleAssignment::getEmployeeId, roleEmployeeId));
             List<String> roleCodes = assignments.stream()
                     .map(ProjectRoleAssignment::getProjectRoleCode)
                     .distinct()
@@ -104,7 +154,7 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
                             s != null ? s.getScore() : null, s != null ? s.getEvidenceUrl() : null));
                 }
             }
-        } else if ("FUNCTIONAL".equals(task.getTaskType())) {
+        } else if (isFunctionalKpi(task)) {
             // FUNCTIONAL 任务：根据被考核人的岗位（category+position）查职能 KPI
             Employee assessee = employeeMapper.selectById(task.getAssesseeId());
             if (assessee != null) {
@@ -134,6 +184,10 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
+        // 权限校验：当前登录用户必须是该任务的考核人（ADMIN 豁免），否则 403
+        assertAssessor(task);
+        // 周期锁定：考核尚未发起或已关闭时拒绝开始评分
+        periodService.assertOngoing(task.getPeriodId(), "开始评分");
         TaskStatus target = taskStateMachine.transition(
                 TaskStatus.valueOf(task.getStatus()), TaskAction.START,
                 task.getReturnCount(), task.getMaxReturns());
@@ -150,6 +204,8 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
+        // 周期锁定：考核周期已关闭时拒绝取消任务
+        periodService.assertNotCompleted(task.getPeriodId(), "取消任务");
         TaskStatus target = taskStateMachine.transition(
                 TaskStatus.valueOf(task.getStatus()), TaskAction.CANCEL,
                 task.getReturnCount(), task.getMaxReturns());
@@ -157,5 +213,46 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
         task.setUpdatedAt(LocalDateTime.now());
         updateWithOptimisticLock(task);
         return task;
+    }
+
+    // 功能：打分权限校验——当前登录用户必须是该任务的考核人（ADMIN 豁免），否则 403
+    private void assertAssessor(AssessmentTask task) {
+        if (isAdmin()) {
+            return;
+        }
+        if (task.getAssessorId() == null || !task.getAssessorId().equals(getCurrentEmployeeId())) {
+            throw new BusinessException(403, "无权操作该考核任务");
+        }
+    }
+
+    // 功能：判断当前登录用户是否 ADMIN——数据隔离/权限校验豁免项
+    private boolean isAdmin() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+    }
+
+    // 功能：从 Spring Security 上下文取当前用户名，反查员工工号——用于任务数据隔离
+    private String getCurrentEmployeeId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return null;
+        }
+        SysUser user = sysUserMapper.selectOne(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getUsername, auth.getName()));
+        return user != null ? user.getEmployeeId() : null;
+    }
+
+    // 功能：判断是否为项目KPI来源——PROJECT 任务
+    private boolean isProjectKpi(AssessmentTask task) {
+        return "PROJECT".equals(task.getTaskType());
+    }
+
+    // 功能：判断是否为职能KPI来源——FUNCTIONAL 任务
+    private boolean isFunctionalKpi(AssessmentTask task) {
+        return "FUNCTIONAL".equals(task.getTaskType());
     }
 }

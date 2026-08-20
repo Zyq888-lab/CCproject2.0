@@ -19,6 +19,9 @@ import ParticipationPage from './pages/Participation/ParticipationPage';
 import TaskListPage from './pages/Tasks/TaskListPage';
 import ProjectScorePage from './pages/Assessment/ProjectScorePage';
 import FuncScorePage from './pages/Assessment/FuncScorePage';
+import MyAssessmentPage from './pages/MyAssessment/MyAssessmentPage';
+import NotificationListPage from './pages/Notification/NotificationListPage';
+import PeriodMonitorPage from './pages/PeriodMonitor/PeriodMonitorPage';
 
 function App() {
   return (
@@ -48,6 +51,9 @@ function App() {
           <Route path="/tasks" element={<TaskListPage />} />
           <Route path="/assessment/score/project" element={<ProjectScorePage />} />
           <Route path="/assessment/score/functional" element={<FuncScorePage />} />
+          <Route path="/my-assessment" element={<MyAssessmentPage />} />
+          <Route path="/notifications" element={<NotificationListPage />} />
+          <Route path="/period-monitor/:periodId" element={<PeriodMonitorPage />} />
         </Route>
 
         {/* 功能：根路径重定向到仪表盘 */}

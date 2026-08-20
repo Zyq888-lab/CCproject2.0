@@ -6,9 +6,12 @@ package com.jifeng.assessment.score;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.kpi.FuncKpiMapper;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
+import com.jifeng.assessment.period.PeriodService;
 import com.jifeng.assessment.task.AssessmentTask;
 import com.jifeng.assessment.task.TaskMapper;
 import com.jifeng.assessment.task.TaskStateMachine;
+import com.jifeng.assessment.user.SysUser;
+import com.jifeng.assessment.user.SysUserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,6 +19,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -31,6 +38,8 @@ class ScoreServiceTest {
     @Mock private ScoreMapper scoreMapper;
     @Mock private ProjectKpiMapper projectKpiMapper;
     @Mock private FuncKpiMapper funcKpiMapper;
+    @Mock private SysUserMapper sysUserMapper;
+    @Mock private PeriodService periodService;
 
     @InjectMocks
     private ScoreService scoreService;
@@ -41,6 +50,7 @@ class ScoreServiceTest {
     void setUp() {
         inProgressTask = new AssessmentTask();
         inProgressTask.setId(1L);
+        inProgressTask.setAssessorId("E001");
         inProgressTask.setTaskType("PROJECT");
         inProgressTask.setStatus("IN_PROGRESS");
         inProgressTask.setReturnCount(0);
@@ -51,6 +61,14 @@ class ScoreServiceTest {
         ReflectionTestUtils.setField(scoreService, "taskStateMachine", new TaskStateMachine());
         // baseMapper 由 BaseService 持有，注入 mock 的 ScoreMapper
         ReflectionTestUtils.setField(scoreService, "baseMapper", scoreMapper);
+
+        // 模拟已登录员工 E001（当前用户 = 任务考核人，通过 assertAssessor 权限校验）
+        SysUser mockUser = new SysUser();
+        mockUser.setEmployeeId("E001");
+        when(sysUserMapper.selectOne(any())).thenReturn(mockUser);
+        Authentication auth = new UsernamePasswordAuthenticationToken(
+                "e001", "password", List.of(new SimpleGrantedAuthority("ROLE_员工")));
+        SecurityContextHolder.getContext().setAuthentication(auth);
     }
 
     // 辅助方法：构建一个合法的评分项

@@ -37,7 +37,7 @@ class DashboardControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "PM")
+    @WithMockUser(roles = "PD")
     void shouldRejectConfigProgressForNonAdmin() throws Exception {
         mockMvc.perform(get("/api/v1/dashboard/config-progress"))
                 .andExpect(status().isForbidden());

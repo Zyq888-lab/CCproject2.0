@@ -10,12 +10,18 @@ import com.jifeng.assessment.kpi.FuncKpiConfig;
 import com.jifeng.assessment.kpi.FuncKpiMapper;
 import com.jifeng.assessment.kpi.ProjectKpiConfig;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
+import com.jifeng.assessment.period.PeriodService;
 import com.jifeng.assessment.task.AssessmentTask;
 import com.jifeng.assessment.task.TaskAction;
 import com.jifeng.assessment.task.TaskMapper;
 import com.jifeng.assessment.task.TaskStateMachine;
 import com.jifeng.assessment.task.TaskStatus;
+import com.jifeng.assessment.user.SysUser;
+import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -33,6 +39,8 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
     private final TaskStateMachine taskStateMachine;
     private final ProjectKpiMapper projectKpiMapper;
     private final FuncKpiMapper funcKpiMapper;
+    private final SysUserMapper sysUserMapper;
+    private final PeriodService periodService;
 
     private static final BigDecimal MIN_SCORE = new BigDecimal("1.0");
     private static final BigDecimal MAX_SCORE = new BigDecimal("5.0");
@@ -45,6 +53,10 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
+        // 权限校验：当前登录用户必须是该任务的考核人（ADMIN 豁免），否则 403
+        assertAssessor(task);
+        // 周期锁定：考核尚未发起或已关闭时拒绝评分
+        periodService.assertOngoing(task.getPeriodId(), "评分");
         if (!"IN_PROGRESS".equals(task.getStatus())) {
             throw new BusinessException(400, "仅评分中的任务可提交");
         }
@@ -64,7 +76,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
                 throw new BusinessException(400, "得分必须在 1-5 分之间");
             }
             // kpiType 与 task.taskType 一致性校验
-            if (!task.getTaskType().equals(item.getKpiType())) {
+            if (!expectedKpiType(task).equals(item.getKpiType())) {
                 throw new BusinessException(400,
                         "指标类型 " + item.getKpiType() + " 与任务类型 " + task.getTaskType() + " 不一致");
             }
@@ -85,10 +97,19 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
             score.setStatus("SUBMITTED");
             score.setUpdatedAt(now);
             if (existing != null) {
-                baseMapper.updateById(score);
+                // 乐观锁更新评分行：version 冲突(返回0)时抛 409，避免并发覆盖被静默吞掉
+                int updated = baseMapper.updateById(score);
+                if (updated == 0) {
+                    throw new BusinessException(409, "评分数据已被他人修改，请刷新后重试");
+                }
             } else {
                 score.setCreatedAt(now);
-                baseMapper.insert(score);
+                // 并发插入同一指标评分时 DB 唯一约束 uk_score_kpi 兜底，转 409 而非 500
+                try {
+                    baseMapper.insert(score);
+                } catch (DuplicateKeyException e) {
+                    throw new BusinessException(409, "该指标评分已存在，请刷新后重试");
+                }
             }
         }
 
@@ -109,6 +130,10 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
+        // 权限校验：当前登录用户必须是该任务的考核人（ADMIN 豁免），否则 403
+        assertAssessor(task);
+        // 周期锁定：考核尚未发起或已关闭时拒绝保存草稿
+        periodService.assertOngoing(task.getPeriodId(), "保存评分草稿");
 
         LocalDateTime now = LocalDateTime.now();
         for (ScoreItem item : items) {
@@ -118,7 +143,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
                         || item.getScore().compareTo(MAX_SCORE) > 0)) {
                 throw new BusinessException(400, "得分必须在 1-5 分之间");
             }
-            if (!task.getTaskType().equals(item.getKpiType())) {
+            if (!expectedKpiType(task).equals(item.getKpiType())) {
                 throw new BusinessException(400,
                         "指标类型 " + item.getKpiType() + " 与任务类型 " + task.getTaskType() + " 不一致");
             }
@@ -138,10 +163,19 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
             score.setStatus("DRAFT");
             score.setUpdatedAt(now);
             if (existing != null) {
-                baseMapper.updateById(score);
+                // 乐观锁更新评分行：version 冲突(返回0)时抛 409
+                int updated = baseMapper.updateById(score);
+                if (updated == 0) {
+                    throw new BusinessException(409, "评分数据已被他人修改，请刷新后重试");
+                }
             } else {
                 score.setCreatedAt(now);
-                baseMapper.insert(score);
+                // 并发插入同一指标评分时 DB 唯一约束 uk_score_kpi 兜底，转 409 而非 500
+                try {
+                    baseMapper.insert(score);
+                } catch (DuplicateKeyException e) {
+                    throw new BusinessException(409, "该指标评分已存在，请刷新后重试");
+                }
             }
         }
         // 不改变 task 状态
@@ -154,6 +188,14 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         if (score == null) {
             throw new BusinessException(404, "评分记录不存在: " + scoreId);
         }
+        // 权限校验：当前登录用户必须是该评分所属任务的考核人（ADMIN 豁免），否则 403
+        AssessmentTask task = taskMapper.selectById(score.getTaskId());
+        if (task == null) {
+            throw new BusinessException(404, "考核任务不存在: " + score.getTaskId());
+        }
+        assertAssessor(task);
+        // 周期锁定：考核尚未发起或已关闭时拒绝上传凭证
+        periodService.assertOngoing(task.getPeriodId(), "上传凭证");
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "请选择要上传的凭证文件");
         }
@@ -175,12 +217,49 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         return url;
     }
 
+    // 功能：确保评分草稿行存在（凭证上传前需要 scoreId）——已存在则返回其 id，否则插入空 DRAFT 行
+    @Transactional
+    public Long ensureScore(Long taskId, Long kpiConfigId, String kpiType) {
+        AssessmentTask task = taskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BusinessException(404, "考核任务不存在: " + taskId);
+        }
+        // 权限校验：当前登录用户必须是该任务的考核人（ADMIN 豁免），否则 403
+        assertAssessor(task);
+        // 周期锁定：考核尚未发起或已关闭时拒绝评分操作
+        periodService.assertOngoing(task.getPeriodId(), "评分操作");
+        if (!expectedKpiType(task).equals(kpiType)) {
+            throw new BusinessException(400, "指标类型 " + kpiType + " 与任务类型 " + task.getTaskType() + " 不一致");
+        }
+        AssessmentScore existing = baseMapper.selectOne(new LambdaQueryWrapper<AssessmentScore>()
+                .eq(AssessmentScore::getTaskId, taskId)
+                .eq(AssessmentScore::getKpiConfigId, kpiConfigId)
+                .eq(AssessmentScore::getKpiType, kpiType));
+        if (existing != null) {
+            return existing.getId();
+        }
+        AssessmentScore score = new AssessmentScore();
+        score.setTaskId(taskId);
+        score.setKpiConfigId(kpiConfigId);
+        score.setKpiType(kpiType);
+        score.setStatus("DRAFT");
+        score.setCreatedAt(LocalDateTime.now());
+        score.setUpdatedAt(LocalDateTime.now());
+        baseMapper.insert(score);
+        return score.getId();
+    }
+
     // 功能：乐观锁更新任务——version 由 MyBatis-Plus @Version 自动处理，影响行数为0则抛409冲突
     private void updateTaskWithOptimisticLock(AssessmentTask task) {
         int rows = taskMapper.updateById(task);
         if (rows == 0) {
             throw new BusinessException(409, "数据已被他人修改，请刷新后重试");
         }
+    }
+
+    // 功能：推导任务对应的 KPI 类型——直接取 taskType
+    private String expectedKpiType(AssessmentTask task) {
+        return task.getTaskType();
     }
 
     // 功能：校验 KPI 配置存在性——根据 kpiType 多态查询对应 KPI 表
@@ -201,6 +280,37 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         } else {
             throw new BusinessException(400, "无效的指标类型: " + kpiType);
         }
+    }
+
+    // 功能：打分权限校验——当前登录用户必须是该任务的考核人（ADMIN 豁免），否则 403
+    private void assertAssessor(AssessmentTask task) {
+        if (isAdmin()) {
+            return;
+        }
+        if (task.getAssessorId() == null || !task.getAssessorId().equals(getCurrentEmployeeId())) {
+            throw new BusinessException(403, "无权操作该考核任务");
+        }
+    }
+
+    // 功能：判断当前登录用户是否 ADMIN——打分权限校验豁免项
+    private boolean isAdmin() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+    }
+
+    // 功能：从 Spring Security 上下文取当前用户名，反查员工工号——用于打分权限隔离
+    private String getCurrentEmployeeId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return null;
+        }
+        SysUser user = sysUserMapper.selectOne(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getUsername, auth.getName()));
+        return user != null ? user.getEmployeeId() : null;
     }
 
     // 功能：评分项——提交/草稿时传入的单条 KPI 得分

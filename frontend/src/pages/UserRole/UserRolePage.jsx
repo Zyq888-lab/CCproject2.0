@@ -149,11 +149,7 @@ function UserRolePage() {
       setRoleModalVisible(false);
       fetchUsers(pagination.current, pagination.pageSize);
     } catch (err) {
-      if (err?.code === 409) {
-        showConflictWarning('其他用户', '几');
-      } else if (err?.message) {
-        message.error({ content: err.message });
-      }
+      message.error({ content: err?.message || '角色更新失败' });
     } finally {
       setSubmitting(false);
     }

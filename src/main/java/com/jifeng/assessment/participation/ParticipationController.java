@@ -52,13 +52,31 @@ public class ParticipationController extends BaseController {
         return ok(participationService.create(employeeId, request.getPeriodId(), request.getItems()));
     }
 
-    // 功能：PM审批项目参与——通过/不通过，可填建议投入比重
+    // 功能：PM审批项目参与——通过/不通过，可填建议投入比重与审批意见
     @PutMapping("/{id}/approve")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD')")
     public ApiResponse<EmployeeProjectParticipation> approve(
             @PathVariable Long id,
             @Valid @RequestBody ApprovalRequest request) {
-        return ok(participationService.approve(id, request.getApproved(), request.getSuggestedRate()));
+        return ok(participationService.approve(id, request.getApproved(), request.getSuggestedRate(), request.getComment()));
+    }
+
+    // 功能：员工重新提交被拒绝的参与申请——可更新投入比重，状态重置为 PENDING 待审批
+    @PostMapping("/{id}/resubmit")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
+    public ApiResponse<EmployeeProjectParticipation> resubmit(
+            @PathVariable Long id,
+            @RequestBody(required = false) ResubmitRequest request) {
+        BigDecimal participationRate = request != null ? request.getParticipationRate() : null;
+        return ok(participationService.resubmit(id, participationRate));
+    }
+
+    // 功能：ADMIN 删除参与记录——逻辑删除（@TableLogic），便于清理测试脏数据
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        participationService.delete(id);
+        return ok("已删除", null);
     }
 
     @Data
@@ -75,5 +93,11 @@ public class ParticipationController extends BaseController {
         @NotNull
         private Boolean approved;
         private BigDecimal suggestedRate;
+        private String comment;
+    }
+
+    @Data
+    public static class ResubmitRequest {
+        private BigDecimal participationRate;
     }
 }
