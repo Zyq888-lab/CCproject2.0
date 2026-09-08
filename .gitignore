@@ -43,3 +43,36 @@ phase2-技术增量设计.md
 phase2-eng-review-2026-08-12.md
 phase2-design-review-2026-08-12.md
 eng-plan-绩效考核系统-phase2.0-20260812.md
+
+# Credentials / sensitive (do not commit)
+cookies*.txt
+
+# Playwright / test artifacts
+test-results/
+playwright-report/
+
+# Deploy binaries (keep the deploy .ps1 scripts)
+deploy/uat/*.jar
+deploy/uat/installers/*.zip
+
+# Local-only working reports / notes (do not commit to remote)
+start-period.js
+tasks-ceo-review-*.jsonl
+PDR.V1.2.txt
+CEO视角输出报告-20260518.md
+UAT测试清单-HR版.md
+UAT测试清单-Phase2.0-四身份版.md
+phase2-实操清单.md
+phase2.0-代码审查报告-20260819.md
+phase2.0-功能与实现效果-20260819.md
+qa-phase1-T1-T28.md
+qa-phase2-全场景测试报告-20260819.md
+qa-test-report-20260522.md
+七步向导变更.txt
+报告要求.txt
+调查-移除SELF自评-20260819.md
+项目角色BUG修复指令.txt
+项目进度总结-20260518.md
+项目进度汇报-Phase1-20260522.md
+项目进度汇报-Phase1完成-20260529.md
+frontend/项目进度报告-Phase1完成-20260522.md
