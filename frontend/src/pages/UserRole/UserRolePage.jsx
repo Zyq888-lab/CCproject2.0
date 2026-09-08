@@ -10,7 +10,6 @@ import {
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
-import { showConflictWarning } from '../../components/ConfirmModal';
 import client from '../../api/client';
 
 const ROLE_OPTIONS = [
@@ -121,9 +120,7 @@ function UserRolePage() {
       setCreateModalVisible(false);
       fetchUsers(pagination.current, pagination.pageSize);
     } catch (err) {
-      if (err?.code === 409) {
-        showConflictWarning('其他用户', '几');
-      } else if (err?.message) {
+      if (err?.message) {
         message.error({ content: err.message });
       }
     } finally {

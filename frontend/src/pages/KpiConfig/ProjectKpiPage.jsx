@@ -118,7 +118,7 @@ function ProjectKpiPage() {
       setModalVisible(false);
       fetchData(filters);
     } catch (err) {
-      if (err?.code === 409) {
+      if (err?.code === 409 && err?.message?.includes('已被他人修改')) {
         showConflictWarning('其他用户', '几');
       } else if (err?.message) {
         message.error({ content: err.message });
