@@ -214,4 +214,51 @@ class MyAssessmentServiceTest {
 
         assertTrue(items.isEmpty(), "无职能 KPI 配置时不应返回空职能考核项");
     }
+
+    // ========================================
+    // 5. 同一项目阶段跨两个考核周期 → 每个周期各出一行，不再被旧周期吞掉（回归）
+    // ========================================
+    @Test
+    void shouldExpandSameProjectAcrossPeriods() {
+        setAuth("xionggong", "E007");
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of(
+                assignment("PRJ-A", "P1", "PD", "E007")));
+
+        AssessmentTask oldTask = new AssessmentTask();
+        oldTask.setId(1L);
+        oldTask.setAssesseeId("E007");
+        oldTask.setAssessorId("ASSESSOR1");
+        oldTask.setTaskType("PROJECT");
+        oldTask.setProjectCode("PRJ-A");
+        oldTask.setProjectStage("P1");
+        oldTask.setStatus("CONFIRMED");
+        oldTask.setPeriodId("2026Q4");
+
+        AssessmentTask newTask = new AssessmentTask();
+        newTask.setId(2L);
+        newTask.setAssesseeId("E007");
+        newTask.setAssessorId("ASSESSOR1");
+        newTask.setTaskType("PROJECT");
+        newTask.setProjectCode("PRJ-A");
+        newTask.setProjectStage("P1");
+        newTask.setStatus("PENDING");
+        newTask.setPeriodId("2026001");
+
+        when(taskMapper.selectList(any())).thenReturn(List.of(oldTask, newTask));
+        when(projectMapper.selectByCodeAndStage("PRJ-A", "P1")).thenReturn(project("PRJ-A", "项目A", "P1"));
+        when(projectKpiMapper.selectList(any())).thenReturn(List.of(pkpi("PD", "P1", "质量")));
+        when(employeeMapper.selectById("ASSESSOR1")).thenReturn(employee("ASSESSOR1", null, null, "评估人甲"));
+        when(employeeMapper.selectById("E007")).thenReturn(employee("E007", "研发技术类", "整椅研发岗", "熊工"));
+        when(funcKpiMapper.selectList(any())).thenReturn(List.of());
+        when(periodMapper.selectById("2026Q4")).thenReturn(period("2026Q4", "2026 Q4"));
+        when(periodMapper.selectById("2026001")).thenReturn(period("2026001", "2026 001"));
+
+        List<MyAssessmentItem> items = service.getMyAssessment();
+
+        assertEquals(2, items.size(), "同一项目跨两个周期应展开为两行");
+        assertEquals("2026Q4", items.get(0).getPeriodId());
+        assertEquals("2026001", items.get(1).getPeriodId());
+        assertEquals("CONFIRMED", items.get(0).getStatus());
+        assertEquals("PENDING", items.get(1).getStatus());
+    }
 }

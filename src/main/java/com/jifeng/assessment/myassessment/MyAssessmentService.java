@@ -1,7 +1,8 @@
 // 模块用途：我的考核业务逻辑——按当前登录员工聚合其 PROJECT/FUNCTIONAL 考核指标(项目/状态/评估人/KPI)
 // 依赖文件：TaskMapper.java, ProjectMapper.java, ProjectRoleAssignmentMapper.java, ProjectKpiMapper.java, FuncKpiMapper.java, EmployeeMapper.java, SysUserMapper.java, PeriodMapper.java
 // 修改注意：数据源为「角色分配驱动」——员工一旦被分配项目角色即可看到 KPI，不再依赖任务是否已生成；
-//   KPI 由被考核人角色 → project_kpi_config / category+position → func_kpi_config 反查；任务仅用于回填状态/评估人
+//   KPI 由被考核人角色 → project_kpi_config / category+position → func_kpi_config 反查；任务仅用于回填状态/评估人/周期；
+//   同一项目阶段跨多个考核周期时按 periodId 展开为多行(见 expandByPeriod)，避免新周期指标被旧周期吞掉
 package com.jifeng.assessment.myassessment;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -28,6 +29,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -65,9 +67,11 @@ public class MyAssessmentService {
                         .eq(ProjectRoleAssignment::getDeleted, 0));
 
         // 2. 查询该员工的所有 PROJECT/FUNCTIONAL 任务（仅用于回填状态/评估人/周期）
+        //    按 id 升序保证多周期任务的稳定顺序（先发起的周期在前）
         List<AssessmentTask> tasks = taskMapper.selectList(new LambdaQueryWrapper<AssessmentTask>()
                 .eq(AssessmentTask::getAssesseeId, employeeId)
-                .in(AssessmentTask::getTaskType, "PROJECT", "FUNCTIONAL"));
+                .in(AssessmentTask::getTaskType, "PROJECT", "FUNCTIONAL")
+                .orderByAsc(AssessmentTask::getId));
 
         List<MyAssessmentItem> items = new ArrayList<>();
 
@@ -84,30 +88,24 @@ public class MyAssessmentService {
             String projectCode = group.get(0).getProjectCode();
             String projectStage = group.get(0).getProjectStage();
             List<AssessmentTask> matchingTasks = findTasks(tasks, projectCode, projectStage, "PROJECT");
-            items.add(buildProjectItem(projectCode, projectStage, group, matchingTasks));
+            // 同一项目阶段跨多个考核周期时，每个周期各展开为一行
+            items.addAll(buildProjectItems(projectCode, projectStage, group, matchingTasks));
         }
 
-        // 4. FUNCTIONAL 指标：按员工本人岗位反查（无论是否分配项目角色均展示）
+        // 4. FUNCTIONAL 指标：按员工本人岗位反查（无论是否分配项目角色均展示），同样按周期展开
         List<AssessmentTask> funcTasks = findTasks(tasks, null, null, "FUNCTIONAL");
-        MyAssessmentItem funcItem = buildFunctionalItem(employeeId, funcTasks);
-        if (funcItem != null) {
-            items.add(funcItem);
-        }
+        items.addAll(buildFunctionalItems(employeeId, funcTasks));
 
         return items;
     }
 
-    // 功能：组装 PROJECT 指标项——项目名 + 角色 KPI；任务信息通过 backfillTask 回填
-    private MyAssessmentItem buildProjectItem(String projectCode, String projectStage,
-                                              List<ProjectRoleAssignment> group,
-                                              List<AssessmentTask> matchingTasks) {
-        MyAssessmentItem item = new MyAssessmentItem();
-        item.setTaskType("PROJECT");
-        item.setProjectCode(projectCode);
-        item.setProjectStage(projectStage);
-
+    // 功能：组装 PROJECT 指标项——项目名 + 角色 KPI 为周期无关的公共部分，
+    //   再按任务周期展开为多行（同一项目阶段跨多个考核周期时每个周期各出一行）
+    private List<MyAssessmentItem> buildProjectItems(String projectCode, String projectStage,
+                                                     List<ProjectRoleAssignment> group,
+                                                     List<AssessmentTask> matchingTasks) {
         Project project = projectMapper.selectByCodeAndStage(projectCode, projectStage);
-        item.setProjectName(project != null ? project.getProjectName() : projectCode);
+        String projectName = project != null ? project.getProjectName() : projectCode;
 
         List<String> roleCodes = group.stream()
                 .map(ProjectRoleAssignment::getProjectRoleCode)
@@ -120,17 +118,16 @@ public class MyAssessmentService {
                         .eq(ProjectKpiConfig::getProjectStage, projectStage)
                         .eq(ProjectKpiConfig::getIsActive, true)
                         .orderByAsc(ProjectKpiConfig::getSortOrder));
-        item.setKpis(kpiConfigs.stream().map(this::toKpiItem).toList());
+        List<MyAssessmentItem.KpiItem> kpis = kpiConfigs.stream().map(this::toKpiItem).toList();
 
-        backfillTask(item, matchingTasks);
-        return item;
+        return expandByPeriod("PROJECT", projectCode, projectStage, projectName, kpis, matchingTasks);
     }
 
-    // 功能：组装 FUNCTIONAL 指标项——按员工 category+position 反查职能 KPI；无配置且无任务时返回 null
-    private MyAssessmentItem buildFunctionalItem(String employeeId, List<AssessmentTask> matchingTasks) {
+    // 功能：组装 FUNCTIONAL 指标项——按员工 category+position 反查职能 KPI；无配置时返回空列表
+    private List<MyAssessmentItem> buildFunctionalItems(String employeeId, List<AssessmentTask> matchingTasks) {
         Employee assessee = employeeMapper.selectById(employeeId);
         if (assessee == null) {
-            return null;
+            return List.of();
         }
         List<FuncKpiConfig> kpiConfigs = funcKpiMapper.selectList(
                 new LambdaQueryWrapper<FuncKpiConfig>()
@@ -140,16 +137,50 @@ public class MyAssessmentService {
                         .orderByAsc(FuncKpiConfig::getSortOrder));
         // 无职能 KPI 配置时直接从源头过滤，不返回空的职能考核项（即使存在 FUNCTIONAL 任务也不展示空指标）
         if (kpiConfigs.isEmpty()) {
-            return null;
+            return List.of();
         }
 
-        MyAssessmentItem item = new MyAssessmentItem();
-        item.setTaskType("FUNCTIONAL");
-        item.setProjectName("职能考核");
-        item.setKpis(kpiConfigs.stream().map(this::toKpiItem).toList());
+        List<MyAssessmentItem.KpiItem> kpis = kpiConfigs.stream().map(this::toKpiItem).toList();
+        // 职能考核无项目/阶段，项目名固定「职能考核」
+        return expandByPeriod("FUNCTIONAL", null, null, "职能考核", kpis, matchingTasks);
+    }
 
-        backfillTask(item, matchingTasks);
-        return item;
+    // 功能：按任务周期展开指标项——公共部分(类型/项目/阶段/名称/KPI)各周期共用：
+    //   无任务时返回单条「待发起」(无周期)；有任务时按 periodId 分组，每个考核周期各出一行
+    private List<MyAssessmentItem> expandByPeriod(String taskType, String projectCode, String projectStage,
+                                                  String projectName, List<MyAssessmentItem.KpiItem> kpis,
+                                                  List<AssessmentTask> matchingTasks) {
+        MyAssessmentItem base = new MyAssessmentItem();
+        base.setTaskType(taskType);
+        base.setProjectCode(projectCode);
+        base.setProjectStage(projectStage);
+        base.setProjectName(projectName);
+        base.setKpis(kpis);
+
+        if (matchingTasks == null || matchingTasks.isEmpty()) {
+            base.setStatus(STATUS_NOT_LAUNCHED);
+            base.setAssessorName("-");
+            return List.of(base);
+        }
+
+        // 按 periodId 分组；任务列表已按 id 升序，LinkedHashMap 保留「先发起周期在前」的顺序
+        Map<String, List<AssessmentTask>> byPeriod = new LinkedHashMap<>();
+        for (AssessmentTask t : matchingTasks) {
+            String pid = StringUtils.hasText(t.getPeriodId()) ? t.getPeriodId() : "";
+            byPeriod.computeIfAbsent(pid, k -> new ArrayList<>()).add(t);
+        }
+        List<MyAssessmentItem> items = new ArrayList<>();
+        for (Map.Entry<String, List<AssessmentTask>> e : byPeriod.entrySet()) {
+            MyAssessmentItem item = new MyAssessmentItem();
+            item.setTaskType(taskType);
+            item.setProjectCode(projectCode);
+            item.setProjectStage(projectStage);
+            item.setProjectName(projectName);
+            item.setKpis(kpis);
+            backfillTask(item, e.getValue());
+            items.add(item);
+        }
+        return items;
     }
 
     // 功能：任务信息回填——有任务时取任务状态/周期/评估人，无任务时状态=「待发起」、评估人=「-」
