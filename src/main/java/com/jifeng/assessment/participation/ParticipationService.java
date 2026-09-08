@@ -120,6 +120,10 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
     @Transactional
     public List<EmployeeProjectParticipation> create(String employeeId, String periodId,
                                                      List<ProjectParticipationItem> items) {
+        // 数据隔离：非 ADMIN 强制使用当前登录用户的工号，忽略调用方传入的 employeeId，防止越权代他人提交参与
+        if (!"ADMIN".equals(getPrimaryRole())) {
+            employeeId = getCurrentEmployeeId();
+        }
         if (!StringUtils.hasText(employeeId)) {
             throw new BusinessException(400, "员工工号不能为空");
         }
@@ -222,6 +226,14 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         if (participation == null) {
             throw new BusinessException(404, "参与记录不存在: " + id);
         }
+        // 项目范围校验：非 ADMIN 审批人必须被分配到该参与记录所属项目，否则 403
+        if (!"ADMIN".equals(getPrimaryRole())) {
+            List<String> assignedCodes = listAssignedProjectCodes(getCurrentEmployeeId());
+            if (!StringUtils.hasText(participation.getProjectCode())
+                    || !assignedCodes.contains(participation.getProjectCode())) {
+                throw new BusinessException(403, "无权审批非本人负责项目的参与记录");
+            }
+        }
         // 周期锁定：考核周期已关闭时拒绝审批
         periodService.assertNotCompleted(participation.getPeriodId(), "审批");
         if (!"PENDING".equals(participation.getStatus())) {
@@ -262,6 +274,13 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         EmployeeProjectParticipation participation = baseMapper.selectById(id);
         if (participation == null) {
             throw new BusinessException(404, "参与记录不存在: " + id);
+        }
+        // 归属校验：非 ADMIN 只能重新提交本人的参与记录，防止越权重置他人记录
+        if (!"ADMIN".equals(getPrimaryRole())) {
+            String currentEmployeeId = getCurrentEmployeeId();
+            if (currentEmployeeId == null || !currentEmployeeId.equals(participation.getEmployeeId())) {
+                throw new BusinessException(403, "无权操作他人参与记录");
+            }
         }
         // 周期锁定：考核周期已关闭时拒绝重新提交
         periodService.assertNotCompleted(participation.getPeriodId(), "重新提交");

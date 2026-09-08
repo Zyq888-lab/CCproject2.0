@@ -8,7 +8,9 @@ import com.jifeng.assessment.kpi.FuncKpiMapper;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
 import com.jifeng.assessment.period.PeriodService;
 import com.jifeng.assessment.task.AssessmentTask;
+import com.jifeng.assessment.task.KpiIndicatorDTO;
 import com.jifeng.assessment.task.TaskMapper;
+import com.jifeng.assessment.task.TaskService;
 import com.jifeng.assessment.task.TaskStateMachine;
 import com.jifeng.assessment.user.SysUser;
 import com.jifeng.assessment.user.SysUserMapper;
@@ -35,6 +37,7 @@ import static org.mockito.Mockito.*;
 class ScoreServiceTest {
 
     @Mock private TaskMapper taskMapper;
+    @Mock private TaskService taskService;
     @Mock private ScoreMapper scoreMapper;
     @Mock private ProjectKpiMapper projectKpiMapper;
     @Mock private FuncKpiMapper funcKpiMapper;
@@ -80,6 +83,12 @@ class ScoreServiceTest {
         return item;
     }
 
+    // 辅助方法：stub 任务指标集解析为单个指标 100/PROJECT（匹配 validItem）
+    private void stubIndicators() {
+        when(taskService.resolveIndicators(any()))
+                .thenReturn(List.of(new KpiIndicatorDTO(100L, "PROJECT", "项目KPI", BigDecimal.ONE, null, null)));
+    }
+
     // ========================================
     // 1. 提交评分时指标不完整（空列表）→ BusinessException
     // ========================================
@@ -100,6 +109,7 @@ class ScoreServiceTest {
     @Test
     void submitShouldRejectScoreOutOfRange() {
         when(taskMapper.selectById(1L)).thenReturn(inProgressTask);
+        stubIndicators();
 
         ScoreService.ScoreItem item = validItem();
         item.setScore(new BigDecimal("5.5"));
@@ -117,6 +127,7 @@ class ScoreServiceTest {
     @Test
     void submitShouldRejectMismatchedKpiType() {
         when(taskMapper.selectById(1L)).thenReturn(inProgressTask); // taskType=PROJECT
+        stubIndicators();
 
         ScoreService.ScoreItem item = validItem();
         item.setKpiType("FUNCTIONAL"); // 与 PROJECT 不一致
@@ -134,6 +145,7 @@ class ScoreServiceTest {
     @Test
     void submitShouldReturn409OnVersionConflict() {
         when(taskMapper.selectById(1L)).thenReturn(inProgressTask);
+        stubIndicators();
         when(projectKpiMapper.selectById(100L)).thenReturn(new com.jifeng.assessment.kpi.ProjectKpiConfig());
         // upsert 时查重返回 null（无已有草稿）
         when(scoreMapper.selectOne(any())).thenReturn(null);
@@ -144,5 +156,23 @@ class ScoreServiceTest {
                 () -> scoreService.submit(1L, List.of(validItem())));
         assertEquals(409, ex.getCode());
         assertTrue(ex.getMessage().contains("已被他人修改"));
+    }
+
+    // ========================================
+    // 5. 提交的指标集不完整（缺项）→ BusinessException
+    // ========================================
+    @Test
+    void submitShouldRejectIncompleteIndicatorSet() {
+        when(taskMapper.selectById(1L)).thenReturn(inProgressTask);
+        // 任务实际需要两个指标，只提交一个 → 指标集不完整
+        when(taskService.resolveIndicators(any())).thenReturn(List.of(
+                new KpiIndicatorDTO(100L, "PROJECT", "指标A", BigDecimal.ONE, null, null),
+                new KpiIndicatorDTO(200L, "PROJECT", "指标B", BigDecimal.ONE, null, null)));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> scoreService.submit(1L, List.of(validItem())));
+        assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("不完整"));
+        verify(scoreMapper, never()).insert(any());
     }
 }

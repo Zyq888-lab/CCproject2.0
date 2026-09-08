@@ -16,6 +16,7 @@ const TYPE_LABEL_MAP = {
   RETURNED: '退回',
   CONFIRMED: '确认',
   URGE: '催办',
+  PARTICIPATION_PENDING: '待审批参与',
 };
 
 const TYPE_COLOR_MAP = {
@@ -23,6 +24,7 @@ const TYPE_COLOR_MAP = {
   RETURNED: 'red',
   CONFIRMED: 'green',
   URGE: 'orange',
+  PARTICIPATION_PENDING: 'gold',
 };
 
 function NotificationListPage() {

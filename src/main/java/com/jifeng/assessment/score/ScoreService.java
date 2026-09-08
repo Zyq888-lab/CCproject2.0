@@ -12,8 +12,10 @@ import com.jifeng.assessment.kpi.ProjectKpiConfig;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
 import com.jifeng.assessment.period.PeriodService;
 import com.jifeng.assessment.task.AssessmentTask;
+import com.jifeng.assessment.task.KpiIndicatorDTO;
 import com.jifeng.assessment.task.TaskAction;
 import com.jifeng.assessment.task.TaskMapper;
+import com.jifeng.assessment.task.TaskService;
 import com.jifeng.assessment.task.TaskStateMachine;
 import com.jifeng.assessment.task.TaskStatus;
 import com.jifeng.assessment.user.SysUser;
@@ -29,13 +31,16 @@ import org.springframework.web.multipart.MultipartFile;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
 
     private final TaskMapper taskMapper;
+    private final TaskService taskService;
     private final TaskStateMachine taskStateMachine;
     private final ProjectKpiMapper projectKpiMapper;
     private final FuncKpiMapper funcKpiMapper;
@@ -64,6 +69,16 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         // 指标完整性校验：至少提交一个评分
         if (items == null || items.isEmpty()) {
             throw new BusinessException(400, "存在未评分的指标");
+        }
+        // 指标完整性校验：提交的指标集必须覆盖任务实际指标集的全部 kpiConfigId（缺项/多项/重复项均拒绝；kpiType 由下方逐项一致性校验兜底）
+        Set<Long> expectedIds = taskService.resolveIndicators(task).stream()
+                .map(KpiIndicatorDTO::kpiConfigId)
+                .collect(Collectors.toSet());
+        Set<Long> submittedIds = items.stream()
+                .map(ScoreItem::getKpiConfigId)
+                .collect(Collectors.toSet());
+        if (submittedIds.size() != items.size() || !submittedIds.equals(expectedIds)) {
+            throw new BusinessException(400, "评分指标集不完整：任务要求提交全部 " + expectedIds.size() + " 项指标");
         }
 
         // 逐项校验得分范围、kpiType 一致性、KPI 存在性，并持久化评分
@@ -245,7 +260,12 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         score.setStatus("DRAFT");
         score.setCreatedAt(LocalDateTime.now());
         score.setUpdatedAt(LocalDateTime.now());
-        baseMapper.insert(score);
+        // 并发插入同一指标评分时 DB 唯一约束 uk_score_kpi 兜底，转 409 而非 500
+        try {
+            baseMapper.insert(score);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException(409, "该指标评分已存在，请刷新后重试");
+        }
         return score.getId();
     }
 

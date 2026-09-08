@@ -102,9 +102,13 @@ public class DashboardService {
                 return discrepancyLogMapper.selectCount(new LambdaQueryWrapper<DiscrepancyLog>()
                         .eq(DiscrepancyLog::getResolved, false));
             case "评估人":
+                // 与 TaskService.listTasks(scope=pending) 对齐：只统计可操作状态，排除历史 SELF 自评，且仅限已发起(ONGOING)周期
                 return taskMapper.selectCount(new LambdaQueryWrapper<AssessmentTask>()
                         .eq(AssessmentTask::getAssessorId, employeeId)
-                        .in(AssessmentTask::getStatus, "PENDING", "IN_PROGRESS", "RETURNED"));
+                        .in(AssessmentTask::getStatus, "PENDING", "IN_PROGRESS", "RETURNED")
+                        .ne(AssessmentTask::getTaskType, "SELF")
+                        .inSql(AssessmentTask::getPeriodId,
+                                "SELECT period_id FROM assessment_period WHERE status = 'ONGOING' AND deleted = 0"));
             case "员工":
                 return participationMapper.selectCount(new LambdaQueryWrapper<EmployeeProjectParticipation>()
                         .eq(EmployeeProjectParticipation::getEmployeeId, employeeId)
@@ -120,7 +124,8 @@ public class DashboardService {
     private long countPendingParticipationForPm(String employeeId) {
         List<ProjectRoleAssignment> assignments = roleAssignmentMapper.selectList(
                 new LambdaQueryWrapper<ProjectRoleAssignment>()
-                        .eq(ProjectRoleAssignment::getEmployeeId, employeeId));
+                        .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
+                        .eq(ProjectRoleAssignment::getDeleted, 0));
         List<String> projectCodes = assignments.stream()
                 .map(ProjectRoleAssignment::getProjectCode)
                 .distinct()

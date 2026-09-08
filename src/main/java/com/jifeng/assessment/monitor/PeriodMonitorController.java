@@ -21,7 +21,7 @@ public class PeriodMonitorController extends BaseController {
 
     // 功能：查询周期监控列表——ADMIN 全见，PM 仅见自己项目
     @GetMapping("/api/v1/periods/{periodId}/monitor")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
     public ApiResponse<List<PeriodMonitorItem>> monitor(@PathVariable String periodId) {
         return ok(periodMonitorService.monitor(periodId));
     }

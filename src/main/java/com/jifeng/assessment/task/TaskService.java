@@ -113,10 +113,9 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
-        // 权限校验：当前登录用户必须是该任务的考核人（ADMIN 豁免），否则 403
-        assertAssessor(task);
-        // 周期锁定：考核尚未发起或已关闭时拒绝查看评分页
-        periodService.assertOngoing(task.getPeriodId(), "查看评分");
+        // 权限校验：只读详情放行考核人/被考核人（ADMIN 豁免），否则 403
+        assertViewer(task);
+        // 只读预览不要求周期 ONGOING（历史任务也可查看）；发起/评分等写操作仍各自 assertOngoing
 
         // 查询已有评分（草稿/已提交），按 kpiConfigId 回填 score 和 evidenceUrl
         List<AssessmentScore> existingScores = scoreMapper.selectList(
@@ -125,6 +124,22 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
         Map<Long, AssessmentScore> scoreMap = existingScores.stream()
                 .collect(Collectors.toMap(AssessmentScore::getKpiConfigId, s -> s, (a, b) -> a));
 
+        // 解析任务指标集，并回填已有评分
+        List<KpiIndicatorDTO> indicators = resolveIndicators(task).stream()
+                .map(dto -> {
+                    AssessmentScore s = scoreMap.get(dto.kpiConfigId());
+                    return new KpiIndicatorDTO(dto.kpiConfigId(), dto.kpiType(), dto.indicatorName(),
+                            dto.weight(), s != null ? s.getScore() : null,
+                            s != null ? s.getEvidenceUrl() : null);
+                })
+                .toList();
+
+        task.setIndicators(indicators);
+        return task;
+    }
+
+    // 功能：解析任务对应的 KPI 指标集（不含评分回填）——详情展示与评分完整性校验共用
+    public List<KpiIndicatorDTO> resolveIndicators(AssessmentTask task) {
         List<KpiIndicatorDTO> indicators = new ArrayList<>();
         if (isProjectKpi(task)) {
             // PROJECT 任务：按被考核人(assesseeId)在项目中的角色（project_role_assignment）确定 roleCode，再按 roleCode+stage 查项目 KPI；
@@ -148,10 +163,8 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
                                 .eq(ProjectKpiConfig::getIsActive, true)
                                 .orderByAsc(ProjectKpiConfig::getSortOrder));
                 for (ProjectKpiConfig kpi : kpis) {
-                    AssessmentScore s = scoreMap.get(kpi.getId());
                     indicators.add(new KpiIndicatorDTO(
-                            kpi.getId(), "PROJECT", kpi.getKpiName(), kpi.getWeight(),
-                            s != null ? s.getScore() : null, s != null ? s.getEvidenceUrl() : null));
+                            kpi.getId(), "PROJECT", kpi.getKpiName(), kpi.getWeight(), null, null));
                 }
             }
         } else if (isFunctionalKpi(task)) {
@@ -165,16 +178,12 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
                                 .eq(FuncKpiConfig::getIsActive, true)
                                 .orderByAsc(FuncKpiConfig::getSortOrder));
                 for (FuncKpiConfig kpi : kpis) {
-                    AssessmentScore s = scoreMap.get(kpi.getId());
                     indicators.add(new KpiIndicatorDTO(
-                            kpi.getId(), "FUNCTIONAL", kpi.getKpiName(), kpi.getWeight(),
-                            s != null ? s.getScore() : null, s != null ? s.getEvidenceUrl() : null));
+                            kpi.getId(), "FUNCTIONAL", kpi.getKpiName(), kpi.getWeight(), null, null));
                 }
             }
         }
-
-        task.setIndicators(indicators);
-        return task;
+        return indicators;
     }
 
     // 功能：开始评分——PENDING → IN_PROGRESS，经状态机校验
@@ -222,6 +231,19 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
         }
         if (task.getAssessorId() == null || !task.getAssessorId().equals(getCurrentEmployeeId())) {
             throw new BusinessException(403, "无权操作该考核任务");
+        }
+    }
+
+    // 功能：任务详情查看权限——考核人或被考核人可查看本人任务（ADMIN 豁免），否则 403
+    private void assertViewer(AssessmentTask task) {
+        if (isAdmin()) {
+            return;
+        }
+        String current = getCurrentEmployeeId();
+        boolean isAssessor = task.getAssessorId() != null && task.getAssessorId().equals(current);
+        boolean isAssessee = task.getAssesseeId() != null && task.getAssesseeId().equals(current);
+        if (!isAssessor && !isAssessee) {
+            throw new BusinessException(403, "无权查看该考核任务");
         }
     }
 

@@ -15,6 +15,6 @@ public interface TaskMapper extends BaseMapper<AssessmentTask> {
             + " status, return_count, max_returns, deleted, created_at, updated_at, version) "
             + "VALUES (#{periodId}, #{assessorId}, #{assesseeId}, #{projectCode}, #{projectStage}, #{taskType}, "
             + " #{status}, #{returnCount}, #{maxReturns}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0) "
-            + "ON CONFLICT (period_id, assessor_id, assessee_id, project_code, task_type, deleted) DO NOTHING")
+            + "ON CONFLICT (period_id, assessor_id, assessee_id, project_code, project_stage, task_type, deleted) DO NOTHING")
     int insertIgnore(AssessmentTask task);
 }
