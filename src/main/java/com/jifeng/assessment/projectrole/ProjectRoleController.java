@@ -22,7 +22,9 @@ public class ProjectRoleController extends BaseController {
     private final ProjectRoleService projectRoleService;
 
     // 功能：分页查询项目角色，支持 roleCode/roleName 模糊搜索和 isActive 筛选
+    // 权限：方法级覆盖类级 ADMIN 限制——PM 在项目角色分配下拉框需读取角色列表，仅放开只读
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
     public ApiResponse<PageResult<ProjectRoleDTO>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,

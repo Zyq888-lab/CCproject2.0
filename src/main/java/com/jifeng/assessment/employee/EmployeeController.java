@@ -24,7 +24,9 @@ public class EmployeeController extends BaseController {
     private final EmployeeService employeeService;
 
     // 功能：分页查询员工列表，支持关键字搜索（姓名/工号）、岗位分类、状态筛选
+    // 权限：方法级覆盖类级 ADMIN 限制——PM 在项目角色分配下拉框需搜索员工，仅放开只读
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
     public ApiResponse<PageResult<EmployeeDTO>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
