@@ -255,6 +255,42 @@ class ProjectServiceTest {
         assertEquals(3, result.getTotal());
     }
 
+    // 功能：PD 数据隔离——仅见标记为主 PD 的项目（is_primary=true AND role=PD），非主 PD / 非 PD 角色均不可见
+    @Test
+    void pdShouldOnlySeePrimaryPdProjects() {
+        seedRole("PD");
+        seedRole("PM");
+        seedEmployee("PD_EMP_1");
+        seedUser("U_PD_1", "pd_list_test", "PD_EMP_1");
+
+        projectService.createProject(newProject("PRJ_A", "P2"));
+        projectService.createProject(newProject("PRJ_B", "P3"));
+        projectService.createProject(newProject("PRJ_C", "P2"));
+        projectService.createProject(newProject("PRJ_D", "P4"));
+
+        // PD 是 PRJ_A、PRJ_B 的主 PD —— 应可见
+        seedAssignment("PRJ_A", "P2", "PD", "PD_EMP_1", true);
+        seedAssignment("PRJ_B", "P3", "PD", "PD_EMP_1", true);
+        // PRJ_C：PD 被分配为 PD 角色但非主 —— 应不可见
+        seedAssignment("PRJ_C", "P2", "PD", "PD_EMP_1", false);
+        // PRJ_D：PD 是其他角色（PM）的主，但非 PD 角色 —— 应不可见
+        seedAssignment("PRJ_D", "P4", "PM", "PD_EMP_1", true);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("pd_list_test", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_PD"))));
+
+        PageResult<ProjectDTO> result = projectService.listProjects(
+                new PageQuery(), null, null, false, null, null);
+
+        List<String> codes = result.getList().stream().map(ProjectDTO::getProjectCode).toList();
+        assertEquals(2, result.getTotal());
+        assertTrue(codes.contains("PRJ_A"));
+        assertTrue(codes.contains("PRJ_B"));
+        assertFalse(codes.contains("PRJ_C"));
+        assertFalse(codes.contains("PRJ_D"));
+    }
+
     // 功能：PM 创建项目后自动写入 PM 角色分配，且新建项目立即出现在其项目列表
     @Test
     void pmCreateProjectShouldAutoAssignPmRoleAndAppearInList() {
@@ -318,14 +354,19 @@ class ProjectServiceTest {
         sysUserMapper.insert(user);
     }
 
-    // 辅助：插入角色分配
+    // 辅助：插入角色分配（默认非主）
     private void seedAssignment(String projectCode, String stage, String roleCode, String employeeId) {
+        seedAssignment(projectCode, stage, roleCode, employeeId, false);
+    }
+
+    // 辅助：插入角色分配（显式指定是否为主）
+    private void seedAssignment(String projectCode, String stage, String roleCode, String employeeId, boolean isPrimary) {
         ProjectRoleAssignment a = new ProjectRoleAssignment();
         a.setProjectCode(projectCode);
         a.setProjectStage(stage);
         a.setProjectRoleCode(roleCode);
         a.setEmployeeId(employeeId);
-        a.setIsPrimary(false);
+        a.setIsPrimary(isPrimary);
         roleAssignmentMapper.insert(a);
     }
 

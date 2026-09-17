@@ -50,19 +50,26 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
                     "%" + projectCode.toLowerCase() + "%");
         }
         // 数据隔离：PM 仅见自己负责的项目（project_role_assignment.employee_id=当前用户）；
-        //   员工在 scope=assigned 时仅见自己被分配项目角色的项目阶段；ADMIN 不过滤
+        //   员工在 scope=assigned 时仅见自己被分配项目角色的项目阶段；
+        //   PD 仅见标记为主 PD 的项目（is_primary=true AND role=PD，与校准矩阵同一判定句）；ADMIN 不过滤
         String primaryRole = getPrimaryRole();
         boolean scoped = "PM".equals(primaryRole)
                 || ("assigned".equals(scope) && "员工".equals(primaryRole));
-        if (scoped) {
+        boolean pdScoped = "PD".equals(primaryRole);
+        if (scoped || pdScoped) {
             String employeeId = getCurrentEmployeeId();
             if (employeeId == null) {
                 return PageResult.of(0, query.getPage(), query.getSize(), List.of());
             }
-            List<ProjectRoleAssignment> assignments = roleAssignmentMapper.selectList(
-                    new LambdaQueryWrapper<ProjectRoleAssignment>()
-                            .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
-                            .eq(ProjectRoleAssignment::getDeleted, 0));
+            LambdaQueryWrapper<ProjectRoleAssignment> assignWrapper = new LambdaQueryWrapper<ProjectRoleAssignment>()
+                    .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
+                    .eq(ProjectRoleAssignment::getDeleted, 0);
+            if (pdScoped) {
+                // PD 可见范围 = 标记为主 PD 的项目：is_primary=true AND project_role_code='PD'（与角色主标记同一句）
+                assignWrapper.eq(ProjectRoleAssignment::getProjectRoleCode, "PD")
+                        .eq(ProjectRoleAssignment::getIsPrimary, true);
+            }
+            List<ProjectRoleAssignment> assignments = roleAssignmentMapper.selectList(assignWrapper);
             if (assignments.isEmpty()) {
                 return PageResult.of(0, query.getPage(), query.getSize(), List.of());
             }

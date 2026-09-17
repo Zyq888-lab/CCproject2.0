@@ -3,7 +3,7 @@
 {/* 修改注意：卡片顺序按推荐配置流程排列；config-progress API返回5项数据，缺失项默认"待配置" */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Progress, Spin, Result, Button, Tag, Badge } from 'antd';
+import { Card, Progress, Spin, Result, Button, Tag, Badge, List, Empty } from 'antd';
 import {
   CheckCircleFilled,
   TeamOutlined,
@@ -33,6 +33,14 @@ const CARD_CONFIG = [
 // 功能：卡片网格样式——4列×2行
 const GRID_STYLE = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 };
 
+// 功能：差异类型→文案/颜色映射——与后端 DiscrepancyLog.type 枚举对齐
+const DISCREPANCY_TYPE_MAP = {
+  NO_POSITION_CONFIG: { label: '缺岗位配置', color: 'orange' },
+  NO_ASSESSOR: { label: '无考核人', color: 'red' },
+  NO_LEADER: { label: '无直属上级', color: 'red' },
+  NO_PRIMARY_ASSESSOR: { label: '角色未标主', color: 'volcano' },
+};
+
 // 功能：从后端返回的5项数据中查找对应卡片的count，projectKpi使用kpi聚合值
 function resolveCount(backendItems, cardKey) {
   if (cardKey === 'projectKpi') {
@@ -50,6 +58,8 @@ function DashboardPage() {
   const [pendingCount, setPendingCount] = useState(0);
   const [rolesLoaded, setRolesLoaded] = useState(false);
   const [isConfigRole, setIsConfigRole] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [discrepancies, setDiscrepancies] = useState([]);
   const navigate = useNavigate();
 
   const mountedRef = useRef(true);
@@ -60,9 +70,11 @@ function DashboardPage() {
       const data = res.data || res;
       const roles = data.roles || [];
       setIsConfigRole(roles.includes('ROLE_ADMIN') || roles.includes('ROLE_PM'));
+      setIsAdmin(roles.includes('ROLE_ADMIN'));
       setRolesLoaded(true);
     }).catch(() => {
       setIsConfigRole(false);
+      setIsAdmin(false);
       setRolesLoaded(true);
     });
   }, []);
@@ -97,17 +109,30 @@ function DashboardPage() {
     } catch (_) { /* 非关键 */ }
   }, []);
 
+  // 功能：获取未处理差异报告——仅 ADMIN 调用，展示 NO_PRIMARY_ASSESSOR 等差异类型
+  const fetchDiscrepancies = useCallback(async () => {
+    try {
+      const res = await client.get('/dashboard/discrepancies');
+      if (mountedRef.current) {
+        setDiscrepancies(res.data || []);
+      }
+    } catch (_) { /* 非关键 */ }
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     if (!rolesLoaded) return () => { mountedRef.current = false; };
     fetchPendingCount();
+    if (isAdmin) {
+      fetchDiscrepancies();
+    }
     if (isConfigRole) {
       fetchProgress();
     } else {
       setLoading(false);
     }
     return () => { mountedRef.current = false; };
-  }, [rolesLoaded, isConfigRole, fetchProgress, fetchPendingCount]);
+  }, [rolesLoaded, isConfigRole, isAdmin, fetchProgress, fetchPendingCount, fetchDiscrepancies]);
 
   // 功能：加载中——显示Spin旋转加载（角色未确认或配置数据加载中）
   if (!rolesLoaded || loading) {
@@ -165,6 +190,33 @@ function DashboardPage() {
           <Button type="link" onClick={() => navigate('/tasks')}>查看任务 →</Button>
         </div>
       </Card>
+
+      {/* 功能：差异报告卡——仅 ADMIN 可见，列出未处理差异（含「角色未标主」类型） */}
+      {isAdmin && (
+        <Card id="dashboard-discrepancy-card" style={{ borderRadius: 8, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <span style={{ fontSize: 14, fontWeight: 500 }}>差异报告</span>
+            <Badge count={discrepancies.length} size="small" />
+          </div>
+          {discrepancies.length === 0 ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无差异" />
+          ) : (
+            <List
+              size="small"
+              dataSource={discrepancies}
+              renderItem={(d) => {
+                const meta = DISCREPANCY_TYPE_MAP[d.type] || { label: d.type || '未知类型', color: 'default' };
+                return (
+                  <List.Item>
+                    <Tag color={meta.color} style={{ flexShrink: 0 }}>{meta.label}</Tag>
+                    <span style={{ color: '#595959' }}>{d.detail}</span>
+                  </List.Item>
+                );
+              }}
+            />
+          )}
+        </Card>
+      )}
 
       {isConfigRole && (
         <>
