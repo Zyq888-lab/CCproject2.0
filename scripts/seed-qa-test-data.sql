@@ -37,7 +37,7 @@ VALUES
   ('PM',  '项目经理',       '项目经理（评估人角色）',       true);
 
 -- 4. 项目角色分配（张工=P001/P2/PDL；李总=P001/P2/PM 主PD）
-INSERT INTO project_role_assignment (project_code, project_stage, project_role_code, employee_id, is_primary_pd)
+INSERT INTO project_role_assignment (project_code, project_stage, project_role_code, employee_id, is_primary)
 VALUES
   ('P001', 'P2', 'PDL', 'E001', false),
   ('P001', 'P2', 'PM',  'E002', true);

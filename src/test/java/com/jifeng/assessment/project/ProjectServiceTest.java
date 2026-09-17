@@ -268,7 +268,7 @@ class ProjectServiceTest {
 
         projectService.createProject(newProject("PRJ_SELF", "P2"));
 
-        // 1. 自动写入了 PM 角色分配（is_primary_pd=true）
+        // 1. 自动写入了 PM 角色分配（is_primary=true）
         ProjectRoleAssignment assign = roleAssignmentMapper.selectOne(
                 new LambdaQueryWrapper<ProjectRoleAssignment>()
                         .eq(ProjectRoleAssignment::getProjectCode, "PRJ_SELF")
@@ -276,7 +276,7 @@ class ProjectServiceTest {
                         .eq(ProjectRoleAssignment::getProjectRoleCode, "PM")
                         .eq(ProjectRoleAssignment::getEmployeeId, "PM_EMP_3"));
         assertNotNull(assign);
-        assertEquals(Boolean.TRUE, assign.getIsPrimaryPd());
+        assertEquals(Boolean.TRUE, assign.getIsPrimary());
 
         // 2. 新建项目立即出现在 PM 的项目列表
         PageResult<ProjectDTO> result = projectService.listProjects(
@@ -325,7 +325,7 @@ class ProjectServiceTest {
         a.setProjectStage(stage);
         a.setProjectRoleCode(roleCode);
         a.setEmployeeId(employeeId);
-        a.setIsPrimaryPd(false);
+        a.setIsPrimary(false);
         roleAssignmentMapper.insert(a);
     }
 

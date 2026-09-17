@@ -1,6 +1,6 @@
 // 模块用途：项目角色分配实体——对应 project_role_assignment 表
 // 依赖文件：无
-// 修改注意：is_primary_pd 每个项目只能有一个为true，业务层保证唯一性
+// 修改注意：is_primary 每(项目,阶段,角色)至多一个为true，DB 部分唯一索引 uk_primary_per_role 兜底
 package com.jifeng.assessment.roleassignment;
 
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -19,7 +19,7 @@ public class ProjectRoleAssignment {
     private String projectStage;
     private String projectRoleCode;
     private String employeeId;
-    private Boolean isPrimaryPd;
+    private Boolean isPrimary;
     private Integer deleted;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

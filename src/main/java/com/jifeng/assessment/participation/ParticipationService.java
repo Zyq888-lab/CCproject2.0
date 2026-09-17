@@ -320,7 +320,7 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         baseMapper.deleteById(id); // @TableLogic 逻辑删除
     }
 
-    // 功能：通知参与项目的主PD——查 is_primary_pd=true 的分配记录，反查 user_id 后批量发送站内通知
+    // 功能：通知参与项目的主PD——查 is_primary=true 的分配记录，反查 user_id 后批量发送站内通知
     private void notifyPrimaryPds(Set<String> projectCodes) {
         if (projectCodes == null || projectCodes.isEmpty()) {
             return;
@@ -328,7 +328,7 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         List<ProjectRoleAssignment> assignments = projectRoleAssignmentMapper.selectList(
                 new LambdaQueryWrapper<ProjectRoleAssignment>()
                         .in(ProjectRoleAssignment::getProjectCode, projectCodes)
-                        .eq(ProjectRoleAssignment::getIsPrimaryPd, true)
+                        .eq(ProjectRoleAssignment::getIsPrimary, true)
                         .eq(ProjectRoleAssignment::getDeleted, 0));
         if (assignments == null || assignments.isEmpty()) {
             return;

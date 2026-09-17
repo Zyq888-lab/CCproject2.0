@@ -13,6 +13,6 @@ public class ProjectRoleAssignmentDTO {
     private String projectRoleCode;
     private String employeeId;
     private String employeeName;
-    private Boolean isPrimaryPd;
+    private Boolean isPrimary;
     private LocalDateTime createdAt;
 }

@@ -124,7 +124,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
                 selfAssign.setProjectStage(project.getProjectStage());
                 selfAssign.setProjectRoleCode("PM");
                 selfAssign.setEmployeeId(creatorEmployeeId);
-                selfAssign.setIsPrimaryPd(true);
+                selfAssign.setIsPrimary(true);
                 roleAssignmentMapper.insert(selfAssign);
             }
         }

@@ -84,8 +84,8 @@ note "分配角色 AIP/E003=$C1  AIM/E004=$C2"
 [ "$C1" = "200" ] && [ "$C2" = "200" ] || S1OK=0
 
 # PM 创建项目后自动成为 PM（primary PD）
-PM_ROLE=$(dbq "SELECT count(*) FROM project_role_assignment WHERE project_code='$PCODE' AND project_stage='$PSTAGE' AND project_role_code='PM' AND employee_id='E004' AND is_primary_pd=true AND deleted=0;")
-note "PM自动分配(is_primary_pd)=$PM_ROLE"
+PM_ROLE=$(dbq "SELECT count(*) FROM project_role_assignment WHERE project_code='$PCODE' AND project_stage='$PSTAGE' AND project_role_code='PM' AND employee_id='E004' AND is_primary=true AND deleted=0;")
+note "PM自动分配(is_primary)=$PM_ROLE"
 [ "$PM_ROLE" = "1" ] || S1OK=0
 
 if [ "$S1OK" = "1" ]; then stage_ok "阶段一 PM创建项目与分配角色"; else stage_bad "阶段一 PM创建项目与分配角色" "创建=$C 阶段确认=$CFG PM角色=$PM_ROLE"; fi

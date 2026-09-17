@@ -47,7 +47,7 @@ SELECT 'P001', '座椅项目', 'P2', 'ACTIVE', TRUE
 WHERE NOT EXISTS (SELECT 1 FROM project WHERE project_code = 'P001' AND project_stage = 'P2' AND deleted = 0);
 
 -- 3.3 项目角色分配 P001/P2/PDL/E002
-INSERT INTO project_role_assignment (project_code, project_stage, project_role_code, employee_id, is_primary_pd)
+INSERT INTO project_role_assignment (project_code, project_stage, project_role_code, employee_id, is_primary)
 SELECT 'P001', 'P2', 'PDL', 'E002', FALSE
 WHERE NOT EXISTS (
   SELECT 1 FROM project_role_assignment

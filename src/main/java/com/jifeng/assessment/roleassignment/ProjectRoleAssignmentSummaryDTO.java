@@ -20,6 +20,6 @@ public class ProjectRoleAssignmentSummaryDTO {
     private String employeeCategory;
     private String employeePosition;
     private String orgName;
-    private Boolean isPrimaryPd;
+    private Boolean isPrimary;
     private LocalDateTime createdAt;
 }
