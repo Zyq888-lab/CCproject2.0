@@ -31,7 +31,7 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
   const [error, setError] = useState(null);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
   const [filters, setFilters] = useState({
-    projectCode: '', projectStage: '', roleCode: '', employeeId: '', isPrimaryPd: false,
+    projectCode: '', projectStage: '', roleCode: '', employeeId: '', isPrimary: false,
   });
   const [roleOptions, setRoleOptions] = useState([]);
   const [importVisible, setImportVisible] = useState(false);
@@ -60,7 +60,7 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
       if (filterParams?.projectStage) params.projectStage = filterParams.projectStage;
       if (filterParams?.roleCode) params.roleCode = filterParams.roleCode;
       if (filterParams?.employeeId) params.employeeId = filterParams.employeeId;
-      if (filterParams?.isPrimaryPd) params.isPrimaryPd = filterParams.isPrimaryPd;
+      if (filterParams?.isPrimary) params.isPrimary = filterParams.isPrimary;
       const res = await client.get('/projects/assignments/summary', { params });
       if (mountedRef.current) {
         const pageData = res.data || {};
@@ -87,7 +87,7 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
 
   const handleSearch = () => fetchSummary(1, pagination.pageSize, filters);
   const handleReset = () => {
-    const empty = { projectCode: '', projectStage: '', roleCode: '', employeeId: '', isPrimaryPd: false };
+    const empty = { projectCode: '', projectStage: '', roleCode: '', employeeId: '', isPrimary: false };
     setFilters(empty);
     fetchSummary(1, pagination.pageSize, empty);
   };
@@ -108,7 +108,7 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
       if (filters.projectStage) params.projectStage = filters.projectStage;
       if (filters.roleCode) params.roleCode = filters.roleCode;
       if (filters.employeeId) params.employeeId = filters.employeeId;
-      if (filters.isPrimaryPd) params.isPrimaryPd = filters.isPrimaryPd;
+      if (filters.isPrimary) params.isPrimary = filters.isPrimary;
       const res = await client.get('/projects/assignments/summary', { params });
       const list = res.data?.list || [];
       if (list.length === 0) {
@@ -116,12 +116,12 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
         return;
       }
       const headers = ['项目编码', '项目名称', '阶段', '项目状态', '角色编码', '角色名称',
-        '员工工号', '员工姓名', '岗位分类', '岗位', '部门', 'PD负责人', '分配时间'];
+        '员工工号', '员工姓名', '岗位分类', '岗位', '部门', '该角色主', '分配时间'];
       const rows = list.map((r) => [
         r.projectCode, r.projectName, r.projectStage, r.projectStatus,
         r.roleCode, r.roleName, r.employeeId, r.employeeName,
         r.employeeCategory, r.employeePosition, r.orgName,
-        r.isPrimaryPd ? '是' : '', r.createdAt ? new Date(r.createdAt).toLocaleString('zh-CN') : '',
+        r.isPrimary ? '是' : '', r.createdAt ? new Date(r.createdAt).toLocaleString('zh-CN') : '',
       ]);
       const bom = '﻿';
       const csv = bom + [headers, ...rows].map((row) => row.map((c) => {
@@ -182,7 +182,7 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
         message.success({ content: `成功导入 ${ok} 条` + (skip > 0 ? `，${skip} 条已存在被跳过` : ''), duration: 4 });
       }
       if (ok > 0 || fail === 0) { setImportVisible(false); setImportData([]); }
-      fetchData(pagination.current, pagination.pageSize, filters);
+      fetchSummary(pagination.current, pagination.pageSize, filters);
     } catch (err) { message.error({ content: err?.message || '导入失败' }); }
     finally { setImporting(false); }
   };
@@ -206,7 +206,7 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
     { title: '岗位分类', dataIndex: 'employeeCategory', key: 'employeeCategory', width: 100 },
     { title: '岗位', dataIndex: 'employeePosition', key: 'employeePosition', width: 110 },
     { title: '部门', dataIndex: 'orgName', key: 'orgName', width: 120, ellipsis: true },
-    { title: 'PD负责人', dataIndex: 'isPrimaryPd', key: 'isPrimaryPd', width: 90,
+    { title: '该角色主', dataIndex: 'isPrimary', key: 'isPrimary', width: 90,
       render: (v) => v ? <Tag color="blue">是</Tag> : null },
     { title: '分配时间', dataIndex: 'createdAt', key: 'createdAt', width: 160,
       render: (v) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
@@ -229,7 +229,7 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
   }
 
   const isEmpty = !loading && !error && data.length === 0
-    && !filters.projectCode && !filters.projectStage && !filters.roleCode && !filters.employeeId && !filters.isPrimaryPd;
+    && !filters.projectCode && !filters.projectStage && !filters.roleCode && !filters.employeeId && !filters.isPrimary;
 
   return (
     <div id="project-role-summary-area">
@@ -289,10 +289,10 @@ function ProjectRoleSummaryPage({ hideHeader = false }) {
             onPressEnter={handleSearch}
           />
           <Checkbox
-            checked={filters.isPrimaryPd}
-            onChange={(e) => setFilters((f) => ({ ...f, isPrimaryPd: e.target.checked }))}
+            checked={filters.isPrimary}
+            onChange={(e) => setFilters((f) => ({ ...f, isPrimary: e.target.checked }))}
           >
-            仅PD负责人
+            仅该角色主
           </Checkbox>
           <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>搜索</Button>
           <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>

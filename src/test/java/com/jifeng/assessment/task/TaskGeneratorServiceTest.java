@@ -19,6 +19,8 @@ import com.jifeng.assessment.position.PositionConfigMapper;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import com.jifeng.assessment.user.SysUserMapper;
+import com.jifeng.assessment.user.UserRole;
+import com.jifeng.assessment.user.UserRoleMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,6 +50,7 @@ class TaskGeneratorServiceTest {
     @Mock private DiscrepancyLogMapper discrepancyLogMapper;
     @Mock private NotificationService notificationService;
     @Mock private SysUserMapper sysUserMapper;
+    @Mock private UserRoleMapper userRoleMapper;
 
     @InjectMocks
     private TaskGeneratorService generatorService;
@@ -380,5 +383,133 @@ class TaskGeneratorServiceTest {
         assertEquals(1, result.taskCount());
         assertEquals(0, result.discrepancyCount());
         verify(taskMapper, times(1)).insertIgnore(argThat(t -> "PROJECT".equals(t.getTaskType())));
+    }
+
+    // ========================================
+    // 13. onParticipationApproved: 同角色多人且无人标主 → 跳过该角色 + 记 NO_PRIMARY_ASSESSOR + 通知 admin
+    // ========================================
+    @Test
+    void onParticipationApprovedShouldSkipRoleAndNotifyAdminWhenNoPrimary() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(ongoingPeriod("PERIOD-001"));
+        Employee emp = activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1");
+        when(employeeMapper.selectById("EMP1")).thenReturn(emp);
+        when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
+        when(assessorRoleMapper.selectList(any())).thenReturn(List.of(assessorRole(1L, 1L, "PDL")));
+        // 同角色两人均未标主
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of(
+                assignment("PRJ1", "P2", "PDL", "ASSESSOR1"),
+                assignment("PRJ1", "P2", "PDL", "ASSESSOR2")));
+        UserRole adminRole = new UserRole();
+        adminRole.setUserId("ADMIN_U1");
+        adminRole.setRoleType("ADMIN");
+        when(userRoleMapper.selectList(any())).thenReturn(List.of(adminRole));
+
+        EmployeeProjectParticipation participation = approvedParticipation("EMP1", "PERIOD-001", "PRJ1", "P2");
+        generatorService.onParticipationApproved(participation);
+
+        // PROJECT 任务 0 条（角色被跳过），仅 FUNCTIONAL 1 条
+        verify(taskMapper, never()).insertIgnore(argThat(t -> "PROJECT".equals(t.getTaskType())));
+        verify(taskMapper, times(1)).insertIgnore(argThat(t -> "FUNCTIONAL".equals(t.getTaskType())));
+        // 记一条 NO_PRIMARY_ASSESSOR 差异
+        verify(discrepancyLogMapper, times(1)).insert(argThat(d ->
+                "NO_PRIMARY_ASSESSOR".equals(d.getType()) && "EMP1".equals(d.getEmployeeId())));
+        // 通知 admin
+        verify(notificationService, times(1)).notifyBatch(argThat(list ->
+                list.size() == 1 && "ADMIN_U1".equals(list.get(0).getRecipientId())));
+    }
+
+    // ========================================
+    // 14. onParticipationApproved: 同角色多人恰好一个标主 → 只发主，不发给未标主者
+    // ========================================
+    @Test
+    void onParticipationApprovedShouldOnlyAssignPrimaryAmongMultiple() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(ongoingPeriod("PERIOD-001"));
+        Employee emp = activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1");
+        when(employeeMapper.selectById("EMP1")).thenReturn(emp);
+        when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
+        when(assessorRoleMapper.selectList(any())).thenReturn(List.of(assessorRole(1L, 1L, "PDL")));
+        ProjectRoleAssignment primary = assignment("PRJ1", "P2", "PDL", "ASSESSOR1");
+        primary.setIsPrimary(true);
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of(
+                primary,
+                assignment("PRJ1", "P2", "PDL", "ASSESSOR2")));
+
+        EmployeeProjectParticipation participation = approvedParticipation("EMP1", "PERIOD-001", "PRJ1", "P2");
+        generatorService.onParticipationApproved(participation);
+
+        // PROJECT 任务只发给 ASSESSOR1（主），不发 ASSESSOR2
+        verify(taskMapper, times(1)).insertIgnore(argThat(t ->
+                "PROJECT".equals(t.getTaskType()) && "ASSESSOR1".equals(t.getAssessorId())));
+        verify(taskMapper, never()).insertIgnore(argThat(t -> "ASSESSOR2".equals(t.getAssessorId())));
+        // 无差异
+        verify(discrepancyLogMapper, never()).insert(any());
+    }
+
+    // ========================================
+    // 15. launch: 同角色多人无主且多员工参与 → 每个员工记一条差异，admin 通知按角色去重只发一次
+    // ========================================
+    @Test
+    void launchShouldNotifyAdminOnceForNoPrimaryAcrossEmployees() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
+        // 两个员工参与同一项目同一阶段的同一无主角色
+        when(employeeMapper.selectList(any())).thenReturn(List.of(
+                activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1"),
+                activeEmployee("EMP2", "研发技术类", "整椅研发岗", "LEADER2")));
+        when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
+        when(assessorRoleMapper.selectList(any())).thenReturn(List.of(assessorRole(1L, 1L, "PDL")));
+        // participationMapper 对每个员工都返回同一条参与（employeeId 在循环内不再被使用）
+        when(participationMapper.selectList(any())).thenReturn(List.of(
+                approvedParticipation("EMP1", "PERIOD-001", "PRJ1", "P2")));
+        // 同角色两人均未标主
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of(
+                assignment("PRJ1", "P2", "PDL", "ASSESSOR1"),
+                assignment("PRJ1", "P2", "PDL", "ASSESSOR2")));
+        UserRole adminRole = new UserRole();
+        adminRole.setUserId("ADMIN_U1");
+        adminRole.setRoleType("ADMIN");
+        when(userRoleMapper.selectList(any())).thenReturn(List.of(adminRole));
+
+        TaskGeneratorService.LaunchResult result = generatorService.launch("PERIOD-001");
+
+        // PROJECT 任务 0 条（角色被跳过），仅 2 条 FUNCTIONAL（每员工一条）
+        assertEquals(2, result.taskCount());
+        verify(taskMapper, never()).insertIgnore(argThat(t -> "PROJECT".equals(t.getTaskType())));
+        // 差异按员工记：2 条 NO_PRIMARY_ASSESSOR
+        assertEquals(2, result.discrepancyCount());
+        verify(discrepancyLogMapper, times(2)).insert(argThat(d ->
+                "NO_PRIMARY_ASSESSOR".equals(d.getType())));
+        // admin 通知按 (项目,阶段,角色) 去重，只发一次
+        verify(notificationService, times(1)).notifyBatch(argThat(list ->
+                list.size() == 1 && "ADMIN_U1".equals(list.get(0).getRecipientId())));
+    }
+
+    // ========================================
+    // 16. launch: 同角色多人多主 → 只发第一个主，不报差异、不通知 admin（防御脏数据，仅告警）
+    // ========================================
+    @Test
+    void launchShouldAssignOnlyFirstAmongMultiplePrimary() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
+        when(employeeMapper.selectList(any())).thenReturn(List.of(
+                activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1")));
+        when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
+        when(assessorRoleMapper.selectList(any())).thenReturn(List.of(assessorRole(1L, 1L, "PDL")));
+        when(participationMapper.selectList(any())).thenReturn(List.of(
+                approvedParticipation("EMP1", "PERIOD-001", "PRJ1", "P2")));
+        // 同角色两人均标主（历史脏数据，DB 部分唯一索引应已拦截；resolvePrimaryAssessors 只发第一个并 warn）
+        ProjectRoleAssignment primary1 = assignment("PRJ1", "P2", "PDL", "ASSESSOR1");
+        primary1.setIsPrimary(true);
+        ProjectRoleAssignment primary2 = assignment("PRJ1", "P2", "PDL", "ASSESSOR2");
+        primary2.setIsPrimary(true);
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of(primary1, primary2));
+
+        TaskGeneratorService.LaunchResult result = generatorService.launch("PERIOD-001");
+
+        // 只发第一个主 ASSESSOR1，不发 ASSESSOR2
+        verify(taskMapper, times(1)).insertIgnore(argThat(t ->
+                "PROJECT".equals(t.getTaskType()) && "ASSESSOR1".equals(t.getAssessorId())));
+        verify(taskMapper, never()).insertIgnore(argThat(t -> "ASSESSOR2".equals(t.getAssessorId())));
+        // 无差异、无 admin 通知（primaries 非空，未触发无主分支）
+        assertEquals(0, result.discrepancyCount());
+        verify(notificationService, never()).notifyBatch(any());
     }
 }

@@ -23,6 +23,8 @@ import com.jifeng.assessment.notification.Notification;
 import com.jifeng.assessment.notification.NotificationService;
 import com.jifeng.assessment.user.SysUser;
 import com.jifeng.assessment.user.SysUserMapper;
+import com.jifeng.assessment.user.UserRole;
+import com.jifeng.assessment.user.UserRoleMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -53,6 +56,7 @@ public class TaskGeneratorService {
     private final DiscrepancyLogMapper discrepancyLogMapper;
     private final NotificationService notificationService;
     private final SysUserMapper sysUserMapper;
+    private final UserRoleMapper userRoleMapper;
 
     private static final String TASK_TYPE_PROJECT = "PROJECT";
     private static final String TASK_TYPE_FUNCTIONAL = "FUNCTIONAL";
@@ -60,6 +64,7 @@ public class TaskGeneratorService {
     private static final String DISCREPANCY_NO_POSITION_CONFIG = "NO_POSITION_CONFIG";
     private static final String DISCREPANCY_NO_ASSESSOR = "NO_ASSESSOR";
     private static final String DISCREPANCY_NO_LEADER = "NO_LEADER";
+    private static final String DISCREPANCY_NO_PRIMARY_ASSESSOR = "NO_PRIMARY_ASSESSOR";
 
     // 自注入代理，用于 REQUIRES_NEW 独立事务的周期状态先行提交（避免 this 自调用绕过 AOP）
     @Lazy
@@ -91,10 +96,12 @@ public class TaskGeneratorService {
         int taskCount = 0;
         int discrepancyCount = 0;
         Set<String> allAssessors = new LinkedHashSet<>();
+        // 已通知的无主角色组合 (projectCode|projectStage|roleCode)——避免同一无主角色对多个员工重复通知 admin
+        Set<String> notifiedNoPrimaryKeys = new HashSet<>();
 
         // 逐员工生成任务——每个员工独立容错，缺配置/缺考核人跳过并写入差异
         for (Employee emp : activeEmployees) {
-            GenerationResult result = generateTasksForEmployee(periodId, emp);
+            GenerationResult result = generateTasksForEmployee(periodId, emp, notifiedNoPrimaryKeys);
             taskCount += result.taskCount();
             allAssessors.addAll(result.assessorIds());
             for (Discrepancy d : result.discrepancies()) {
@@ -122,7 +129,7 @@ public class TaskGeneratorService {
     }
 
     // 功能：为单个员工生成考核任务——返回任务数、差异列表、被分配的评估人集合
-    private GenerationResult generateTasksForEmployee(String periodId, Employee emp) {
+    private GenerationResult generateTasksForEmployee(String periodId, Employee emp, Set<String> notifiedNoPrimaryKeys) {
         List<Discrepancy> discrepancies = new ArrayList<>();
         int taskCount = 0;
         Set<String> assessorIds = new LinkedHashSet<>();
@@ -172,7 +179,20 @@ public class TaskGeneratorService {
                     }
                     continue;
                 }
-                for (ProjectRoleAssignment assign : assignedPersons) {
+                // 收敛：同角色多人时只发标主者；多人无主则跳过该角色 + 记差异 + 通知 admin
+                List<ProjectRoleAssignment> primaries = resolvePrimaryAssessors(assignedPersons);
+                if (primaries.isEmpty()) {
+                    discrepancies.add(new Discrepancy(DISCREPANCY_NO_PRIMARY_ASSESSOR,
+                            "项目" + p.getProjectCode() + "阶段" + p.getProjectStage()
+                                    + "角色" + role.getRoleCode() + "有" + assignedPersons.size() + "人未标主，任务未生成"));
+                    // 通知按 (项目,阶段,角色) 去重——launch 逐员工生成，同一无主角色只通知 admin 一次
+                    String noPrimaryKey = p.getProjectCode() + "|" + p.getProjectStage() + "|" + role.getRoleCode();
+                    if (notifiedNoPrimaryKeys.add(noPrimaryKey)) {
+                        notifyAdminsNoPrimary(p.getProjectCode(), p.getProjectStage(), role.getRoleCode(), assignedPersons.size());
+                    }
+                    continue;
+                }
+                for (ProjectRoleAssignment assign : primaries) {
                     insertIgnore(periodId, assign.getEmployeeId(), emp.getEmployeeId(),
                             p.getProjectCode(), p.getProjectStage(), TASK_TYPE_PROJECT);
                     assessorIds.add(assign.getEmployeeId());
@@ -241,7 +261,18 @@ public class TaskGeneratorService {
                 }
                 continue;
             }
-            for (ProjectRoleAssignment assign : assignedPersons) {
+            // 收敛：同角色多人时只发标主者；多人无主则跳过该角色 + 记差异 + 通知 admin
+            List<ProjectRoleAssignment> primaries = resolvePrimaryAssessors(assignedPersons);
+            if (primaries.isEmpty()) {
+                discrepancyLogMapper.insert(buildDiscrepancy(participation.getPeriodId(), emp,
+                        DISCREPANCY_NO_PRIMARY_ASSESSOR,
+                        "项目" + participation.getProjectCode() + "阶段" + participation.getProjectStage()
+                                + "角色" + role.getRoleCode() + "有" + assignedPersons.size() + "人未标主，任务未生成"));
+                notifyAdminsNoPrimary(participation.getProjectCode(), participation.getProjectStage(),
+                        role.getRoleCode(), assignedPersons.size());
+                continue;
+            }
+            for (ProjectRoleAssignment assign : primaries) {
                 insertIgnore(participation.getPeriodId(), assign.getEmployeeId(), emp.getEmployeeId(),
                         participation.getProjectCode(), participation.getProjectStage(), TASK_TYPE_PROJECT);
                 assessorIds.add(assign.getEmployeeId());
@@ -295,6 +326,54 @@ public class TaskGeneratorService {
         task.setReturnCount(0);
         task.setMaxReturns(3);
         taskMapper.insertIgnore(task);
+    }
+
+    // 功能：收敛同角色多人的考核人——恰好一个主则只发该人；size==1 照常发；多人无主返回空（调用方记差异+通知 admin）
+    private List<ProjectRoleAssignment> resolvePrimaryAssessors(List<ProjectRoleAssignment> assignedPersons) {
+        if (assignedPersons.size() == 1) {
+            return assignedPersons;
+        }
+        List<ProjectRoleAssignment> primaries = assignedPersons.stream()
+                .filter(a -> Boolean.TRUE.equals(a.getIsPrimary()))
+                .toList();
+        if (primaries.size() > 1) {
+            // 防御：DB 部分唯一索引应已拦截双主，若绕过/历史脏数据，只发第一个并告警
+            ProjectRoleAssignment first = primaries.get(0);
+            log.warn("项目 {} 阶段 {} 角色 {} 存在 {} 个主，仅发 {}",
+                    first.getProjectCode(), first.getProjectStage(), first.getProjectRoleCode(),
+                    primaries.size(), first.getEmployeeId());
+            return List.of(first);
+        }
+        return primaries;
+    }
+
+    // 功能：主动通知全部 ADMIN——同角色多人未标主导致任务跳过时提醒处理
+    private void notifyAdminsNoPrimary(String projectCode, String projectStage, String roleCode, int personCount) {
+        List<UserRole> adminRoles = userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
+                .eq(UserRole::getRoleType, "ADMIN"));
+        if (adminRoles == null || adminRoles.isEmpty()) {
+            return;
+        }
+        List<String> adminIds = adminRoles.stream()
+                .map(UserRole::getUserId)
+                .filter(uid -> uid != null && !uid.isBlank())
+                .distinct()
+                .toList();
+        if (adminIds.isEmpty()) {
+            return;
+        }
+        List<Notification> notifications = adminIds.stream().map(id -> {
+            Notification n = new Notification();
+            n.setRecipientId(id);
+            n.setTitle("角色未标记主审批人");
+            n.setContent("项目" + projectCode + "阶段" + projectStage + "角色" + roleCode
+                    + "有" + personCount + "人未标主，考核任务未生成，请前往角色分配页标记。");
+            n.setType("NO_PRIMARY_ASSESSOR");
+            n.setTargetUrl("/project/assignment-summary");
+            n.setIsRead(false);
+            return n;
+        }).toList();
+        notificationService.notifyBatch(notifications);
     }
 
     // 功能：判断员工是否有职能 KPI 配置——category+position 无 func_kpi_config 时不生成空职能任务

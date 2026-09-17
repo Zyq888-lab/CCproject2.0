@@ -83,7 +83,7 @@ class RoleAssignmentServiceTest {
         assertEquals("PD", dto.getProjectRoleCode());
         assertEquals("EMP_RA1", dto.getEmployeeId());
         assertEquals("张三", dto.getEmployeeName());
-        assertFalse(dto.getIsPrimaryPd());
+        assertFalse(dto.getIsPrimary());
     }
 
     // 功能：重复分配同一员工到同一项目同一角色时抛出409异常
@@ -100,9 +100,9 @@ class RoleAssignmentServiceTest {
         assertTrue(ex.getMessage().contains("已被分配"));
     }
 
-    // 功能：标记PD负责人后isPrimaryPd为true，同项目之前的主PD被取消
+    // 功能：标记该角色主后isPrimary为true，同(项目,阶段,角色)之前的主被取消
     @Test
-    void shouldMarkPrimaryPd() {
+    void shouldMarkPrimary() {
         createTestProject("PJ_RA3");
         createTestEmployee("EMP_RA3A", "王五");
         createTestEmployee("EMP_RA3B", "赵六");
@@ -111,17 +111,17 @@ class RoleAssignmentServiceTest {
         ProjectRoleAssignmentDTO a1 = roleAssignmentService.assignEmployee("PJ_RA3", "P3", "PD", "EMP_RA3A");
         ProjectRoleAssignmentDTO a2 = roleAssignmentService.assignEmployee("PJ_RA3", "P3", "PD", "EMP_RA3B");
 
-        // 标记第一个为PD负责人
-        ProjectRoleAssignmentDTO pd1 = roleAssignmentService.markPrimaryPd(a1.getId());
-        assertTrue(pd1.getIsPrimaryPd());
+        // 标记第一个为该角色主
+        ProjectRoleAssignmentDTO pd1 = roleAssignmentService.markPrimary(a1.getId());
+        assertTrue(pd1.getIsPrimary());
 
-        // 标记第二个为PD负责人，第一个应被取消
-        ProjectRoleAssignmentDTO pd2 = roleAssignmentService.markPrimaryPd(a2.getId());
-        assertTrue(pd2.getIsPrimaryPd());
+        // 标记第二个为该角色主，第一个应被取消
+        ProjectRoleAssignmentDTO pd2 = roleAssignmentService.markPrimary(a2.getId());
+        assertTrue(pd2.getIsPrimary());
 
         // 查询列表验证只有一个主PD
         List<ProjectRoleAssignmentDTO> list = roleAssignmentService.listAssignments("PJ_RA3", "P3");
-        long primaryCount = list.stream().filter(ProjectRoleAssignmentDTO::getIsPrimaryPd).count();
+        long primaryCount = list.stream().filter(ProjectRoleAssignmentDTO::getIsPrimary).count();
         assertEquals(1, primaryCount);
     }
 

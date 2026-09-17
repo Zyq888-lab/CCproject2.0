@@ -61,10 +61,10 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
     public PageResult<ProjectRoleAssignmentSummaryDTO> listSummary(
             int page, int size,
             String projectCode, String projectStage, String roleCode,
-            String employeeId, Boolean isPrimaryPd) {
+            String employeeId, Boolean isPrimary) {
         Page<ProjectRoleAssignmentSummaryDTO> mpPage = new Page<>(page, size);
         Page<ProjectRoleAssignmentSummaryDTO> result = baseMapper.selectSummaryPage(
-                mpPage, projectCode, projectStage, roleCode, employeeId, isPrimaryPd);
+                mpPage, projectCode, projectStage, roleCode, employeeId, isPrimary);
         return PageResult.of(result.getTotal(), page, size, result.getRecords());
     }
 
@@ -114,7 +114,7 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         assignment.setProjectStage(projectStage);
         assignment.setProjectRoleCode(roleCode);
         assignment.setEmployeeId(employeeId);
-        assignment.setIsPrimaryPd(false);
+        assignment.setIsPrimary(false);
         try {
             baseMapper.insert(assignment);
         } catch (DuplicateKeyException e) {
@@ -125,25 +125,27 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         return toDTO(assignment, employee.getName());
     }
 
-    // 功能：标记为PD负责人——先取消同项目内已有PD负责人，再设置当前分配
+    // 功能：标记为该角色主——先取消同(项目,阶段,角色)内已有主标记，再设置当前分配
     @Transactional
-    public ProjectRoleAssignmentDTO markPrimaryPd(Long assignmentId) {
+    public ProjectRoleAssignmentDTO markPrimary(Long assignmentId) {
         ProjectRoleAssignment assignment = baseMapper.selectById(assignmentId);
         if (assignment == null) {
             throw new BusinessException(404, "分配记录不存在: " + assignmentId);
         }
 
-        // 取消同项目内已有的PD负责人标记
+        // 取消同(项目,阶段,角色)内已有的主标记——只清同角色，不误删其它阶段/角色的主
         LambdaQueryWrapper<ProjectRoleAssignment> unmarkWrapper = new LambdaQueryWrapper<>();
         unmarkWrapper.eq(ProjectRoleAssignment::getProjectCode, assignment.getProjectCode())
-                .eq(ProjectRoleAssignment::getIsPrimaryPd, true);
+                .eq(ProjectRoleAssignment::getProjectStage, assignment.getProjectStage())
+                .eq(ProjectRoleAssignment::getProjectRoleCode, assignment.getProjectRoleCode())
+                .eq(ProjectRoleAssignment::getIsPrimary, true);
         List<ProjectRoleAssignment> existingPrimary = baseMapper.selectList(unmarkWrapper);
         for (ProjectRoleAssignment pa : existingPrimary) {
-            pa.setIsPrimaryPd(false);
+            pa.setIsPrimary(false);
             updateWithOptimisticLock(pa);
         }
 
-        assignment.setIsPrimaryPd(true);
+        assignment.setIsPrimary(true);
         updateWithOptimisticLock(assignment);
 
         Employee employee = employeeMapper.selectById(assignment.getEmployeeId());
@@ -168,7 +170,7 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         dto.setProjectRoleCode(assignment.getProjectRoleCode());
         dto.setEmployeeId(assignment.getEmployeeId());
         dto.setEmployeeName(employeeName);
-        dto.setIsPrimaryPd(assignment.getIsPrimaryPd());
+        dto.setIsPrimary(assignment.getIsPrimary());
         dto.setCreatedAt(assignment.getCreatedAt());
         return dto;
     }

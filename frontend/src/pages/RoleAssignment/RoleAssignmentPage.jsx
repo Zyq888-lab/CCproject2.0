@@ -142,11 +142,11 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
     }
   };
 
-  // 功能：标记为PD负责人——PUT /api/v1/projects/{projectCode}/assignments/{id}/toggle-primary-pd
+  // 功能：标记为该角色主——PUT /api/v1/projects/{projectCode}/assignments/{id}/toggle-primary-pd
   const handleMarkPd = async (assignment) => {
     try {
       await client.put(`/projects/${projectCode}/${projectStage}/assignments/${assignment.id}/toggle-primary-pd`);
-      message.success({ content: `已将 ${assignment.employeeName} 标记为PD负责人`, duration: 3 });
+      message.success({ content: `已将 ${assignment.employeeName} 标记为该角色主`, duration: 3 });
       fetchAssignments();
     } catch (err) {
       if (err?.code === 409) {
@@ -194,16 +194,16 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
     { title: '员工工号', dataIndex: 'employeeId', key: 'employeeId', width: 120 },
     { title: '员工姓名', dataIndex: 'employeeName', key: 'employeeName', width: 120 },
     {
-      title: 'PD', dataIndex: 'isPrimaryPd', key: 'isPrimaryPd', width: 80,
-      render: (v) => v ? <Tag color="blue">主PD</Tag> : null,
+      title: '主', dataIndex: 'isPrimary', key: 'isPrimary', width: 100,
+      render: (v) => v ? <Tag color="blue">该角色主</Tag> : null,
     },
     {
       title: '操作', key: 'action', width: 160,
       render: (_, record) => (
         <Space size="small">
-          {!record.isPrimaryPd && (
+          {!record.isPrimary && (
             <Button type="link" size="small" icon={<StarOutlined />} onClick={() => handleMarkPd(record)}>
-              标记PD
+              标记主
             </Button>
           )}
           <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleRemove(record)}>
