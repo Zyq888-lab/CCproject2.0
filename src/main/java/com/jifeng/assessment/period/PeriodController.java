@@ -61,11 +61,32 @@ public class PeriodController extends BaseController {
         return ok(periodService.startPeriod(periodId));
     }
 
-    // 功能：关闭考核周期——状态变为COMPLETED
+    // 功能：进入校准——状态从ONGOING变为CALIBRATING
+    @PutMapping("/api/v1/periods/{periodId}/calibrate")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<AssessmentPeriod> calibrate(@PathVariable String periodId) {
+        return ok(periodService.enterCalibration(periodId));
+    }
+
+    // 功能：总裁确认——状态从CALIBRATING变为CONFIRMED（结果对员工可见）
+    @PutMapping("/api/v1/periods/{periodId}/confirm")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<AssessmentPeriod> confirm(@PathVariable String periodId) {
+        return ok(periodService.confirmPeriod(periodId));
+    }
+
+    // 功能：关闭考核周期——仅CONFIRMED状态可关闭，状态变为COMPLETED
     @PutMapping("/api/v1/periods/{periodId}/close")
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<AssessmentPeriod> close(@PathVariable String periodId) {
         return ok(periodService.closePeriod(periodId));
+    }
+
+    // 功能：强制关闭——任意非COMPLETED状态直接关闭，作为异常周期逃生出口
+    @PutMapping("/api/v1/periods/{periodId}/abort")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<AssessmentPeriod> abort(@PathVariable String periodId) {
+        return ok(periodService.abortPeriod(periodId));
     }
 
     @Data

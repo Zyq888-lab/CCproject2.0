@@ -21,6 +21,8 @@ public class PeriodService {
     private final PeriodMapper periodMapper;
 
     private static final String COMPLETED = "COMPLETED";
+    private static final String CONFIRMED = "CONFIRMED";
+    private static final String CALIBRATING = "CALIBRATING";
     private static final String ONGOING = "ONGOING";
     private static final String INIT = "INIT";
 
@@ -97,19 +99,72 @@ public class PeriodService {
         return period;
     }
 
-    // 功能：关闭考核周期——状态设为COMPLETED
+    // 功能：进入校准——ONGOING→CALIBRATING 原子翻转，打分结束进入校准确认阶段
+    @Transactional
+    public AssessmentPeriod enterCalibration(String periodId) {
+        requirePeriod(periodId);
+        int updated = periodMapper.updateStatus(periodId, ONGOING, CALIBRATING);
+        if (updated == 0) {
+            throw new BusinessException(400, "仅进行中的周期可进入校准");
+        }
+        return periodMapper.selectById(periodId);
+    }
+
+    // 功能：总裁确认——CALIBRATING→CONFIRMED，单条 UPDATE WHERE status='CALIBRATING' 原子翻转，
+    //   避免并发下重复确认/越级确认（read-modify-write 会漏检）
+    @Transactional
+    public AssessmentPeriod confirmPeriod(String periodId) {
+        requirePeriod(periodId);
+        int updated = periodMapper.updateStatus(periodId, CALIBRATING, CONFIRMED);
+        if (updated == 0) {
+            throw new BusinessException(400, "仅校准中的周期可确认");
+        }
+        return periodMapper.selectById(periodId);
+    }
+
+    // 功能：关闭考核周期——仅 CONFIRMED→COMPLETED，需先完成总裁确认（防旁路）
     @Transactional
     public AssessmentPeriod closePeriod(String periodId) {
+        AssessmentPeriod period = requirePeriod(periodId);
+        if (COMPLETED.equals(period.getStatus())) {
+            throw new BusinessException(400, "该考核周期已关闭，无需重复操作");
+        }
+        if (!CONFIRMED.equals(period.getStatus())) {
+            throw new BusinessException(400, "仅已确认的周期可关闭，请先完成总裁确认");
+        }
+        int updated = periodMapper.updateStatus(periodId, CONFIRMED, COMPLETED);
+        if (updated == 0) {
+            throw new BusinessException(409, "周期状态已变更，请刷新后重试");
+        }
+        return periodMapper.selectById(periodId);
+    }
+
+    // 功能：强制关闭（abort）——任意非COMPLETED状态直接置为COMPLETED，作为异常周期的逃生出口
+    @Transactional
+    public AssessmentPeriod abortPeriod(String periodId) {
+        requirePeriod(periodId);
+        int updated = periodMapper.forceComplete(periodId);
+        if (updated == 0) {
+            throw new BusinessException(400, "该考核周期已关闭，无需重复操作");
+        }
+        return periodMapper.selectById(periodId);
+    }
+
+    // 功能：结果可见性——仅 CONFIRMED（已确认待关闭）或 COMPLETED（已关闭）时员工可查看最终结果
+    public boolean isResultVisible(String periodId) {
+        if (!StringUtils.hasText(periodId)) {
+            return false;
+        }
+        AssessmentPeriod period = periodMapper.selectById(periodId);
+        return period != null && (CONFIRMED.equals(period.getStatus()) || COMPLETED.equals(period.getStatus()));
+    }
+
+    // 功能：加载周期，不存在抛404
+    private AssessmentPeriod requirePeriod(String periodId) {
         AssessmentPeriod period = periodMapper.selectById(periodId);
         if (period == null) {
             throw new BusinessException(404, "考核周期不存在: " + periodId);
         }
-        if (COMPLETED.equals(period.getStatus())) {
-            throw new BusinessException(400, "该考核周期已关闭，无需重复操作");
-        }
-        period.setStatus(COMPLETED);
-        period.setUpdatedAt(LocalDateTime.now());
-        periodMapper.updateById(period);
         return period;
     }
 

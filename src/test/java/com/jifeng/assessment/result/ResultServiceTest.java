@@ -1,0 +1,258 @@
+// 模块用途：ResultService 单元测试——覆盖 composite 聚合落库、单组件权重重归一化、改分保留原始分
+// 依赖文件：ResultService.java, AssessmentResultMapper.java, ScoreCalculator.java, 各 Mapper
+// 修改注意：@SpringBootTest + @Transactional（测试库 PostgreSQL，每个用例独立回滚）
+package com.jifeng.assessment.result;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jifeng.assessment.calibration.AssessmentResult;
+import com.jifeng.assessment.calibration.AssessmentResultMapper;
+import com.jifeng.assessment.employee.Employee;
+import com.jifeng.assessment.employee.EmployeeMapper;
+import com.jifeng.assessment.kpi.FuncKpiConfig;
+import com.jifeng.assessment.kpi.FuncKpiMapper;
+import com.jifeng.assessment.kpi.ProjectKpiConfig;
+import com.jifeng.assessment.kpi.ProjectKpiMapper;
+import com.jifeng.assessment.participation.EmployeeProjectParticipation;
+import com.jifeng.assessment.participation.ParticipationMapper;
+import com.jifeng.assessment.period.AssessmentPeriod;
+import com.jifeng.assessment.period.PeriodMapper;
+import com.jifeng.assessment.position.PositionAssessmentConfig;
+import com.jifeng.assessment.position.PositionConfigMapper;
+import com.jifeng.assessment.project.Project;
+import com.jifeng.assessment.project.ProjectMapper;
+import com.jifeng.assessment.projectrole.ProjectRole;
+import com.jifeng.assessment.projectrole.ProjectRoleMapper;
+import com.jifeng.assessment.score.AssessmentScore;
+import com.jifeng.assessment.score.ScoreMapper;
+import com.jifeng.assessment.task.AssessmentTask;
+import com.jifeng.assessment.task.TaskMapper;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+@SpringBootTest
+@ActiveProfiles("test")
+@Transactional
+class ResultServiceTest {
+
+    @Autowired private ResultService resultService;
+    @Autowired private AssessmentResultMapper resultMapper;
+    @Autowired private PeriodMapper periodMapper;
+    @Autowired private EmployeeMapper employeeMapper;
+    @Autowired private PositionConfigMapper positionConfigMapper;
+    @Autowired private ProjectRoleMapper projectRoleMapper;
+    @Autowired private ProjectMapper projectMapper;
+    @Autowired private ProjectKpiMapper projectKpiMapper;
+    @Autowired private FuncKpiMapper funcKpiMapper;
+    @Autowired private TaskMapper taskMapper;
+    @Autowired private ScoreMapper scoreMapper;
+    @Autowired private ParticipationMapper participationMapper;
+
+    private static final String CATEGORY = "研发技术类";
+    private static final String POSITION = "整椅研发岗";
+
+    // 功能：双组件员工（项目+职能）composite 正确落库——4.0×0.7 + 3.0×0.3 = 3.7000
+    @Test
+    void generateShouldComputeCompositeForDualComponentEmployee() {
+        seedPeriod();
+        seedEmployee("EMP_DUAL");
+        seedEmployee("ASSESSOR1");
+        seedEmployee("ASSESSOR2");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        Long projKpiId = seedProjectKpi(new BigDecimal("1.0000"));
+        Long funcKpiId = seedFuncKpi(new BigDecimal("1.0000"));
+
+        Long projTaskId = seedTask("EMP_DUAL", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        Long funcTaskId = seedTask("EMP_DUAL", "ASSESSOR2", null, null, "FUNCTIONAL", "SUBMITTED");
+        seedScore(projTaskId, projKpiId, "PROJECT", new BigDecimal("4.0"));
+        seedScore(funcTaskId, funcKpiId, "FUNCTIONAL", new BigDecimal("3.0"));
+        seedParticipation("EMP_DUAL", "PRJ1", "P2", new BigDecimal("100"));
+
+        int generated = resultService.generateResults("PERIOD-001");
+
+        assertEquals(1, generated);
+        AssessmentResult result = resultMapper.selectOne(
+                new LambdaQueryWrapper<AssessmentResult>()
+                        .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                        .eq(AssessmentResult::getAssesseeId, "EMP_DUAL"));
+        assertNotNull(result);
+        assertEquals(0, new BigDecimal("3.7000").compareTo(result.getOriginalScore()));
+        assertEquals(0, new BigDecimal("3.7000").compareTo(result.getAdjustedScore()));
+    }
+
+    // 功能：单组件员工（仅项目）权重重归一化——composite 不再乘 0.7，直接等于项目加权分 4.0000
+    @Test
+    void generateShouldRenormalizeSingleComponentEmployee() {
+        seedPeriod();
+        seedEmployee("EMP_ONLY_PROJ");
+        seedEmployee("ASSESSOR1");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        Long projKpiId = seedProjectKpi(new BigDecimal("1.0000"));
+
+        Long projTaskId = seedTask("EMP_ONLY_PROJ", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        seedScore(projTaskId, projKpiId, "PROJECT", new BigDecimal("4.0"));
+        seedParticipation("EMP_ONLY_PROJ", "PRJ1", "P2", new BigDecimal("100"));
+
+        resultService.generateResults("PERIOD-001");
+
+        AssessmentResult result = resultMapper.selectOne(
+                new LambdaQueryWrapper<AssessmentResult>()
+                        .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                        .eq(AssessmentResult::getAssesseeId, "EMP_ONLY_PROJ"));
+        assertNotNull(result);
+        assertEquals(0, new BigDecimal("4.0000").compareTo(result.getOriginalScore()));
+    }
+
+    // 功能：已手动改分的行重生成时保留 adjusted_score，仅刷新 original_score
+    @Test
+    void regenerateShouldPreserveManualAdjustment() {
+        seedPeriod();
+        seedEmployee("EMP_ADJ");
+        seedEmployee("ASSESSOR1");
+        seedEmployee("ASSESSOR2");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        Long projKpiId = seedProjectKpi(new BigDecimal("1.0000"));
+        Long funcKpiId = seedFuncKpi(new BigDecimal("1.0000"));
+
+        Long projTaskId = seedTask("EMP_ADJ", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        Long funcTaskId = seedTask("EMP_ADJ", "ASSESSOR2", null, null, "FUNCTIONAL", "SUBMITTED");
+        seedScore(projTaskId, projKpiId, "PROJECT", new BigDecimal("4.0"));
+        seedScore(funcTaskId, funcKpiId, "FUNCTIONAL", new BigDecimal("3.0"));
+        seedParticipation("EMP_ADJ", "PRJ1", "P2", new BigDecimal("100"));
+
+        resultService.generateResults("PERIOD-001");
+
+        // 模拟 PD 改分：adjusted_score 手动改为 4.5
+        AssessmentResult result = resultMapper.selectOne(
+                new LambdaQueryWrapper<AssessmentResult>()
+                        .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                        .eq(AssessmentResult::getAssesseeId, "EMP_ADJ"));
+        result.setAdjustedScore(new BigDecimal("4.5000"));
+        resultMapper.updateById(result);
+
+        // 重生成：原始分刷新为 3.7000，调整分保留 4.5000
+        resultService.generateResults("PERIOD-001");
+
+        AssessmentResult reloaded = resultMapper.selectOne(
+                new LambdaQueryWrapper<AssessmentResult>()
+                        .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                        .eq(AssessmentResult::getAssesseeId, "EMP_ADJ"));
+        assertEquals(0, new BigDecimal("3.7000").compareTo(reloaded.getOriginalScore()));
+        assertEquals(0, new BigDecimal("4.5000").compareTo(reloaded.getAdjustedScore()));
+    }
+
+    // ================= 辅助：种子数据 =================
+
+    private void seedPeriod() {
+        AssessmentPeriod period = new AssessmentPeriod();
+        period.setPeriodId("PERIOD-001");
+        period.setPeriodName("测试周期");
+        period.setStartDate(LocalDate.of(2026, 1, 1));
+        period.setEndDate(LocalDate.of(2026, 6, 30));
+        period.setStatus("ONGOING");
+        periodMapper.insert(period);
+    }
+
+    private void seedEmployee(String employeeId) {
+        Employee e = new Employee();
+        e.setEmployeeId(employeeId);
+        e.setName("员工" + employeeId);
+        e.setEmail(employeeId + "@test.com");
+        e.setCategory(CATEGORY);
+        e.setPosition(POSITION);
+        e.setOrgName("信息部");
+        e.setStatus("ACTIVE");
+        employeeMapper.insert(e);
+    }
+
+    private void seedPositionConfig(BigDecimal projectWeight, BigDecimal funcWeight) {
+        PositionAssessmentConfig c = new PositionAssessmentConfig();
+        c.setCategory(CATEGORY);
+        c.setPosition(POSITION);
+        c.setProjectWeight(projectWeight);
+        c.setFuncWeight(funcWeight);
+        positionConfigMapper.insert(c);
+    }
+
+    private Long seedProjectKpi(BigDecimal weight) {
+        ProjectRole role = new ProjectRole();
+        role.setRoleCode("PDL");
+        role.setRoleName("项目负责人");
+        projectRoleMapper.insert(role);
+
+        Project project = new Project();
+        project.setProjectCode("PRJ1");
+        project.setProjectName("项目一");
+        project.setProjectStage("P2");
+        project.setStatus("ACTIVE");
+        projectMapper.insert(project);
+
+        ProjectKpiConfig kpi = new ProjectKpiConfig();
+        kpi.setProjectRoleCode("PDL");
+        kpi.setProjectStage("P2");
+        kpi.setKpiName("项目KPI");
+        kpi.setWeight(weight);
+        kpi.setSortOrder(1);
+        kpi.setIsActive(true);
+        projectKpiMapper.insert(kpi);
+        return kpi.getId();
+    }
+
+    private Long seedFuncKpi(BigDecimal weight) {
+        FuncKpiConfig kpi = new FuncKpiConfig();
+        kpi.setCategory(CATEGORY);
+        kpi.setPosition(POSITION);
+        kpi.setKpiName("职能KPI");
+        kpi.setWeight(weight);
+        kpi.setSortOrder(1);
+        kpi.setIsActive(true);
+        funcKpiMapper.insert(kpi);
+        return kpi.getId();
+    }
+
+    private Long seedTask(String assesseeId, String assessorId, String projectCode,
+                          String projectStage, String taskType, String status) {
+        AssessmentTask task = new AssessmentTask();
+        task.setPeriodId("PERIOD-001");
+        task.setAssessorId(assessorId);
+        task.setAssesseeId(assesseeId);
+        task.setProjectCode(projectCode);
+        task.setProjectStage(projectStage);
+        task.setTaskType(taskType);
+        task.setStatus(status);
+        task.setReturnCount(0);
+        task.setMaxReturns(3);
+        taskMapper.insert(task);
+        return task.getId();
+    }
+
+    private void seedScore(Long taskId, Long kpiConfigId, String kpiType, BigDecimal score) {
+        AssessmentScore s = new AssessmentScore();
+        s.setTaskId(taskId);
+        s.setKpiConfigId(kpiConfigId);
+        s.setKpiType(kpiType);
+        s.setScore(score);
+        s.setStatus("SUBMITTED");
+        scoreMapper.insert(s);
+    }
+
+    private void seedParticipation(String employeeId, String projectCode, String projectStage,
+                                   BigDecimal rate) {
+        EmployeeProjectParticipation p = new EmployeeProjectParticipation();
+        p.setEmployeeId(employeeId);
+        p.setProjectCode(projectCode);
+        p.setProjectStage(projectStage);
+        p.setParticipationRate(rate);
+        p.setStatus("APPROVED");
+        p.setPeriodId("PERIOD-001");
+        participationMapper.insert(p);
+    }
+}

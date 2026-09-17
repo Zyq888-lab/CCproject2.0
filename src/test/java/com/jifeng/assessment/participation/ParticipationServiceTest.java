@@ -191,6 +191,55 @@ class ParticipationServiceTest {
         assertEquals("EMP_PM_9", row.getCurrentApproverEmployeeId());
     }
 
+    // 功能：CALIBRATING 期拒绝填写参与——assertOngoing 收紧，校准/确认/关闭期冻结参与写操作
+    @Test
+    void createShouldBeRejectedWhenCalibrating() {
+        seedPeriodWithStatus("PERIOD_10", "CALIBRATING");
+        auth("admin_cal", "ADMIN");
+
+        ProjectParticipationItem item = new ProjectParticipationItem();
+        item.setProjectCode("PRJ_X");
+        item.setProjectStage("P2");
+        item.setParticipationRate(new BigDecimal("100"));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> participationService.create("EMP_X", "PERIOD_10", List.of(item)));
+        assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("尚未发起"));
+    }
+
+    // 功能：CALIBRATING 期拒绝审批——ADMIN 亦不可在校准期审批参与记录
+    @Test
+    void approveShouldBeRejectedWhenCalibrating() {
+        seedEmployee("EMP_PART_10");
+        seedProject("PRJ_X", "P2");
+        seedPeriodWithStatus("PERIOD_10", "CALIBRATING");
+        Long id = seedParticipation("EMP_PART_10", "PERIOD_10", "PRJ_X", "P2");
+
+        auth("admin_cal", "ADMIN");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> participationService.approve(id, true, null, null));
+        assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("尚未发起"));
+    }
+
+    // 功能：CALIBRATING 期拒绝重新提交——已拒绝记录在校准期不可重置为 PENDING
+    @Test
+    void resubmitShouldBeRejectedWhenCalibrating() {
+        seedEmployee("EMP_PART_11");
+        seedProject("PRJ_Y", "P2");
+        seedPeriodWithStatus("PERIOD_11", "CALIBRATING");
+        Long id = seedParticipation("EMP_PART_11", "PERIOD_11", "PRJ_Y", "P2");
+
+        auth("admin_cal", "ADMIN");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> participationService.resubmit(id, new BigDecimal("80")));
+        assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("尚未发起"));
+    }
+
     // 辅助：插入项目角色
     private void seedRole(String roleCode) {
         ProjectRole role = new ProjectRole();
@@ -234,14 +283,26 @@ class ParticipationServiceTest {
         projectMapper.insert(project);
     }
 
-    // 辅助：插入考核周期（INIT 状态，不触发审批后的任务生成）
+    // 辅助：插入考核周期（ONGOING 状态——approve/create/resubmit 均要求周期已发起；
+    //   缺岗位配置使审批通过后的增量任务生成 no-op，故测试不会触发任务生成）
     private void seedPeriod(String periodId) {
         AssessmentPeriod period = new AssessmentPeriod();
         period.setPeriodId(periodId);
         period.setPeriodName("周期" + periodId);
         period.setStartDate(LocalDate.of(2026, 1, 1));
         period.setEndDate(LocalDate.of(2026, 12, 31));
-        period.setStatus("INIT");
+        period.setStatus("ONGOING");
+        periodMapper.insert(period);
+    }
+
+    // 辅助：插入指定状态的考核周期——用于验证非 ONGOING 状态拒绝参与写操作
+    private void seedPeriodWithStatus(String periodId, String status) {
+        AssessmentPeriod period = new AssessmentPeriod();
+        period.setPeriodId(periodId);
+        period.setPeriodName("周期" + periodId);
+        period.setStartDate(LocalDate.of(2026, 1, 1));
+        period.setEndDate(LocalDate.of(2026, 12, 31));
+        period.setStatus(status);
         periodMapper.insert(period);
     }
 

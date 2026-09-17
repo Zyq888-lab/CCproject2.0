@@ -201,8 +201,8 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         if (!StringUtils.hasText(periodId)) {
             throw new BusinessException(400, "考核周期不能为空");
         }
-        // 周期锁定：考核周期已关闭时拒绝填写项目参与
-        periodService.assertNotCompleted(periodId, "填写项目参与");
+        // 周期锁定：仅在 ONGOING 期可填写项目参与（CALIBRATING/CONFIRMED/COMPLETED 均拒绝）
+        periodService.assertOngoing(periodId, "填写项目参与");
         if (items == null || items.isEmpty()) {
             throw new BusinessException(400, "至少填写一个项目的参与记录");
         }
@@ -314,8 +314,8 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
                 throw new BusinessException(403, "仅该项目的主 PM 可审批参与记录");
             }
         }
-        // 周期锁定：考核周期已关闭时拒绝审批
-        periodService.assertNotCompleted(participation.getPeriodId(), "审批");
+        // 周期锁定：仅在 ONGOING 期可审批（CALIBRATING/CONFIRMED/COMPLETED 均拒绝）
+        periodService.assertOngoing(participation.getPeriodId(), "审批");
         if (!"PENDING".equals(participation.getStatus())) {
             throw new BusinessException(400, "该参与记录已处理，不可重复审批");
         }
@@ -362,8 +362,8 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
                 throw new BusinessException(403, "无权操作他人参与记录");
             }
         }
-        // 周期锁定：考核周期已关闭时拒绝重新提交
-        periodService.assertNotCompleted(participation.getPeriodId(), "重新提交");
+        // 周期锁定：仅在 ONGOING 期可重新提交（CALIBRATING/CONFIRMED/COMPLETED 均拒绝）
+        periodService.assertOngoing(participation.getPeriodId(), "重新提交");
         if (!"REJECTED".equals(participation.getStatus())) {
             throw new BusinessException(400, "只有已拒绝的参与记录才能重新提交");
         }

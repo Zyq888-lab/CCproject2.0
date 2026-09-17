@@ -19,6 +19,7 @@ const STATUS_CONFIG = {
   INIT:        { color: 'default', label: '未开始' },
   ONGOING:     { color: 'processing', label: '进行中' },
   CALIBRATING: { color: 'warning', label: '校准中' },
+  CONFIRMED:   { color: 'cyan', label: '已确认' },
   COMPLETED:   { color: 'success', label: '已完成' },
 };
 
