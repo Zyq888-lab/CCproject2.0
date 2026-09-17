@@ -53,4 +53,8 @@ public class EmployeeProjectParticipation {
 
     @Version
     private Long version;
+
+    // 当前审批人：该项目该项目阶段主 PM 的工号（project_role_code='PM' AND is_primary=true），非持久化，列表查询时反查填充
+    @TableField(exist = false)
+    private String currentApproverEmployeeId;
 }

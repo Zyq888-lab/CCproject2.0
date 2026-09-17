@@ -16,14 +16,15 @@ import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -32,7 +33,11 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
     private final SysUserMapper sysUserMapper;
 
-    // 功能：分页查询项目列表，支持按 projectStage/status 筛选；scope=assigned 时员工仅见自己被分配项目角色的项目阶段
+    // 功能：分页查询项目列表，支持按 projectStage/status 筛选。
+    //   数据隔离按项目级 project_role_assignment 记录判定（而非全局 user_role）：
+    //   ADMIN 不过滤；其余用户默认（项目管理）仅见自己为主 PM/主 PD 的项目
+    //   （employee_id=当前用户 AND project_role_code∈{PM,PD} AND is_primary=true）。
+    //   scope=assigned 时放宽为任意项目角色分配可见（参与录入下拉/参与校验用）。
     public PageResult<ProjectDTO> listProjects(PageQuery query, String stage, String status,
             Boolean includeInactive, String projectCode, String scope) {
         LambdaQueryWrapper<Project> wrapper = new LambdaQueryWrapper<>();
@@ -49,24 +54,22 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
             wrapper.apply("LOWER(project_code) LIKE {0}",
                     "%" + projectCode.toLowerCase() + "%");
         }
-        // 数据隔离：PM 仅见自己负责的项目（project_role_assignment.employee_id=当前用户）；
-        //   员工在 scope=assigned 时仅见自己被分配项目角色的项目阶段；
-        //   PD 仅见标记为主 PD 的项目（is_primary=true AND role=PD，与校准矩阵同一判定句）；ADMIN 不过滤
-        String primaryRole = getPrimaryRole();
-        boolean scoped = "PM".equals(primaryRole)
-                || ("assigned".equals(scope) && "员工".equals(primaryRole));
-        boolean pdScoped = "PD".equals(primaryRole);
-        if (scoped || pdScoped) {
+        // 数据隔离：ADMIN 不过滤。
+        //   项目管理（默认，scope 为空）：仅见自己为主 PM/主 PD 的项目。
+        //   scope=assigned：见自己被分配了任意项目角色的项目阶段（参与录入用）。
+        boolean isAdmin = hasRole("ADMIN");
+        Map<String, Boolean> pmByProject = new HashMap<>();
+        if (!isAdmin) {
             String employeeId = getCurrentEmployeeId();
             if (employeeId == null) {
                 return PageResult.of(0, query.getPage(), query.getSize(), List.of());
             }
-            LambdaQueryWrapper<ProjectRoleAssignment> assignWrapper = new LambdaQueryWrapper<ProjectRoleAssignment>()
-                    .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
-                    .eq(ProjectRoleAssignment::getDeleted, 0);
-            if (pdScoped) {
-                // PD 可见范围 = 标记为主 PD 的项目：is_primary=true AND project_role_code='PD'（与角色主标记同一句）
-                assignWrapper.eq(ProjectRoleAssignment::getProjectRoleCode, "PD")
+            LambdaQueryWrapper<ProjectRoleAssignment> assignWrapper =
+                    new LambdaQueryWrapper<ProjectRoleAssignment>()
+                            .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
+                            .eq(ProjectRoleAssignment::getDeleted, 0);
+            if (!"assigned".equals(scope)) {
+                assignWrapper.in(ProjectRoleAssignment::getProjectRoleCode, "PM", "PD")
                         .eq(ProjectRoleAssignment::getIsPrimary, true);
             }
             List<ProjectRoleAssignment> assignments = roleAssignmentMapper.selectList(assignWrapper);
@@ -86,11 +89,22 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
                     }
                 }
             });
+            // 记录当前用户在各项目上是否为 PM 角色（项目级角色判定，供前端字段级门控）
+            for (ProjectRoleAssignment a : assignments) {
+                String key = a.getProjectCode() + "|" + a.getProjectStage();
+                pmByProject.merge(key, "PM".equals(a.getProjectRoleCode()), (x, y) -> x || y);
+            }
         }
         wrapper.orderByAsc(Project::getProjectCode);
         PageResult<Project> page = selectPage(query, wrapper);
+        final boolean adminFlag = isAdmin;
         List<ProjectDTO> dtoList = page.getList().stream()
-                .map(this::toDTO)
+                .map(p -> {
+                    ProjectDTO dto = toDTO(p);
+                    dto.setManagedByCurrentUser(adminFlag || Boolean.TRUE.equals(
+                            pmByProject.get(p.getProjectCode() + "|" + p.getProjectStage())));
+                    return dto;
+                })
                 .toList();
         return PageResult.of(page.getTotal(), page.getPage(), page.getSize(), dtoList);
     }
@@ -123,7 +137,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
             throw new BusinessException(409, "项目编码" + project.getProjectCode() + "已存在");
         }
         // PM 创建项目后自动成为该项目的 PM（写入一条角色分配），否则数据隔离逻辑会将其新建项目过滤掉
-        if ("PM".equals(getPrimaryRole())) {
+        if (hasRole("PM")) {
             String creatorEmployeeId = getCurrentEmployeeId();
             if (creatorEmployeeId != null) {
                 ProjectRoleAssignment selfAssign = new ProjectRoleAssignment();
@@ -235,21 +249,14 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         return auth.getName();
     }
 
-    // 功能：获取当前用户主角色——取权限列表中第一个匹配的已知角色，未认证返回空
-    private String getPrimaryRole() {
+    // 功能：判断当前用户是否具有指定角色（如 ADMIN/PM）——检查权限列表中是否含 ROLE_<role>
+    private boolean hasRole(String role) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
-            return "";
+            return false;
         }
-        for (GrantedAuthority authority : auth.getAuthorities()) {
-            String a = authority.getAuthority();
-            for (String role : new String[]{"ADMIN", "PM", "PD", "评估人", "员工"}) {
-                if (a.equals("ROLE_" + role)) {
-                    return role;
-                }
-            }
-        }
-        return "";
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_" + role));
     }
 
     // 功能：根据登录用户名反查员工工号——用于项目数据隔离

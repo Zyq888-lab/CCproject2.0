@@ -50,6 +50,16 @@ function ProjectListPage() {
   const mountedRef = useRef(true);
   const navigate = useNavigate();
 
+  // 功能：获取当前用户角色——用于按钮权限门控（ADMIN 全量 / PM 创建+确认 / PD 只读）
+  const [userRoles, setUserRoles] = useState([]);
+  useEffect(() => {
+    client.get('/auth/me').then((res) => {
+      setUserRoles(res.data?.roles || []);
+    }).catch(() => { /* 非关键 */ });
+  }, []);
+  const isAdmin = userRoles.includes('ROLE_ADMIN');
+  const isPM = userRoles.includes('ROLE_PM');
+
   // 功能：分页获取项目列表——支持 stage 和 status 筛选
   const fetchProjects = useCallback(async (page, size, filterParams) => {
     setLoading(true);
@@ -284,7 +294,8 @@ function ProjectListPage() {
     XLSX.writeFile(wb, '项目导入模板.xlsx');
   };
 
-  // 功能：表格列定义——编码/名称/阶段/状态/确认状态/确认人/确认时间/操作
+  // 功能：表格列定义——编码/名称/阶段/状态/[管理列：阶段确认/确认人/确认时间]/操作
+  //   管理列仅 ADMIN/PM（全局）可见；具体值按项目级 managedByCurrentUser 决定（PM 项目可见，仅参与者项目隐藏）
   const columns = [
     { title: '项目编码', dataIndex: 'projectCode', key: 'projectCode', width: 140 },
     { title: '项目名称', dataIndex: 'projectName', key: 'projectName', width: 160 },
@@ -296,17 +307,20 @@ function ProjectListPage() {
       title: '状态', dataIndex: 'status', key: 'status', width: 80,
       render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{s === 'ACTIVE' ? '活跃' : s === 'COMPLETED' ? '已完成' : s === 'INACTIVE' ? '归档' : (s || '-')}</Tag>,
     },
-    {
-      title: '阶段确认', dataIndex: 'stageConfirmed', key: 'stageConfirmed', width: 100,
-      render: (confirmed) => (
-        <Tag color={confirmed ? 'green' : 'orange'}>
-          {confirmed ? '已确认' : '未确认'}
-        </Tag>
-      ),
-    },
-    { title: '确认人', dataIndex: 'confirmedBy', key: 'confirmedBy', width: 100, render: (v) => v || '-' },
-    { title: '确认时间', dataIndex: 'confirmedAt', key: 'confirmedAt', width: 170,
-      render: (v) => v ? new Date(v).toLocaleString('zh-CN') : '-' },
+    ...(isAdmin || isPM ? [
+      {
+        title: '阶段确认', dataIndex: 'stageConfirmed', key: 'stageConfirmed', width: 100,
+        render: (confirmed, record) => record.managedByCurrentUser ? (
+          <Tag color={confirmed ? 'green' : 'orange'}>
+            {confirmed ? '已确认' : '未确认'}
+          </Tag>
+        ) : '-',
+      },
+      { title: '确认人', dataIndex: 'confirmedBy', key: 'confirmedBy', width: 100,
+        render: (v, record) => record.managedByCurrentUser ? (v || '-') : '-' },
+      { title: '确认时间', dataIndex: 'confirmedAt', key: 'confirmedAt', width: 170,
+        render: (v, record) => record.managedByCurrentUser ? (v ? new Date(v).toLocaleString('zh-CN') : '-') : '-' },
+    ] : []),
     {
       title: '操作', key: 'action', width: 260,
       render: (_, record) => (
@@ -314,23 +328,26 @@ function ProjectListPage() {
           <Button type="link" size="small" icon={<LinkOutlined />} onClick={() => navigate(`/project/${record.projectCode}/${record.projectStage}/roles`)}>
             角色分配
           </Button>
-          {!record.stageConfirmed ? (
+          {record.managedByCurrentUser && !record.stageConfirmed && (
             <Button type="link" size="small" icon={<CheckCircleOutlined />} onClick={() => handleConfirmStage(record)}>
               确认阶段
             </Button>
-          ) : (
+          )}
+          {isAdmin && record.stageConfirmed && (
             <Button type="link" size="small" danger icon={<RollbackOutlined />} onClick={() => handleResetStage(record)}>
               强制重置
             </Button>
           )}
-          {record.status === 'COMPLETED' && (
+          {record.managedByCurrentUser && record.status === 'COMPLETED' && (
             <Button type="link" size="small" icon={<InboxOutlined />} onClick={() => handleArchive(record)}>
               归档
             </Button>
           )}
-          <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
-            删除
-          </Button>
+          {isAdmin && (
+            <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
+              删除
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -344,8 +361,8 @@ function ProjectListPage() {
         title="项目管理"
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
         actions={[
-          { label: '批量导入', icon: <DownloadOutlined />, onClick: () => setImportVisible(true) },
-          { label: '新增项目', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate },
+          ...(isAdmin ? [{ label: '批量导入', icon: <DownloadOutlined />, onClick: () => setImportVisible(true) }] : []),
+          ...(isAdmin || isPM ? [{ label: '新增项目', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate }] : []),
         ]}
       />
 

@@ -152,6 +152,24 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         return toDTO(assignment, employee != null ? employee.getName() : null);
     }
 
+    // 功能：取消该角色主标记——仅清 is_primary，保留角色分配本身
+    @Transactional
+    public ProjectRoleAssignmentDTO unmarkPrimary(Long assignmentId) {
+        ProjectRoleAssignment assignment = baseMapper.selectById(assignmentId);
+        if (assignment == null) {
+            throw new BusinessException(404, "分配记录不存在: " + assignmentId);
+        }
+        if (!Boolean.TRUE.equals(assignment.getIsPrimary())) {
+            throw new BusinessException(400, "该分配不是主标记，无需取消");
+        }
+
+        assignment.setIsPrimary(false);
+        updateWithOptimisticLock(assignment);
+
+        Employee employee = employeeMapper.selectById(assignment.getEmployeeId());
+        return toDTO(assignment, employee != null ? employee.getName() : null);
+    }
+
     // 功能：移除角色分配——逻辑删除
     @Transactional
     public void removeAssignment(Long assignmentId) {

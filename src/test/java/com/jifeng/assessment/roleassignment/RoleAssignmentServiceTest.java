@@ -125,6 +125,41 @@ class RoleAssignmentServiceTest {
         assertEquals(1, primaryCount);
     }
 
+    // 功能：取消主标记后 isPrimary 变为 false，但角色分配仍保留在列表中
+    @Test
+    void shouldUnmarkPrimary() {
+        createTestProject("PJ_RA8");
+        createTestEmployee("EMP_RA8", "钱十");
+        createTestRole("PD", "PD负责人");
+
+        ProjectRoleAssignmentDTO dto = roleAssignmentService.assignEmployee("PJ_RA8", "P3", "PD", "EMP_RA8");
+        ProjectRoleAssignmentDTO primary = roleAssignmentService.markPrimary(dto.getId());
+        assertTrue(primary.getIsPrimary());
+
+        ProjectRoleAssignmentDTO unmarked = roleAssignmentService.unmarkPrimary(dto.getId());
+        assertFalse(unmarked.getIsPrimary());
+
+        // 角色分配未被移除，仍可查询到该记录
+        List<ProjectRoleAssignmentDTO> list = roleAssignmentService.listAssignments("PJ_RA8", "P3");
+        assertEquals(1, list.size());
+        assertFalse(list.get(0).getIsPrimary());
+    }
+
+    // 功能：取消非主标记时抛出400
+    @Test
+    void shouldRejectUnmarkNonPrimary() {
+        createTestProject("PJ_RA9");
+        createTestEmployee("EMP_RA9", "吴十一");
+        createTestRole("PM", "项目经理");
+
+        ProjectRoleAssignmentDTO dto = roleAssignmentService.assignEmployee("PJ_RA9", "P3", "PM", "EMP_RA9");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> roleAssignmentService.unmarkPrimary(dto.getId()));
+        assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("不是主标记"));
+    }
+
     // 功能：移除分配后查询列表中不再包含该记录
     @Test
     void shouldRemoveAssignment() {

@@ -18,4 +18,6 @@ public class ProjectDTO {
     private LocalDateTime confirmedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    // 当前用户对该项目是否有管理权限（ADMIN 或项目级 PM 角色）——用于前端字段级门控
+    private Boolean managedByCurrentUser;
 }

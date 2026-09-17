@@ -269,6 +269,12 @@ function ParticipationPage() {
       render: (v) => v != null ? `${v}%` : '-' },
     { title: '状态', dataIndex: 'status', key: 'status', width: 100,
       render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{STATUS_LABEL_MAP[s] || s || '-'}</Tag> },
+    { title: '当前审批人', dataIndex: 'currentApproverEmployeeId', key: 'currentApprover', width: 120,
+      render: (_, record) => record.status === 'PENDING'
+        ? (employeeNameMap[record.currentApproverEmployeeId] || '—')
+        : (record.approvedBy || '—') },
+    { title: '审批时间', dataIndex: 'approvedAt', key: 'approvedAt', width: 170,
+      render: (v) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
     { title: '提交时间', dataIndex: 'createdAt', key: 'createdAt', width: 170,
       render: (v) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
     { title: '操作', key: 'action', width: 160, fixed: 'right',
@@ -357,7 +363,7 @@ function ParticipationPage() {
               pageSizeOptions: [10, 20, 50],
               showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
             }}
-            scroll={{ x: 1140 }}
+            scroll={{ x: 1440 }}
           />
         </Card>
       )}

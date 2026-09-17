@@ -31,10 +31,28 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
   const mountedRef = useRef(true);
   const searchTimerRef = useRef(null);
 
+  // 功能：获取当前用户角色——用于写操作按钮门控（PD 只读，仅 ADMIN/PM 可操作）
+  const [userRoles, setUserRoles] = useState([]);
+  useEffect(() => {
+    client.get('/auth/me').then((res) => {
+      setUserRoles(res.data?.roles || []);
+    }).catch(() => { /* 非关键 */ });
+  }, []);
+  const isAdmin = userRoles.includes('ROLE_ADMIN');
+  const isPM = userRoles.includes('ROLE_PM');
+  const canEdit = isAdmin || isPM;
+
   // 功能：从角色列表中解析角色名称
   const getRoleName = (roleCode) => {
     const role = roles.find((r) => r.roleCode === roleCode);
     return role ? role.roleName : roleCode;
+  };
+
+  // 功能：按角色区分主标记文案——PD/PM 显示具体角色名，其它角色用通用「主」表述
+  const primaryText = (roleCode) => {
+    if (roleCode === 'PD') return { mark: '标记主PD', tag: '主PD', markSuccess: '标记为主PD' };
+    if (roleCode === 'PM') return { mark: '标记主PM', tag: '主PM', markSuccess: '标记为主PM' };
+    return { mark: '标记主', tag: '该角色主', markSuccess: '标记为该角色主' };
   };
 
   // 功能：获取项目的角色分配列表——GET /api/v1/projects/{projectCode}/assignments
@@ -144,9 +162,29 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
 
   // 功能：标记为该角色主——PUT /api/v1/projects/{projectCode}/assignments/{id}/toggle-primary-pd
   const handleMarkPd = async (assignment) => {
+    const { markSuccess } = primaryText(assignment.projectRoleCode);
     try {
       await client.put(`/projects/${projectCode}/${projectStage}/assignments/${assignment.id}/toggle-primary-pd`);
-      message.success({ content: `已将 ${assignment.employeeName} 标记为该角色主`, duration: 3 });
+      message.success({ content: `已将 ${assignment.employeeName} ${markSuccess}`, duration: 3 });
+      fetchAssignments();
+    } catch (err) {
+      if (err?.code === 409) {
+        if (err?.message?.includes('已被他人修改')) {
+          showConflictWarning('其他用户', '几');
+        } else {
+          message.error({ content: err.message });
+        }
+      } else if (err?.message) {
+        message.error({ content: err.message });
+      }
+    }
+  };
+
+  // 功能：取消该角色主标记——PUT .../unmark-primary，仅清 is_primary 保留分配
+  const handleUnmarkPrimary = async (assignment) => {
+    try {
+      await client.put(`/projects/${projectCode}/${projectStage}/assignments/${assignment.id}/unmark-primary`);
+      message.success({ content: `已取消 ${assignment.employeeName} 的主标记`, duration: 3 });
       fetchAssignments();
     } catch (err) {
       if (err?.code === 409) {
@@ -195,15 +233,19 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
     { title: '员工姓名', dataIndex: 'employeeName', key: 'employeeName', width: 120 },
     {
       title: '主', dataIndex: 'isPrimary', key: 'isPrimary', width: 100,
-      render: (v) => v ? <Tag color="blue">该角色主</Tag> : null,
+      render: (v, record) => v ? <Tag color="blue">{primaryText(record.projectRoleCode).tag}</Tag> : null,
     },
-    {
-      title: '操作', key: 'action', width: 160,
+    ...(canEdit ? [{
+      title: '操作', key: 'action', width: 180,
       render: (_, record) => (
         <Space size="small">
-          {!record.isPrimary && (
+          {record.isPrimary ? (
+            <Button type="link" size="small" icon={<StarOutlined />} onClick={() => handleUnmarkPrimary(record)}>
+              取消主
+            </Button>
+          ) : (
             <Button type="link" size="small" icon={<StarOutlined />} onClick={() => handleMarkPd(record)}>
-              标记主
+              {primaryText(record.projectRoleCode).mark}
             </Button>
           )}
           <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleRemove(record)}>
@@ -211,7 +253,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
           </Button>
         </Space>
       ),
-    },
+    }] : []),
   ];
 
   const isEmpty = !loading && !error && assignments.length === 0;
@@ -247,7 +289,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
           { title: '首页', path: '/dashboard' },
           { title: '项目管理', path: '/project/list' },
         ]}
-        actions={[{ label: '新增分配', icon: <PlusOutlined />, type: 'primary', onClick: handleAdd }]}
+        actions={canEdit ? [{ label: '新增分配', icon: <PlusOutlined />, type: 'primary', onClick: handleAdd }] : []}
       />
 
       {/* 功能：网络错误横幅——已有数据时显示可关闭 */}
@@ -264,7 +306,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
           image={<LinkOutlined style={{ fontSize: 72, color: '#1890FF' }} />}
           title="该项目还没有角色分配"
           description="为项目分配角色人员（如PDL、PQL、Launch），任意角色均可标记为项目负责人"
-          primaryAction={{ label: '新增分配', onClick: handleAdd }}
+          primaryAction={canEdit ? { label: '新增分配', onClick: handleAdd } : undefined}
         />
       )}
 

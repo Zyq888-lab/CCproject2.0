@@ -68,6 +68,16 @@ public class RoleAssignmentController extends BaseController {
         return ok(roleAssignmentService.markPrimary(assignmentId));
     }
 
+    // 功能：取消该角色主标记——仅清 is_primary，保留角色分配
+    @PutMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments/{assignmentId}/unmark-primary")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    public ApiResponse<ProjectRoleAssignmentDTO> unmarkPrimary(
+            @PathVariable String projectCode,
+            @PathVariable String projectStage,
+            @PathVariable Long assignmentId) {
+        return ok(roleAssignmentService.unmarkPrimary(assignmentId));
+    }
+
     // 功能：移除角色分配——逻辑删除
     @DeleteMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments/{assignmentId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM')")

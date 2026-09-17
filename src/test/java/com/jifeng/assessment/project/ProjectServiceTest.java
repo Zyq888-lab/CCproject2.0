@@ -202,10 +202,10 @@ class ProjectServiceTest {
         assertNull(dto.getConfirmedAt());
     }
 
-    // 功能：PM 数据隔离——仅见 project_role_assignment 中 employee_id=当前用户 的项目
+    // 功能：PM 数据隔离——仅见自己主负责的项目（project_role_code=PM AND is_primary=true）
     @Test
     void pmShouldOnlySeeAssignedProjects() {
-        seedRole("PM_ROLE_LIST");
+        seedRole("PM");
         seedEmployee("PM_EMP_1");
         seedUser("U_PM_1", "pm_list_test", "PM_EMP_1");
 
@@ -213,9 +213,9 @@ class ProjectServiceTest {
         projectService.createProject(newProject("PRJ_B", "P3"));
         projectService.createProject(newProject("PRJ_C", "P2"));
 
-        // PM 只负责 PRJ_A(P2)、PRJ_B(P3)，不负责 PRJ_C
-        seedAssignment("PRJ_A", "P2", "PM_ROLE_LIST", "PM_EMP_1");
-        seedAssignment("PRJ_B", "P3", "PM_ROLE_LIST", "PM_EMP_1");
+        // PM 主负责 PRJ_A(P2)、PRJ_B(P3)，不负责 PRJ_C
+        seedAssignment("PRJ_A", "P2", "PM", "PM_EMP_1", true);
+        seedAssignment("PRJ_B", "P3", "PM", "PM_EMP_1", true);
 
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("pm_list_test", null,
@@ -255,9 +255,9 @@ class ProjectServiceTest {
         assertEquals(3, result.getTotal());
     }
 
-    // 功能：PD 数据隔离——仅见标记为主 PD 的项目（is_primary=true AND role=PD），非主 PD / 非 PD 角色均不可见
+    // 功能：非 ADMIN 项目管理可见性——仅见主 PM/主 PD 项目，非主 PD 与纯参与者不可见
     @Test
-    void pdShouldOnlySeePrimaryPdProjects() {
+    void nonAdminShouldSeeOnlyPrimaryPmPdProjects() {
         seedRole("PD");
         seedRole("PM");
         seedEmployee("PD_EMP_1");
@@ -267,13 +267,12 @@ class ProjectServiceTest {
         projectService.createProject(newProject("PRJ_B", "P3"));
         projectService.createProject(newProject("PRJ_C", "P2"));
         projectService.createProject(newProject("PRJ_D", "P4"));
+        projectService.createProject(newProject("PRJ_E", "P5"));
 
-        // PD 是 PRJ_A、PRJ_B 的主 PD —— 应可见
+        // 主PD A、主PD B、主PM D → 可见；非主PD C、未分配 E → 不可见
         seedAssignment("PRJ_A", "P2", "PD", "PD_EMP_1", true);
         seedAssignment("PRJ_B", "P3", "PD", "PD_EMP_1", true);
-        // PRJ_C：PD 被分配为 PD 角色但非主 —— 应不可见
         seedAssignment("PRJ_C", "P2", "PD", "PD_EMP_1", false);
-        // PRJ_D：PD 是其他角色（PM）的主，但非 PD 角色 —— 应不可见
         seedAssignment("PRJ_D", "P4", "PM", "PD_EMP_1", true);
 
         SecurityContextHolder.getContext().setAuthentication(
@@ -284,11 +283,68 @@ class ProjectServiceTest {
                 new PageQuery(), null, null, false, null, null);
 
         List<String> codes = result.getList().stream().map(ProjectDTO::getProjectCode).toList();
-        assertEquals(2, result.getTotal());
+        assertEquals(3, result.getTotal());
         assertTrue(codes.contains("PRJ_A"));
         assertTrue(codes.contains("PRJ_B"));
+        assertTrue(codes.contains("PRJ_D"));
         assertFalse(codes.contains("PRJ_C"));
-        assertFalse(codes.contains("PRJ_D"));
+        assertFalse(codes.contains("PRJ_E"));
+    }
+
+    // 功能：可见性+字段级门控——主 PM 项目可见且 managedByCurrentUser=true；纯参与者(AIM)项目完全不可见（李总场景）
+    @Test
+    void managedByCurrentUserShouldReflectProjectLevelPmRole() {
+        seedRole("PM");
+        seedRole("AIM");
+        seedEmployee("LIZONG_EMP");
+        seedUser("U_LIZONG", "lizong_test", "LIZONG_EMP");
+
+        projectService.createProject(newProject("PRJ_M", "P2"));
+        projectService.createProject(newProject("PRJ_N", "P2"));
+
+        // 李总在 PRJ_M 上是主 PM，在 PRJ_N 上只是 AIM 参与者 → PRJ_N 不应出现在项目管理
+        seedAssignment("PRJ_M", "P2", "PM", "LIZONG_EMP", true);
+        seedAssignment("PRJ_N", "P2", "AIM", "LIZONG_EMP", true);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("lizong_test", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_PM"),
+                                new SimpleGrantedAuthority("ROLE_评估人"),
+                                new SimpleGrantedAuthority("ROLE_员工"))));
+
+        PageResult<ProjectDTO> result = projectService.listProjects(
+                new PageQuery(), null, null, false, null, null);
+
+        assertEquals(1, result.getTotal());
+        ProjectDTO pmProject = result.getList().stream()
+                .filter(d -> "PRJ_M".equals(d.getProjectCode())).findFirst().orElseThrow();
+        assertEquals(Boolean.TRUE, pmProject.getManagedByCurrentUser());
+        assertFalse(result.getList().stream().anyMatch(d -> "PRJ_N".equals(d.getProjectCode())));
+    }
+
+    // 功能：scope=assigned（参与录入）——放宽为任意项目角色分配可见，纯参与者(AIM)也能看到自己参与的项目
+    @Test
+    void assignedScopeShouldIncludeAnyRoleAssignment() {
+        seedRole("AIM");
+        seedEmployee("AIM_EMP_1");
+        seedUser("U_AIM_1", "aim_list_test", "AIM_EMP_1");
+
+        projectService.createProject(newProject("PRJ_A", "P2"));
+        projectService.createProject(newProject("PRJ_B", "P2"));
+
+        seedAssignment("PRJ_A", "P2", "AIM", "AIM_EMP_1", true);
+        // PRJ_B 未分配
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("aim_list_test", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_评估人"),
+                                new SimpleGrantedAuthority("ROLE_员工"))));
+
+        PageResult<ProjectDTO> result = projectService.listProjects(
+                new PageQuery(), null, null, false, null, "assigned");
+
+        assertEquals(1, result.getTotal());
+        assertEquals("PRJ_A", result.getList().get(0).getProjectCode());
     }
 
     // 功能：PM 创建项目后自动写入 PM 角色分配，且新建项目立即出现在其项目列表
