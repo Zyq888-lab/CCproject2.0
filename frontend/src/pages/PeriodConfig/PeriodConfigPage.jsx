@@ -8,6 +8,7 @@ import {
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, CalendarOutlined, LockOutlined, PlayCircleOutlined, BarChartOutlined,
+  ExperimentOutlined, SlidersOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
@@ -34,8 +35,11 @@ function PeriodConfigPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [form] = Form.useForm();
   const mountedRef = useRef(true);
+  const [userRoles, setUserRoles] = useState([]);
 
   const hasActivePeriod = periods.some((p) => p.status !== 'COMPLETED');
+  const isAdmin = userRoles.includes('ROLE_ADMIN');
+  const isPd = userRoles.includes('ROLE_PD');
 
   const fetchPeriods = useCallback(async () => {
     setLoading(true);
@@ -62,6 +66,14 @@ function PeriodConfigPage() {
     fetchPeriods();
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 功能：获取当前用户角色——非 ADMIN（如 PD）隐藏创建/发起/编辑/关闭等管理动作
+  useEffect(() => {
+    client.get('/auth/me').then((res) => {
+      const data = res.data || res;
+      setUserRoles(data.roles || []);
+    }).catch(() => { /* 非关键 */ });
+  }, []);
 
   useEffect(() => {
     fetchPeriods();
@@ -150,6 +162,23 @@ function PeriodConfigPage() {
     });
   };
 
+  const handleCalibrate = (period) => {
+    showConfirm({
+      title: `确定进入校准「${period.periodName}」吗？`,
+      content: '进入校准后将生成考核结果并冻结打分，PD 可开始校准调整。',
+      okText: '进入校准',
+      onOk: async () => {
+        try {
+          await client.put(`/periods/${period.periodId}/calibrate`);
+          message.success({ content: '已进入校准', duration: 3 });
+          fetchPeriods();
+        } catch (err) {
+          message.error({ content: err?.message || '进入校准失败' });
+        }
+      },
+    });
+  };
+
   const formatDate = (d) => {
     if (!d) return '-';
     return d.length > 10 ? d.substring(0, 10) : d;
@@ -183,13 +212,13 @@ function PeriodConfigPage() {
       <PageHeader
         title="考核周期"
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
-        actions={[{
+        actions={isAdmin ? [{
           label: hasActivePeriod ? '请先关闭当前活跃周期' : '创建周期',
           icon: <PlusOutlined />,
           type: 'primary',
           onClick: handleCreate,
           disabled: hasActivePeriod,
-        }]}
+        }] : []}
       />
 
       {error && periods.length > 0 && (
@@ -237,7 +266,7 @@ function PeriodConfigPage() {
                       </Space>
                     }
                     actions={[
-                      period.status === 'INIT' && (
+                      period.status === 'INIT' && isAdmin && (
                         <Button
                           type="link"
                           size="small"
@@ -247,7 +276,7 @@ function PeriodConfigPage() {
                           发起考核
                         </Button>
                       ),
-                      period.status === 'INIT' && (
+                      period.status === 'INIT' && isAdmin && (
                         <Button
                           type="link"
                           size="small"
@@ -255,6 +284,26 @@ function PeriodConfigPage() {
                           onClick={() => handleEdit(period)}
                         >
                           编辑
+                        </Button>
+                      ),
+                      period.status === 'ONGOING' && isAdmin && (
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<ExperimentOutlined />}
+                          onClick={() => handleCalibrate(period)}
+                        >
+                          进入校准
+                        </Button>
+                      ),
+                      period.status === 'CALIBRATING' && (isAdmin || isPd) && (
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<SlidersOutlined />}
+                          onClick={() => navigate(`/period-calibration/${period.periodId}`)}
+                        >
+                          校准
                         </Button>
                       ),
                       (
@@ -267,7 +316,7 @@ function PeriodConfigPage() {
                           监控
                         </Button>
                       ),
-                      period.status !== 'COMPLETED' && (
+                      period.status !== 'COMPLETED' && isAdmin && (
                         <Button
                           type="link"
                           size="small"
