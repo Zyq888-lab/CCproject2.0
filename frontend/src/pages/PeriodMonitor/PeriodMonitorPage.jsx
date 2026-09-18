@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Table, Tag, Space, Select, Button, Spin, Result, Modal, Descriptions,
+  Card, Table, Tag, Space, Select, Button, Spin, Result, Modal, Descriptions, Alert,
 } from 'antd';
 import {
   ArrowLeftOutlined, DownloadOutlined, FundViewOutlined, EyeOutlined,
@@ -42,6 +42,15 @@ const NODE_LABEL_MAP = {
   SUBMITTED: '待确认',
   CONFIRMED: '已完成',
   CANCELED: '已取消',
+};
+
+// 功能：当前审批节点文案——CALIBRATING 期按校准提交状态映射（未提交=待校准；已提交=待总裁确认），
+//   其余状态沿用任务状态映射 NODE_LABEL_MAP
+const resolveNodeLabel = (r) => {
+  if (r?.periodStatus === 'CALIBRATING') {
+    return r.calibrationSubmittedAt ? '待总裁确认' : '待校准';
+  }
+  return NODE_LABEL_MAP[r.status] || '-';
 };
 
 function PeriodMonitorPage() {
@@ -99,7 +108,7 @@ function PeriodMonitorPage() {
       项目: r.projectName || r.projectCode || '-',
       任务类型: TASK_TYPE_LABEL[r.taskType] || r.taskType || '-',
       状态: STATUS_LABEL_MAP[r.status] || r.status || '-',
-      当前审批节点: NODE_LABEL_MAP[r.status] || '-',
+      当前审批节点: resolveNodeLabel(r),
       当前审批人: r.currentApproverName || r.currentApproverId || '-',
       评分进度: r.kpiCount ? `${r.scoredCount ?? 0}/${r.kpiCount}` : '-',
       加权总分: r.totalScore != null ? Number(r.totalScore).toFixed(2) : '-',
@@ -125,7 +134,7 @@ function PeriodMonitorPage() {
     { title: '状态', dataIndex: 'status', key: 'status', width: 100,
       render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{STATUS_LABEL_MAP[s] || s || '-'}</Tag> },
     { title: '当前审批节点', dataIndex: 'currentNode', key: 'currentNode', width: 160,
-      render: (_, r) => NODE_LABEL_MAP[r.status] || '-' },
+      render: (_, r) => resolveNodeLabel(r) },
     { title: '当前审批人', dataIndex: 'currentApproverName', key: 'currentApproverName', width: 120,
       render: (v, r) => v || r.currentApproverId || '-' },
     { title: '评分进度', dataIndex: 'scoredCount', key: 'scoredCount', width: 100,
@@ -176,6 +185,16 @@ function PeriodMonitorPage() {
           {error}
           <Button type="link" onClick={fetchData}>重试</Button>
         </div>
+      )}
+
+      {/* 功能：PD 提交状态提示——仅 CALIBRATING 阶段展示（calibrationSubmittedAt 有值=已提交） */}
+      {data[0]?.periodStatus === 'CALIBRATING' && (
+        <Alert
+          type={data[0]?.calibrationSubmittedAt ? 'success' : 'warning'}
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={data[0]?.calibrationSubmittedAt ? 'PD 已提交校准，待总裁确认' : 'PD 尚未提交校准'}
+        />
       )}
 
       {/* 功能：筛选栏——状态/项目/员工 */}

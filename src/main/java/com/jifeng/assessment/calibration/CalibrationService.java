@@ -184,6 +184,7 @@ public class CalibrationService {
         CalibrationMatrixResponse resp = new CalibrationMatrixResponse();
         resp.setPeriodId(periodId);
         resp.setPeriodName(period.getPeriodName());
+        resp.setCalibrationSubmittedAt(period.getCalibrationSubmittedAt());
         resp.setUnsubmittedCount(resultService.countUnsubmitted(periodId));
         resp.setUnsubmitted(unsubmitted);
         resp.setSummary(summary);

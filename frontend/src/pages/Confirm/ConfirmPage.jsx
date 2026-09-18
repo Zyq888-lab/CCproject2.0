@@ -167,6 +167,16 @@ function ConfirmPage() {
         />
       )}
 
+      {/* 功能：PD 提交状态提示——calibrationSubmittedAt 有值=PD 已提交待总裁确认 */}
+      {data && (
+        <Alert
+          type={data.calibrationSubmittedAt ? 'success' : 'warning'}
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={data.calibrationSubmittedAt ? 'PD 已提交校准，待总裁确认' : 'PD 尚未提交校准'}
+        />
+      )}
+
       {/* 功能：关键统计卡——提交/未提交/改分/平均分/离群，一屏掌握校准全貌 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         {stats.map((s) => (

@@ -70,6 +70,13 @@ public class PeriodController extends BaseController {
         return ok(periodService.confirmPeriod(periodId));
     }
 
+    // 功能：PD 提交校准——标记校准完成，等待总裁确认；幂等，ADMIN/PD 均可触发
+    @PostMapping("/api/v1/periods/{periodId}/submit-calibration")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PD')")
+    public ApiResponse<AssessmentPeriod> submitCalibration(@PathVariable String periodId) {
+        return ok(periodService.submitCalibration(periodId));
+    }
+
     // 功能：查询周期「未提交」员工数——校准矩阵/确认页「N 人未提交」告警的数据源
     @GetMapping("/api/v1/periods/{periodId}/unsubmitted-count")
     @PreAuthorize("hasAnyRole('ADMIN', 'PD')")

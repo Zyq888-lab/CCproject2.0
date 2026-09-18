@@ -398,6 +398,49 @@ class TaskGeneratorServiceTest {
     }
 
     // ========================================
+    // 12b. launch: 无参与记录 → 不生成 FUNCTIONAL 任务（回归：未参与项目的员工不被职能考核）
+    // ========================================
+    @Test
+    void launchShouldSkipFunctionalWhenNoParticipation() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
+        when(employeeMapper.selectList(any())).thenReturn(List.of(
+                activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1")));
+        when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
+        when(assessorRoleMapper.selectList(any())).thenReturn(List.of(assessorRole(1L, 1L, "PDL")));
+        // 关键：该员工本周期无 APPROVED 参与记录
+        when(participationMapper.selectList(any())).thenReturn(List.of());
+
+        TaskGeneratorService.LaunchResult result = generatorService.launch("PERIOD-001");
+
+        // 无参与记录 → 不生成任何任务（含 FUNCTIONAL），也不记差异
+        assertEquals(0, result.taskCount());
+        assertEquals(0, result.discrepancyCount());
+        verify(taskMapper, never()).insertIgnore(any());
+    }
+
+    // ========================================
+    // 12c. launch: 有参与记录 → 正常生成 FUNCTIONAL 任务（与 12b 配对，保证守卫不误伤参与者）
+    // ========================================
+    @Test
+    void launchShouldGenerateFunctionalWhenHasParticipation() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
+        when(employeeMapper.selectList(any())).thenReturn(List.of(
+                activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1")));
+        when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
+        when(assessorRoleMapper.selectList(any())).thenReturn(List.of(assessorRole(1L, 1L, "PDL")));
+        when(participationMapper.selectList(any())).thenReturn(List.of(
+                approvedParticipation("EMP1", "PERIOD-001", "PRJ1", "P2")));
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of(
+                assignment("PRJ1", "P2", "PDL", "ASSESSOR1")));
+
+        TaskGeneratorService.LaunchResult result = generatorService.launch("PERIOD-001");
+
+        // 有参与记录 → PROJECT + FUNCTIONAL 均生成
+        assertEquals(2, result.taskCount());
+        verify(taskMapper, times(1)).insertIgnore(argThat(t -> "FUNCTIONAL".equals(t.getTaskType())));
+    }
+
+    // ========================================
     // 13. onParticipationApproved: 同角色多人且无人标主 → 跳过该角色 + 记 NO_PRIMARY_ASSESSOR + 通知 admin
     // ========================================
     @Test

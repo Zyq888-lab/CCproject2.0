@@ -99,6 +99,9 @@ public class PeriodMonitorService {
                 .collect(Collectors.groupingBy(AssessmentScore::getTaskId,
                         Collectors.toMap(AssessmentScore::getKpiConfigId, s -> s, (a, b) -> a)));
 
+        // 批量反查 SUBMITTED 项目任务的主 PD 工号——「当前审批人」动态显示所属项目主 PD 姓名，避免 N+1
+        Map<String, String> primaryPdByKey = resolvePrimaryPdByProject(tasks);
+
         return tasks.stream().map(t -> {
             PeriodMonitorItem item = new PeriodMonitorItem();
             item.setTaskId(t.getId());
@@ -132,14 +135,45 @@ public class PeriodMonitorService {
             item.setTotalScore(total);
             item.setScoredCount(scored);
 
-            // 当前审批人：评分阶段=评估人；待确认=PD；终态=无
-            String status = t.getStatus();
-            if ("PENDING".equals(status) || "IN_PROGRESS".equals(status)) {
-                item.setCurrentApproverId(t.getAssessorId());
-                item.setCurrentApproverName(employeeNames.get(t.getAssessorId()));
-            } else if ("SUBMITTED".equals(status)) {
-                item.setCurrentApproverName("PD（待确认）");
+            // 当前审批人：优先周期状态——CALIBRATING 依校准提交时间分叉（未提交=PD待校准；已提交=总裁待确认）；
+            //   终态(CONFIRMED/COMPLETED)=无；否则(INIT/ONGOING)回落任务状态映射（评分阶段=评估人；待确认=PD）
+            String periodStatus = period.getStatus();
+            if ("CALIBRATING".equals(periodStatus)) {
+                if (period.getCalibrationSubmittedAt() == null) {
+                    // 未提交校准：显示所属项目主 PD 姓名（PROJECT 任务）；FUNCTIONAL 无项目或查不到主 PD 时回退占位
+                    String pdEmployeeId = t.getProjectCode() != null && t.getProjectStage() != null
+                            ? primaryPdByKey.get(t.getProjectCode() + "|" + t.getProjectStage())
+                            : null;
+                    if (pdEmployeeId != null) {
+                        item.setCurrentApproverId(pdEmployeeId);
+                        item.setCurrentApproverName(employeeNames.get(pdEmployeeId) + "（待校准）");
+                    } else {
+                        item.setCurrentApproverName("PD（待校准）");
+                    }
+                } else {
+                    item.setCurrentApproverName("总裁（待确认）");
+                }
+            } else if (!"CONFIRMED".equals(periodStatus) && !"COMPLETED".equals(periodStatus)) {
+                String status = t.getStatus();
+                if ("PENDING".equals(status) || "IN_PROGRESS".equals(status)) {
+                    item.setCurrentApproverId(t.getAssessorId());
+                    item.setCurrentApproverName(employeeNames.get(t.getAssessorId()));
+                } else if ("SUBMITTED".equals(status)) {
+                    // 动态显示所属项目主 PD 姓名；FUNCTIONAL 任务(无项目)或查不到主 PD 时回退占位文案
+                    String pdEmployeeId = t.getProjectCode() != null && t.getProjectStage() != null
+                            ? primaryPdByKey.get(t.getProjectCode() + "|" + t.getProjectStage())
+                            : null;
+                    if (pdEmployeeId != null) {
+                        item.setCurrentApproverId(pdEmployeeId);
+                        item.setCurrentApproverName(employeeNames.get(pdEmployeeId));
+                    } else {
+                        item.setCurrentApproverName("PD（待确认）");
+                    }
+                }
             }
+            // 周期级信息：监控页据此展示「PD 已提交/尚未提交」提示
+            item.setPeriodStatus(periodStatus);
+            item.setCalibrationSubmittedAt(period.getCalibrationSubmittedAt());
             return item;
         }).toList();
     }
@@ -192,6 +226,46 @@ public class PeriodMonitorService {
             }
         }
         return indicators;
+    }
+
+    // 功能：批量反查 SUBMITTED 项目任务所属 (projectCode, projectStage) 的主 PD 工号——
+    //   用于「当前审批人」动态显示主 PD 姓名（project_role_code='PD' AND is_primary=true）
+    private Map<String, String> resolvePrimaryPdByProject(List<AssessmentTask> tasks) {
+        List<String> keys = tasks.stream()
+                .filter(t -> "PROJECT".equals(t.getTaskType())
+                        && t.getProjectCode() != null && t.getProjectStage() != null)
+                .map(t -> t.getProjectCode() + "|" + t.getProjectStage())
+                .distinct()
+                .toList();
+        if (keys.isEmpty()) {
+            return Map.of();
+        }
+        LambdaQueryWrapper<ProjectRoleAssignment> wrapper = new LambdaQueryWrapper<ProjectRoleAssignment>()
+                .eq(ProjectRoleAssignment::getProjectRoleCode, "PD")
+                .eq(ProjectRoleAssignment::getIsPrimary, true)
+                .eq(ProjectRoleAssignment::getDeleted, 0);
+        wrapper.and(w -> {
+            boolean first = true;
+            for (String key : keys) {
+                String[] parts = key.split("\\|", 2);
+                String code = parts[0];
+                String stage = parts.length > 1 ? parts[1] : "";
+                if (first) {
+                    w.eq(ProjectRoleAssignment::getProjectCode, code)
+                     .eq(ProjectRoleAssignment::getProjectStage, stage);
+                    first = false;
+                } else {
+                    w.or().eq(ProjectRoleAssignment::getProjectCode, code)
+                           .eq(ProjectRoleAssignment::getProjectStage, stage);
+                }
+            }
+        });
+        return roleAssignmentMapper.selectList(wrapper).stream()
+                .filter(a -> a.getEmployeeId() != null && !a.getEmployeeId().isBlank())
+                .collect(Collectors.toMap(
+                        a -> a.getProjectCode() + "|" + a.getProjectStage(),
+                        ProjectRoleAssignment::getEmployeeId,
+                        (a, b) -> a)); // 同 (code,stage) 多主 PD 时取第一个
     }
 
     // 功能：获取当前用户主角色——取权限列表中第一个匹配的已知角色

@@ -7,6 +7,7 @@ import com.jifeng.assessment.task.KpiIndicatorDTO;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
@@ -46,4 +47,10 @@ public class PeriodMonitorItem {
     /** 当前审批人（PENDING/IN_PROGRESS=评估人；SUBMITTED=PD；终态=null） */
     private String currentApproverId;
     private String currentApproverName;
+
+    /** 周期状态（INIT/ONGOING/CALIBRATING/CONFIRMED/COMPLETED），监控页据此展示提示 */
+    private String periodStatus;
+
+    /** PD 提交校准时间（周期级，NULL=尚未提交），监控页据此展示「PD 已提交/尚未提交」 */
+    private LocalDateTime calibrationSubmittedAt;
 }

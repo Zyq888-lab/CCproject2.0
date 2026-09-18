@@ -49,7 +49,7 @@ public class RoleAssignmentController extends BaseController {
 
     // 功能：分配员工到项目角色——校验项目、角色、员工均存在且未被重复分配
     @PostMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM') and !hasRole('PD')")
     public ApiResponse<ProjectRoleAssignmentDTO> assign(
             @PathVariable String projectCode,
             @PathVariable String projectStage,
@@ -60,7 +60,7 @@ public class RoleAssignmentController extends BaseController {
 
     // 功能：标记为该角色主——任意角色分配均可标记
     @PutMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments/{assignmentId}/toggle-primary-pd")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM') and !hasRole('PD')")
     public ApiResponse<ProjectRoleAssignmentDTO> markPrimary(
             @PathVariable String projectCode,
             @PathVariable String projectStage,
@@ -70,7 +70,7 @@ public class RoleAssignmentController extends BaseController {
 
     // 功能：取消该角色主标记——仅清 is_primary，保留角色分配
     @PutMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments/{assignmentId}/unmark-primary")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM') and !hasRole('PD')")
     public ApiResponse<ProjectRoleAssignmentDTO> unmarkPrimary(
             @PathVariable String projectCode,
             @PathVariable String projectStage,
@@ -80,7 +80,7 @@ public class RoleAssignmentController extends BaseController {
 
     // 功能：移除角色分配——逻辑删除
     @DeleteMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments/{assignmentId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM') and !hasRole('PD')")
     public ApiResponse<Void> remove(
             @PathVariable String projectCode,
             @PathVariable String projectStage,
@@ -91,7 +91,7 @@ public class RoleAssignmentController extends BaseController {
 
     // 功能：批量导入角色分配——逐行处理，跳过已存在的分配
     @PostMapping("/api/v1/projects/assignments/import")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM') and !hasRole('PD')")
     public ApiResponse<java.util.Map<String, Object>> importAssignments(
             @RequestBody List<ImportAssignmentRequest> requests) {
         int success = 0, skip = 0;

@@ -140,6 +140,21 @@ public class PeriodService {
         return periodMapper.selectById(periodId);
     }
 
+    // 功能：PD 提交校准——仅 CALIBRATING 周期可提交；写入当前时间，幂等（已提交则保持首次时间戳不变）
+    @Transactional
+    public AssessmentPeriod submitCalibration(String periodId) {
+        AssessmentPeriod period = requirePeriod(periodId);
+        if (!CALIBRATING.equals(period.getStatus())) {
+            throw new BusinessException(400, "仅校准中的周期可提交校准");
+        }
+        if (period.getCalibrationSubmittedAt() == null) {
+            period.setCalibrationSubmittedAt(LocalDateTime.now());
+            period.setUpdatedAt(LocalDateTime.now());
+            periodMapper.updateById(period);
+        }
+        return periodMapper.selectById(periodId);
+    }
+
     // 功能：结果可见性——仅 CONFIRMED（已确认待关闭）或 COMPLETED（已关闭）时员工可查看最终结果
     public boolean isResultVisible(String periodId) {
         if (!StringUtils.hasText(periodId)) {

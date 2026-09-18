@@ -317,7 +317,7 @@ function PeriodConfigPage() {
                           确认发布
                         </Button>
                       ),
-                      (
+                      isAdmin && (
                         <Button
                           type="link"
                           size="small"

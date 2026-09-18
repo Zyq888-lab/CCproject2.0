@@ -331,6 +331,28 @@ class ParticipationServiceTest {
         assertTrue(ids.contains(managedId), "员工+PM 用户应能看到自己主负责项目上的他人参与记录");
     }
 
+    // 功能：评估人不再授予项目可见性——仅持有「评估人」角色(无员工/PM/PD)时，即便在项目上有角色分配，
+    //   也不应看到他人参与记录（旧逻辑会经 listAssignedProjectCodes 泄露该项目的全部参与记录）
+    @Test
+    void assessorShouldNotSeeOthersParticipations() {
+        seedRole("PM");
+        seedEmployee("EMP_ASSESSOR");
+        seedEmployee("EMP_OTHER2");
+        seedUser("U_ASSESSOR", "assessor_user", "EMP_ASSESSOR");
+        seedProject("PRJ_ASSESS", "P2");
+        seedPeriod("PERIOD_ASSESS");
+        // 评估人在该项目上有角色分配（主 PM）——旧逻辑据此授予项目可见性，导致泄露他人记录
+        seedAssignment("PRJ_ASSESS", "P2", "PM", "EMP_ASSESSOR", true);
+        seedParticipation("EMP_OTHER2", "PERIOD_ASSESS", "PRJ_ASSESS", "P2");
+
+        auth("assessor_user", "评估人");
+
+        PageResult<EmployeeProjectParticipation> result = participationService.listParticipations(
+                new PageQuery(), "PERIOD_ASSESS", null, null);
+
+        assertTrue(result.getList().isEmpty(), "仅评估人角色的用户不应看到他人参与记录");
+    }
+
     // 辅助：插入项目角色
     private void seedRole(String roleCode) {
         ProjectRole role = new ProjectRole();

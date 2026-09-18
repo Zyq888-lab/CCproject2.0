@@ -40,7 +40,9 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
   }, []);
   const isAdmin = userRoles.includes('ROLE_ADMIN');
   const isPM = userRoles.includes('ROLE_PM');
-  const canEdit = isAdmin || isPM;
+  const isPD = userRoles.includes('ROLE_PD');
+  // 功能：PD 角色一律只读——即使同时持有 PM/ADMIN，也不得编辑角色分配
+  const canEdit = (isAdmin || isPM) && !isPD;
 
   // 功能：从角色列表中解析角色名称
   const getRoleName = (roleCode) => {

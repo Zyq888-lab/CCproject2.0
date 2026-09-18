@@ -1,6 +1,6 @@
 // 模块用途：周期监控REST接口——查询某周期下所有考核任务的监控聚合列表
 // 依赖文件：PeriodMonitorService.java, BaseController.java
-// 修改注意：仅 ADMIN/PM 可访问；PM 数据范围由服务层按自己项目过滤
+// 修改注意：仅 ADMIN 可访问（监控只给管理员）
 package com.jifeng.assessment.monitor;
 
 import com.jifeng.assessment.common.ApiResponse;
@@ -19,9 +19,9 @@ public class PeriodMonitorController extends BaseController {
 
     private final PeriodMonitorService periodMonitorService;
 
-    // 功能：查询周期监控列表——ADMIN 全见，PM 仅见自己项目
+    // 功能：查询周期监控列表——仅 ADMIN 可访问
     @GetMapping("/api/v1/periods/{periodId}/monitor")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<List<PeriodMonitorItem>> monitor(@PathVariable String periodId) {
         return ok(periodMonitorService.monitor(periodId));
     }

@@ -7,6 +7,7 @@ package com.jifeng.assessment.calibration;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
@@ -14,6 +15,7 @@ public class CalibrationMatrixResponse {
 
     private String periodId;
     private String periodName;
+    private LocalDateTime calibrationSubmittedAt; // PD 提交校准时间（NULL=尚未提交）
     private int unsubmittedCount;
     private List<Unsubmitted> unsubmitted;
     private List<GroupSummary> summary;

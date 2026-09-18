@@ -27,6 +27,9 @@ public class AssessmentPeriod {
 
     private String status;
 
+    @TableField("calibration_submitted_at")
+    private LocalDateTime calibrationSubmittedAt;
+
     @TableLogic
     private Integer deleted;
 

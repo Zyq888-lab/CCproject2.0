@@ -199,7 +199,10 @@ public class TaskGeneratorService {
         }
 
         // Step 5: 生成 FUNCTIONAL 任务（直属上级考核职能）；无上级则记录差异；无职能 KPI 配置则不生成空职能任务
-        if (emp.getDirectLeaderId() == null) {
+        // 前置守卫：仅当员工本周期有 APPROVED 参与记录才生成职能考核；未参与项目者跳过（不生成、不记差异）
+        if (participations.isEmpty()) {
+            // 无参与记录 → 跳过 FUNCTIONAL 任务
+        } else if (emp.getDirectLeaderId() == null) {
             discrepancies.add(new Discrepancy(DISCREPANCY_NO_LEADER, "直属上级为空"));
         } else if (hasFunctionalKpi(emp)) {
             insertIgnore(periodId, emp.getDirectLeaderId(), emp.getEmployeeId(),

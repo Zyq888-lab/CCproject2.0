@@ -224,6 +224,40 @@ class PeriodServiceTest {
         assertEquals("COMPLETED", aborted.getStatus());
     }
 
+    // 功能：PD 提交校准——CALIBRATING 周期写入当前时间，返回已带提交时间的周期
+    @Test
+    void shouldSubmitCalibration() {
+        AssessmentPeriod period = createTestPeriod("提交校准");
+        startPeriod(period.getPeriodId());
+        periodService.enterCalibration(period.getPeriodId());
+
+        AssessmentPeriod submitted = periodService.submitCalibration(period.getPeriodId());
+        assertNotNull(submitted.getCalibrationSubmittedAt());
+    }
+
+    // 功能：非 CALIBRATING 周期提交校准被拒绝——400 业务异常
+    @Test
+    void shouldRejectSubmitCalibrationWhenNotCalibrating() {
+        AssessmentPeriod period = createTestPeriod("非校准提交");
+        startPeriod(period.getPeriodId()); // ONGOING
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> periodService.submitCalibration(period.getPeriodId()));
+        assertEquals(400, ex.getCode());
+    }
+
+    // 功能：提交校准幂等——重复提交不报错且保留首次提交时间
+    @Test
+    void shouldBeIdempotentSubmitCalibration() {
+        AssessmentPeriod period = createTestPeriod("幂等提交");
+        startPeriod(period.getPeriodId());
+        periodService.enterCalibration(period.getPeriodId());
+
+        AssessmentPeriod first = periodService.submitCalibration(period.getPeriodId());
+        AssessmentPeriod second = periodService.submitCalibration(period.getPeriodId());
+        assertEquals(first.getCalibrationSubmittedAt(), second.getCalibrationSubmittedAt());
+    }
+
     // 功能：结果可见性由周期态推导——仅 CONFIRMED/COMPLETED 可见
     @Test
     void shouldDeriveResultVisibilityFromPeriodStatus() {

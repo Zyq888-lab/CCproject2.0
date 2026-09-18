@@ -5,10 +5,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Table, Tag, Switch, Space, Button, InputNumber, Select, Spin, Result, Alert, message,
+  Card, Table, Tag, Switch, Space, Button, InputNumber, Select, Spin, Result, Alert, message, Modal,
 } from 'antd';
 import {
-  ArrowLeftOutlined, EditOutlined, FundViewOutlined, RiseOutlined, FallOutlined,
+  ArrowLeftOutlined, EditOutlined, FundViewOutlined, RiseOutlined, FallOutlined, SendOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
@@ -37,7 +37,14 @@ function CalibrationMatrixPage() {
   const [editScore, setEditScore] = useState(null);
   const [editReason, setEditReason] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [userRoles, setUserRoles] = useState([]);
+  const [submitVisible, setSubmitVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const mountedRef = useRef(true);
+
+  const isPd = userRoles.includes('ROLE_PD');
+  // 是否已提交校准——由周期 calibrationSubmittedAt 推导（NULL=尚未提交）
+  const submitted = !!data?.calibrationSubmittedAt;
 
   // 功能：加载校准矩阵——汇总带 + 离群优先排序行
   const fetchData = async () => {
@@ -58,6 +65,29 @@ function CalibrationMatrixPage() {
     fetchData();
     return () => { mountedRef.current = false; };
   }, [periodId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 功能：获取当前用户角色——「提交校准」按钮仅 PD 可见
+  useEffect(() => {
+    client.get('/auth/me').then((res) => {
+      const d = res.data || res;
+      setUserRoles(d.roles || []);
+    }).catch(() => { /* 非关键 */ });
+  }, []);
+
+  // 功能：提交校准——POST submit-calibration，成功后刷新以切换为「已提交待总裁确认」状态
+  const doSubmit = async () => {
+    setSubmitting(true);
+    try {
+      await client.post(`/periods/${periodId}/submit-calibration`);
+      message.success({ content: '已提交校准，等待总裁确认', duration: 3 });
+      setSubmitVisible(false);
+      fetchData();
+    } catch (err) {
+      message.error({ content: err?.message || '提交失败' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   // 功能：进入行内编辑——预填当前调整分
   const startEdit = (row) => {
@@ -226,6 +256,12 @@ function CalibrationMatrixPage() {
         breadcrumb={[{ title: '首页', path: '/dashboard' }, { title: '考核周期', path: '/period-config' }]}
         actions={[
           { label: '返回周期列表', icon: <ArrowLeftOutlined />, onClick: () => navigate('/period-config') },
+          ...(isPd && data && !submitted
+            ? [{ label: '提交校准', icon: <SendOutlined />, type: 'primary', onClick: () => setSubmitVisible(true) }]
+            : []),
+          ...(isPd && submitted
+            ? [{ label: '已提交待总裁确认', icon: <CheckCircleOutlined />, disabled: true }]
+            : []),
         ]}
       />
 
@@ -304,6 +340,24 @@ function CalibrationMatrixPage() {
           />
         </Card>
       )}
+
+      {/* 功能：提交校准二次确认——确认后进入「待总裁确认」，确认前仍可继续改分 */}
+      <Modal
+        title="提交校准"
+        open={submitVisible}
+        onOk={doSubmit}
+        onCancel={() => setSubmitVisible(false)}
+        okText="确认提交"
+        cancelText="取消"
+        confirmLoading={submitting}
+        width={440}
+        centered
+      >
+        <div style={{ lineHeight: 1.7 }}>
+          <p>提交后，本轮校准将进入「待总裁确认」状态。</p>
+          <p style={{ color: '#595959' }}>总裁确认前仍可继续改分，是否确认已完成校准并提交？</p>
+        </div>
+      </Modal>
     </div>
   );
 }

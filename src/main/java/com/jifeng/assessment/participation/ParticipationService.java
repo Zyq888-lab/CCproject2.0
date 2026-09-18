@@ -48,7 +48,8 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
 
     // 功能：分页查询项目参与列表——按当前用户角色强制数据隔离，同时支持按周期和状态筛选：
     //   员工=只看本人(employeeId=当前工号)，主PM/主PD=仅见自己主负责项目(project_role_code匹配 AND is_primary=true)的参与记录，
-    //   评估人=按 project_role_assignment 的项目编码集合过滤，ADMIN=看全部(可选传 employeeId 下钻)。非 ADMIN 忽略传入的 employeeId。
+    //   ADMIN=看全部(可选传 employeeId 下钻)。非 ADMIN 忽略传入的 employeeId。
+    //   评估人不再额外授予项目可见性——评估人仅能通过「员工」角色查看本人提交的参与记录。
     public PageResult<EmployeeProjectParticipation> listParticipations(PageQuery query, String periodId, String status, String employeeId) {
         LambdaQueryWrapper<EmployeeProjectParticipation> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(periodId)) {
@@ -59,7 +60,7 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         }
 
         // 数据隔离：多角色用户取各角色可见范围的并集，而非坍缩为单一主角色——
-        //   员工看本人(employee_id=当前工号)，主PM/主PD看主负责项目，评估人看分配项目，ADMIN看全部；
+        //   员工看本人(employee_id=当前工号)，主PM/主PD看主负责项目，ADMIN看全部；
         //   避免「员工+PM」这类多角色用户被主PM范围吞掉自己作为被考核人提交的参与记录
         Set<String> roles = getRoles();
         String currentEmployeeId = getCurrentEmployeeId();
@@ -77,11 +78,8 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
             if (roles.contains("PD")) {
                 primaryCodes.addAll(listPrimaryProjectCodes(currentEmployeeId, "PD"));
             }
-            Set<String> assignedCodes = roles.contains("评估人")
-                    ? new LinkedHashSet<>(listAssignedProjectCodes(currentEmployeeId))
-                    : new LinkedHashSet<>();
 
-            if (!hasOwn && primaryCodes.isEmpty() && assignedCodes.isEmpty()) {
+            if (!hasOwn && primaryCodes.isEmpty()) {
                 return PageResult.of(0, query.getPage(), query.getSize(), List.of());
             }
             wrapper.and(w -> {
@@ -95,10 +93,6 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
                     w.in(EmployeeProjectParticipation::getProjectCode, primaryCodes);
                     first = false;
                 }
-                if (!assignedCodes.isEmpty()) {
-                    if (!first) w.or();
-                    w.in(EmployeeProjectParticipation::getProjectCode, assignedCodes);
-                }
             });
         }
 
@@ -106,21 +100,6 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         PageResult<EmployeeProjectParticipation> page = selectPage(query, wrapper);
         fillCurrentApprover(page.getList());
         return page;
-    }
-
-    // 功能：查询当前员工在 project_role_assignment 中被分配的项目编码集合，用于 PM/PD/评估人 数据隔离
-    private List<String> listAssignedProjectCodes(String employeeId) {
-        if (!StringUtils.hasText(employeeId)) {
-            return List.of();
-        }
-        return projectRoleAssignmentMapper.selectList(new LambdaQueryWrapper<ProjectRoleAssignment>()
-                        .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
-                        .eq(ProjectRoleAssignment::getDeleted, 0))
-                .stream()
-                .map(ProjectRoleAssignment::getProjectCode)
-                .filter(StringUtils::hasText)
-                .distinct()
-                .toList();
     }
 
     // 功能：查询当前员工主负责的项目编码集合——project_role_code 匹配当前角色 AND is_primary=true，用于主 PM/主 PD 数据隔离
