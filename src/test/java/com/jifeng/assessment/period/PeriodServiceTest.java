@@ -1,9 +1,18 @@
-// 模块用途：PeriodService 单元测试——覆盖CRUD、活跃周期唯一约束、状态机（INIT→ONGOING→CALIBRATING→CONFIRMED→COMPLETED + abort）
+// 模块用途：PeriodService 单元测试——覆盖CRUD、活跃周期唯一约束、状态机（INIT→ONGOING→CALIBRATING→CONFIRMED→PUBLISHED→COMPLETED + abort）
 // 依赖文件：PeriodService.java, AssessmentPeriod.java, PeriodMapper.java
 // 修改注意：@SpringBootTest + @Transactional（测试库 PostgreSQL，每个用例独立回滚）
 package com.jifeng.assessment.period;
 
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.confirmation.ProjectConfirmation;
+import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
+import com.jifeng.assessment.employee.Employee;
+import com.jifeng.assessment.employee.EmployeeMapper;
+import com.jifeng.assessment.task.AssessmentTask;
+import com.jifeng.assessment.task.DiscrepancyLog;
+import com.jifeng.assessment.task.DiscrepancyLogMapper;
+import com.jifeng.assessment.task.TaskMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,6 +33,14 @@ class PeriodServiceTest {
     private PeriodService periodService;
     @Autowired
     private PeriodMapper periodMapper;
+    @Autowired
+    private TaskMapper taskMapper;
+    @Autowired
+    private EmployeeMapper employeeMapper;
+    @Autowired
+    private ProjectConfirmationMapper projectConfirmationMapper;
+    @Autowired
+    private DiscrepancyLogMapper discrepancyLogMapper;
 
     // 辅助方法：创建测试周期
     private AssessmentPeriod createTestPeriod(String name) {
@@ -44,7 +61,13 @@ class PeriodServiceTest {
     private void walkToConfirmed(String periodId) {
         startPeriod(periodId);
         periodService.enterCalibration(periodId);
-        periodService.confirmPeriod(periodId);
+        periodService.tryConfirmPeriod(periodId);
+    }
+
+    // 辅助方法：走完整状态链到 PUBLISHED（CONFIRMED 后再发布）
+    private void walkToPublished(String periodId) {
+        walkToConfirmed(periodId);
+        periodService.publishPeriod(periodId);
     }
 
     // 功能：创建考核周期——自动生成periodId，返回完整实体
@@ -101,13 +124,13 @@ class PeriodServiceTest {
         assertEquals("INIT", init.get(0).getStatus());
     }
 
-    // 功能：完整状态链后关闭——INIT→ONGOING→CALIBRATING→CONFIRMED→COMPLETED
+    // 功能：完整状态链后关闭——INIT→ONGOING→CALIBRATING→CONFIRMED→PUBLISHED→COMPLETED
     @Test
     void shouldClosePeriod() {
         AssessmentPeriod period = createTestPeriod("2026年上半年考核");
         assertEquals("INIT", period.getStatus());
 
-        walkToConfirmed(period.getPeriodId());
+        walkToPublished(period.getPeriodId());
 
         AssessmentPeriod closed = periodService.closePeriod(period.getPeriodId());
         assertEquals("COMPLETED", closed.getStatus());
@@ -126,7 +149,7 @@ class PeriodServiceTest {
     @Test
     void shouldRejectCloseAlreadyCompleted() {
         AssessmentPeriod period = createTestPeriod("2026年上半年考核");
-        walkToConfirmed(period.getPeriodId());
+        walkToPublished(period.getPeriodId());
         periodService.closePeriod(period.getPeriodId());
 
         BusinessException ex = assertThrows(BusinessException.class,
@@ -160,16 +183,16 @@ class PeriodServiceTest {
         assertTrue(ex.getMessage().contains("开始日期不能晚于结束日期"));
     }
 
-    // 功能：未完成总裁确认（非CONFIRMED）时关闭被拒绝——防旁路
+    // 功能：未发布（仅CONFIRMED）时关闭被拒绝——防旁路（需先发布再关闭）
     @Test
-    void shouldRejectCloseBeforeConfirm() {
-        AssessmentPeriod period = createTestPeriod("未确认关闭");
-        startPeriod(period.getPeriodId());
+    void shouldRejectCloseBeforePublish() {
+        AssessmentPeriod period = createTestPeriod("未发布关闭");
+        walkToConfirmed(period.getPeriodId()); // CONFIRMED
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> periodService.closePeriod(period.getPeriodId()));
         assertEquals(400, ex.getCode());
-        assertTrue(ex.getMessage().contains("仅已确认"));
+        assertTrue(ex.getMessage().contains("仅已发布"));
     }
 
     // 功能：进入校准——ONGOING→CALIBRATING
@@ -192,26 +215,85 @@ class PeriodServiceTest {
         assertEquals(400, ex.getCode());
     }
 
-    // 功能：总裁确认——CALIBRATING→CONFIRMED
+    // 功能：周期级确认——CALIBRATING→CONFIRMED 原子翻转（tryConfirmPeriod 返回 true）
     @Test
-    void shouldConfirmPeriod() {
+    void shouldConfirmPeriodAtomically() {
         AssessmentPeriod period = createTestPeriod("确认周期");
         startPeriod(period.getPeriodId());
         periodService.enterCalibration(period.getPeriodId());
 
-        AssessmentPeriod confirmed = periodService.confirmPeriod(period.getPeriodId());
-        assertEquals("CONFIRMED", confirmed.getStatus());
+        boolean confirmed = periodService.tryConfirmPeriod(period.getPeriodId());
+
+        assertTrue(confirmed);
+        assertEquals("CONFIRMED", periodMapper.selectById(period.getPeriodId()).getStatus());
     }
 
-    // 功能：非CALIBRATING（ONGOING）时确认被拒绝——原子翻转不越级
+    // 功能：非CALIBRATING（ONGOING）时确认不翻转——返回 false 且状态不变
     @Test
-    void shouldRejectConfirmWhenNotCalibrating() {
+    void shouldNotConfirmWhenNotCalibrating() {
         AssessmentPeriod period = createTestPeriod("非校准确认");
         startPeriod(period.getPeriodId());
 
+        boolean confirmed = periodService.tryConfirmPeriod(period.getPeriodId());
+
+        assertFalse(confirmed);
+        assertEquals("ONGOING", periodMapper.selectById(period.getPeriodId()).getStatus());
+    }
+
+    // 功能：发布结果——CONFIRMED→PUBLISHED 原子翻转
+    @Test
+    void shouldPublishPeriod() {
+        AssessmentPeriod period = createTestPeriod("发布周期");
+        walkToConfirmed(period.getPeriodId());
+
+        AssessmentPeriod published = periodService.publishPeriod(period.getPeriodId());
+
+        assertEquals("PUBLISHED", published.getStatus());
+    }
+
+    // 功能：非CONFIRMED（ONGOING）时发布被拒绝
+    @Test
+    void shouldRejectPublishWhenNotConfirmed() {
+        AssessmentPeriod period = createTestPeriod("非确认发布");
+        startPeriod(period.getPeriodId()); // ONGOING
+
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> periodService.confirmPeriod(period.getPeriodId()));
+                () -> periodService.publishPeriod(period.getPeriodId()));
         assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("仅已确认"));
+    }
+
+    // 功能：进入校准时生成项目确认行 + 未分配总裁项目写 NO_PRESIDENT 差异
+    @Test
+    void shouldGenerateConfirmationAndNoPresidentDiscrepancyOnEnterCalibration() {
+        AssessmentPeriod period = createTestPeriod("无总裁差异");
+        startPeriod(period.getPeriodId());
+
+        Employee emp = seedEmployee("EMP_NOPRES");
+        AssessmentTask task = new AssessmentTask();
+        task.setPeriodId(period.getPeriodId());
+        task.setAssessorId("EMP_NOPRES");
+        task.setAssesseeId("EMP_NOPRES");
+        task.setProjectCode("PRJ_NOPRES");
+        task.setProjectStage("P2");
+        task.setTaskType("PROJECT");
+        task.setStatus("PENDING");
+        taskMapper.insert(task);
+
+        periodService.enterCalibration(period.getPeriodId());
+
+        Long confirmationCount = projectConfirmationMapper.selectCount(
+                new LambdaQueryWrapper<ProjectConfirmation>()
+                        .eq(ProjectConfirmation::getPeriodId, period.getPeriodId())
+                        .eq(ProjectConfirmation::getProjectCode, "PRJ_NOPRES"));
+        assertEquals(1, confirmationCount, "应为未分配总裁项目生成 PENDING 确认行");
+
+        Long discrepancyCount = discrepancyLogMapper.selectCount(
+                new LambdaQueryWrapper<DiscrepancyLog>()
+                        .eq(DiscrepancyLog::getPeriodId, period.getPeriodId())
+                        .eq(DiscrepancyLog::getProjectCode, "PRJ_NOPRES")
+                        .eq(DiscrepancyLog::getType, "NO_PRESIDENT"));
+        assertEquals(1, discrepancyCount, "未分配总裁的项目应写入 NO_PRESIDENT 差异");
     }
 
     // 功能：强制关闭（abort）——ONGOING 直接置为 COMPLETED
@@ -270,10 +352,27 @@ class PeriodServiceTest {
         periodService.enterCalibration(period.getPeriodId());
         assertFalse(periodService.isResultVisible(period.getPeriodId())); // CALIBRATING
 
-        periodService.confirmPeriod(period.getPeriodId());
+        periodService.tryConfirmPeriod(period.getPeriodId());
         assertFalse(periodService.isResultVisible(period.getPeriodId())); // CONFIRMED 待发布不可见
 
+        periodService.publishPeriod(period.getPeriodId());
+        assertTrue(periodService.isResultVisible(period.getPeriodId())); // PUBLISHED 可见
+
         periodService.closePeriod(period.getPeriodId());
-        assertTrue(periodService.isResultVisible(period.getPeriodId())); // COMPLETED
+        assertTrue(periodService.isResultVisible(period.getPeriodId())); // COMPLETED 可见
+    }
+
+    // 辅助：插入员工
+    private Employee seedEmployee(String employeeId) {
+        Employee emp = new Employee();
+        emp.setEmployeeId(employeeId);
+        emp.setName("员工" + employeeId);
+        emp.setEmail(employeeId + "@test.com");
+        emp.setCategory("管理类");
+        emp.setPosition("项目经理");
+        emp.setOrgName("信息部");
+        emp.setStatus("ACTIVE");
+        employeeMapper.insert(emp);
+        return emp;
     }
 }

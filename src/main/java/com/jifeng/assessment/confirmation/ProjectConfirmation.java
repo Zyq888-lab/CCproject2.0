@@ -26,7 +26,7 @@ public class ProjectConfirmation {
     @TableField("return_count")
     private Integer returnCount;
 
-    @TableField("return_reason")
+    @TableField(value = "return_reason", updateStrategy = FieldStrategy.ALWAYS)
     private String returnReason;
 
     @TableField("confirmed_by_employee_id")

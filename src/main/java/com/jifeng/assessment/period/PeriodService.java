@@ -5,7 +5,15 @@ package com.jifeng.assessment.period;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.confirmation.ProjectConfirmation;
+import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
 import com.jifeng.assessment.result.ResultService;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
+import com.jifeng.assessment.task.AssessmentTask;
+import com.jifeng.assessment.task.DiscrepancyLog;
+import com.jifeng.assessment.task.DiscrepancyLogMapper;
+import com.jifeng.assessment.task.TaskMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,12 +29,19 @@ public class PeriodService {
 
     private final PeriodMapper periodMapper;
     private final ResultService resultService;
+    private final TaskMapper taskMapper;
+    private final ProjectConfirmationMapper projectConfirmationMapper;
+    private final ProjectRoleAssignmentMapper roleAssignmentMapper;
+    private final DiscrepancyLogMapper discrepancyLogMapper;
 
     private static final String COMPLETED = "COMPLETED";
     private static final String CONFIRMED = "CONFIRMED";
+    private static final String PUBLISHED = "PUBLISHED";
     private static final String CALIBRATING = "CALIBRATING";
     private static final String ONGOING = "ONGOING";
     private static final String INIT = "INIT";
+    private static final String ROLE_PRESIDENT = "PRESIDENT";
+    private static final String DISCREPANCY_NO_PRESIDENT = "NO_PRESIDENT";
 
     // 功能：查询考核周期列表，支持按status筛选
     public List<AssessmentPeriod> listPeriods(String status) {
@@ -95,34 +110,45 @@ public class PeriodService {
         }
         // 进入校准即生成结果行：仅聚合 SUBMITTED 任务，未提交员工跳空不生成（完整性软门不阻断）
         resultService.generateResults(periodId);
+        // 生成项目确认行（逐项目 PENDING）+ 未分配总裁项目差异
+        generateProjectConfirmations(periodId);
         return periodMapper.selectById(periodId);
     }
 
-    // 功能：总裁确认——CALIBRATING→CONFIRMED，单条 UPDATE WHERE status='CALIBRATING' 原子翻转，
-    //   避免并发下重复确认/越级确认（read-modify-write 会漏检）
+    // 功能：发布结果——CONFIRMED→PUBLISHED 原子翻转，总裁逐项目确认全部通过后由 ADMIN 触发
     @Transactional
-    public AssessmentPeriod confirmPeriod(String periodId) {
+    public AssessmentPeriod publishPeriod(String periodId) {
         requirePeriod(periodId);
-        int updated = periodMapper.updateStatus(periodId, CALIBRATING, CONFIRMED);
+        int updated = periodMapper.updateStatus(periodId, CONFIRMED, PUBLISHED);
         if (updated == 0) {
-            throw new BusinessException(400, "仅校准中的周期可确认");
+            throw new BusinessException(400, "仅已确认的周期可发布");
         }
-        // 确认时重生成一次结果（幂等 upsert，刷新 original、保留 adjusted），未提交员工仍跳空
-        resultService.generateResults(periodId);
         return periodMapper.selectById(periodId);
     }
 
-    // 功能：关闭考核周期——仅 CONFIRMED→COMPLETED，需先完成总裁确认（防旁路）
+    // 功能：尝试周期级确认——CALIBRATING→CONFIRMED 原子翻转（单条 UPDATE WHERE status='CALIBRATING'），
+    //   由 PresidentService 逐项目确认全部通过后调用；返回是否翻转成功（并发下先到先得）
+    @Transactional
+    public boolean tryConfirmPeriod(String periodId) {
+        int updated = periodMapper.updateStatus(periodId, CALIBRATING, CONFIRMED);
+        if (updated > 0) {
+            resultService.generateResults(periodId);
+            return true;
+        }
+        return false;
+    }
+
+    // 功能：关闭考核周期——仅 PUBLISHED→COMPLETED，需先发布结果（防旁路）
     @Transactional
     public AssessmentPeriod closePeriod(String periodId) {
         AssessmentPeriod period = requirePeriod(periodId);
         if (COMPLETED.equals(period.getStatus())) {
             throw new BusinessException(400, "该考核周期已关闭，无需重复操作");
         }
-        if (!CONFIRMED.equals(period.getStatus())) {
-            throw new BusinessException(400, "仅已确认的周期可关闭，请先完成总裁确认");
+        if (!PUBLISHED.equals(period.getStatus())) {
+            throw new BusinessException(400, "仅已发布的周期可关闭，请先发布结果");
         }
-        int updated = periodMapper.updateStatus(periodId, CONFIRMED, COMPLETED);
+        int updated = periodMapper.updateStatus(periodId, PUBLISHED, COMPLETED);
         if (updated == 0) {
             throw new BusinessException(409, "周期状态已变更，请刷新后重试");
         }
@@ -171,6 +197,65 @@ public class PeriodService {
             throw new BusinessException(404, "考核周期不存在: " + periodId);
         }
         return period;
+    }
+
+    // 功能：进入校准时生成项目确认行——从本周期 PROJECT 任务取 distinct project_code 逐条插 PENDING，
+    //   未分配主总裁的项目另写 NO_PRESIDENT 差异（幂等：已存在确认行则跳过）
+    private void generateProjectConfirmations(String periodId) {
+        List<String> projectCodes = taskMapper.selectList(
+                        new LambdaQueryWrapper<AssessmentTask>()
+                                .eq(AssessmentTask::getPeriodId, periodId)
+                                .isNotNull(AssessmentTask::getProjectCode)
+                                .ne(AssessmentTask::getProjectCode, ""))
+                .stream()
+                .map(AssessmentTask::getProjectCode)
+                .distinct()
+                .toList();
+        for (String projectCode : projectCodes) {
+            Long existing = projectConfirmationMapper.selectCount(
+                    new LambdaQueryWrapper<ProjectConfirmation>()
+                            .eq(ProjectConfirmation::getPeriodId, periodId)
+                            .eq(ProjectConfirmation::getProjectCode, projectCode));
+            if (existing != null && existing > 0) {
+                continue;
+            }
+            ProjectConfirmation confirmation = new ProjectConfirmation();
+            confirmation.setPeriodId(periodId);
+            confirmation.setProjectCode(projectCode);
+            confirmation.setStatus("PENDING");
+            confirmation.setReturnCount(0);
+            confirmation.setCreatedAt(LocalDateTime.now());
+            confirmation.setUpdatedAt(LocalDateTime.now());
+            projectConfirmationMapper.insert(confirmation);
+
+            if (resolvePrimaryPresident(projectCode) == null) {
+                DiscrepancyLog log = new DiscrepancyLog();
+                log.setPeriodId(periodId);
+                log.setEmployeeId("");
+                log.setProjectCode(projectCode);
+                log.setType(DISCREPANCY_NO_PRESIDENT);
+                log.setDetail("项目" + projectCode + "未分配主总裁，无法进行项目确认");
+                log.setResolved(false);
+                log.setCreatedAt(LocalDateTime.now());
+                log.setUpdatedAt(LocalDateTime.now());
+                discrepancyLogMapper.insert(log);
+            }
+        }
+    }
+
+    // 功能：反查项目主总裁工号——project_role_assignment（PRESIDENT 且 is_primary 且未删除），无则返回 null
+    public String resolvePrimaryPresident(String projectCode) {
+        ProjectRoleAssignment assignment = roleAssignmentMapper.selectList(
+                        new LambdaQueryWrapper<ProjectRoleAssignment>()
+                                .eq(ProjectRoleAssignment::getProjectCode, projectCode)
+                                .eq(ProjectRoleAssignment::getProjectRoleCode, ROLE_PRESIDENT)
+                                .eq(ProjectRoleAssignment::getIsPrimary, true)
+                                .eq(ProjectRoleAssignment::getDeleted, 0)
+                                .last("LIMIT 1"))
+                .stream()
+                .findFirst()
+                .orElse(null);
+        return assignment != null ? assignment.getEmployeeId() : null;
     }
 
     // 功能：校验周期未关闭——周期已 COMPLETED 时拒绝所有写操作（评分/审批/提交参与/上传凭证等）

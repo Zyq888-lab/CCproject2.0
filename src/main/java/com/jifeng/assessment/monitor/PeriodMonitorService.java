@@ -278,7 +278,7 @@ public class PeriodMonitorService {
         }
         for (GrantedAuthority authority : auth.getAuthorities()) {
             String a = authority.getAuthority();
-            for (String role : new String[]{"ADMIN", "PM", "PD", "评估人", "员工"}) {
+            for (String role : new String[]{"ADMIN", "PM", "PD", "评估人", "员工", "总裁"}) {
                 if (a.equals("ROLE_" + role)) {
                     return role;
                 }
