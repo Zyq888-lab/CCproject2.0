@@ -191,7 +191,7 @@ class ParticipationServiceTest {
         assertEquals("EMP_PM_9", row.getCurrentApproverEmployeeId());
     }
 
-    // 功能：CALIBRATING 期拒绝填写参与——assertOngoing 收紧，校准/确认/关闭期冻结参与写操作
+    // 功能：CALIBRATING 期拒绝填写参与——assertParticipatable 冻结校准/确认/关闭期参与写操作
     @Test
     void createShouldBeRejectedWhenCalibrating() {
         seedPeriodWithStatus("PERIOD_10", "CALIBRATING");
@@ -205,7 +205,7 @@ class ParticipationServiceTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> participationService.create("EMP_X", "PERIOD_10", List.of(item)));
         assertEquals(400, ex.getCode());
-        assertTrue(ex.getMessage().contains("尚未发起"));
+        assertTrue(ex.getMessage().contains("校准"));
     }
 
     // 功能：CALIBRATING 期拒绝审批——ADMIN 亦不可在校准期审批参与记录
@@ -221,7 +221,7 @@ class ParticipationServiceTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> participationService.approve(id, true, null, null));
         assertEquals(400, ex.getCode());
-        assertTrue(ex.getMessage().contains("尚未发起"));
+        assertTrue(ex.getMessage().contains("校准"));
     }
 
     // 功能：CALIBRATING 期拒绝重新提交——已拒绝记录在校准期不可重置为 PENDING
@@ -237,7 +237,98 @@ class ParticipationServiceTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> participationService.resubmit(id, new BigDecimal("80")));
         assertEquals(400, ex.getCode());
-        assertTrue(ex.getMessage().contains("尚未发起"));
+        assertTrue(ex.getMessage().contains("校准"));
+    }
+
+    // 功能：INIT 期允许填写参与——4a 曾误收紧为 ONGOING-only，回归验证「新建周期后即可填参与」
+    @Test
+    void createShouldSucceedWhenInit() {
+        seedRole("PM");
+        seedEmployee("EMP_INIT_1");
+        seedUser("U_INIT_1", "emp_init_1", "EMP_INIT_1");
+        seedProject("PRJ_I", "P2");
+        seedPeriodWithStatus("PERIOD_INIT_1", "INIT");
+        seedAssignment("PRJ_I", "P2", "PM", "EMP_INIT_1", false);
+
+        auth("emp_init_1", "员工");
+
+        ProjectParticipationItem item = new ProjectParticipationItem();
+        item.setProjectCode("PRJ_I");
+        item.setProjectStage("P2");
+        item.setParticipationRate(new BigDecimal("100"));
+
+        List<EmployeeProjectParticipation> result =
+                participationService.create(null, "PERIOD_INIT_1", List.of(item));
+
+        assertEquals(1, result.size());
+        assertEquals("PENDING", result.get(0).getStatus());
+    }
+
+    // 功能：INIT 期允许审批参与——审批通过后不立即生成任务，交由 launch 统一生成
+    @Test
+    void approveShouldSucceedWhenInit() {
+        seedRole("PM");
+        seedEmployee("EMP_INIT_2");
+        seedEmployee("EMP_PM_INIT");
+        seedUser("U_INIT_2", "emp_init_2", "EMP_INIT_2");
+        seedUser("U_PM_INIT", "pm_init", "EMP_PM_INIT");
+        seedProject("PRJ_J", "P2");
+        seedPeriodWithStatus("PERIOD_INIT_2", "INIT");
+        seedAssignment("PRJ_J", "P2", "PM", "EMP_PM_INIT", true);
+        Long id = seedParticipation("EMP_INIT_2", "PERIOD_INIT_2", "PRJ_J", "P2");
+
+        auth("pm_init", "PM");
+
+        EmployeeProjectParticipation result = participationService.approve(id, true, null, null);
+        assertEquals("APPROVED", result.getStatus());
+    }
+
+    // 功能：INIT 期允许重新提交——被拒参与在发起前可重置为 PENDING
+    @Test
+    void resubmitShouldSucceedWhenInit() {
+        seedRole("PM");
+        seedEmployee("EMP_INIT_3");
+        seedUser("U_INIT_3", "emp_init_3", "EMP_INIT_3");
+        seedProject("PRJ_K", "P2");
+        seedPeriodWithStatus("PERIOD_INIT_3", "INIT");
+        Long id = seedParticipation("EMP_INIT_3", "PERIOD_INIT_3", "PRJ_K", "P2");
+        EmployeeProjectParticipation p = participationMapper.selectById(id);
+        p.setStatus("REJECTED");
+        participationMapper.updateById(p);
+
+        auth("emp_init_3", "员工");
+
+        EmployeeProjectParticipation result = participationService.resubmit(id, new BigDecimal("80"));
+        assertEquals("PENDING", result.getStatus());
+    }
+
+    // 功能：多角色（员工+PM）用户取并集视角——既能看到自己作为员工提交的参与记录（非主负责项目），
+    //   也能看到自己主负责项目上的他人参与记录（PM 审批视角），二者互不吞并
+    @Test
+    void employeeWithPmRoleShouldSeeOwnAndManagedParticipations() {
+        seedRole("PM");
+        seedEmployee("EMP_MULTI");
+        seedEmployee("EMP_OTHER");
+        seedUser("U_MULTI", "multi_user", "EMP_MULTI");
+        seedProject("PRJ_OWN", "P2");
+        seedProject("PRJ_MANAGED", "P2");
+        seedPeriod("PERIOD_MULTI");
+        seedAssignment("PRJ_MANAGED", "P2", "PM", "EMP_MULTI", true);
+        Long ownId = seedParticipation("EMP_MULTI", "PERIOD_MULTI", "PRJ_OWN", "P2");
+        Long managedId = seedParticipation("EMP_OTHER", "PERIOD_MULTI", "PRJ_MANAGED", "P2");
+
+        // 同时授予「员工」与「PM」两个角色
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("multi_user", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_员工"),
+                                new SimpleGrantedAuthority("ROLE_PM"))));
+
+        PageResult<EmployeeProjectParticipation> result = participationService.listParticipations(
+                new PageQuery(), "PERIOD_MULTI", null, null);
+
+        List<Long> ids = result.getList().stream().map(EmployeeProjectParticipation::getId).toList();
+        assertTrue(ids.contains(ownId), "员工+PM 用户应能看到自己作为员工提交的参与记录");
+        assertTrue(ids.contains(managedId), "员工+PM 用户应能看到自己主负责项目上的他人参与记录");
     }
 
     // 辅助：插入项目角色
@@ -283,7 +374,7 @@ class ParticipationServiceTest {
         projectMapper.insert(project);
     }
 
-    // 辅助：插入考核周期（ONGOING 状态——approve/create/resubmit 均要求周期已发起；
+    // 辅助：插入考核周期（ONGOING 状态——approve/create/resubmit 在 INIT/ONGOING 均可；
     //   缺岗位配置使审批通过后的增量任务生成 no-op，故测试不会触发任务生成）
     private void seedPeriod(String periodId) {
         AssessmentPeriod period = new AssessmentPeriod();

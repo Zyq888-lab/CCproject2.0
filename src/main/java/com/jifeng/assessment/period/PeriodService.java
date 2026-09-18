@@ -187,4 +187,24 @@ public class PeriodService {
             throw new BusinessException(400, "考核尚未发起，不可" + action);
         }
     }
+
+    // 功能：校验周期可填写/审批项目参与——INIT 与 ONGOING 均允许（INIT 期参与由 launch 统一生成任务）；
+    //   COMPLETED 抛「已关闭」，CALIBRATING/CONFIRMED 抛「已进入校准/确认」，冻结参与写操作
+    public void assertParticipatable(String periodId, String action) {
+        if (!StringUtils.hasText(periodId)) {
+            return; // 无周期信息的记录（历史遗留）不拦截
+        }
+        AssessmentPeriod period = periodMapper.selectById(periodId);
+        if (period == null) {
+            return;
+        }
+        String status = period.getStatus();
+        if (COMPLETED.equals(status)) {
+            throw new BusinessException(400, "考核周期已关闭，不可再" + action);
+        }
+        if (CALIBRATING.equals(status) || CONFIRMED.equals(status)) {
+            throw new BusinessException(400, "考核已进入校准/确认，不可再" + action);
+        }
+        // INIT / ONGOING 放行
+    }
 }

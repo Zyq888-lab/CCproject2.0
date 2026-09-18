@@ -58,34 +58,48 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
             wrapper.eq(EmployeeProjectParticipation::getStatus, status);
         }
 
-        // 数据隔离：按角色分流过滤，防止越权查看他人/他项目参与记录
-        String role = getPrimaryRole();
+        // 数据隔离：多角色用户取各角色可见范围的并集，而非坍缩为单一主角色——
+        //   员工看本人(employee_id=当前工号)，主PM/主PD看主负责项目，评估人看分配项目，ADMIN看全部；
+        //   避免「员工+PM」这类多角色用户被主PM范围吞掉自己作为被考核人提交的参与记录
+        Set<String> roles = getRoles();
         String currentEmployeeId = getCurrentEmployeeId();
-        if ("员工".equals(role)) {
-            // 员工：强制只看本人，忽略传入的 employeeId
-            if (currentEmployeeId == null) {
-                return PageResult.of(0, query.getPage(), query.getSize(), List.of());
-            }
-            wrapper.eq(EmployeeProjectParticipation::getEmployeeId, currentEmployeeId);
-        } else if ("ADMIN".equals(role)) {
+        if (roles.contains("ADMIN")) {
             // ADMIN：看全部，可选按 employeeId 下钻
             if (StringUtils.hasText(employeeId)) {
                 wrapper.eq(EmployeeProjectParticipation::getEmployeeId, employeeId);
             }
-        } else if ("PM".equals(role) || "PD".equals(role)) {
-            // 主 PM / 主 PD：仅见自己主负责项目（project_role_code 匹配 AND is_primary=true）的参与记录，非主不返回
-            List<String> projectCodes = listPrimaryProjectCodes(currentEmployeeId, role);
-            if (projectCodes.isEmpty()) {
-                return PageResult.of(0, query.getPage(), query.getSize(), List.of());
-            }
-            wrapper.in(EmployeeProjectParticipation::getProjectCode, projectCodes);
         } else {
-            // 评估人：按项目角色分配中的项目编码集合过滤，无项目则空
-            List<String> projectCodes = listAssignedProjectCodes(currentEmployeeId);
-            if (projectCodes.isEmpty()) {
+            boolean hasOwn = roles.contains("员工") && StringUtils.hasText(currentEmployeeId);
+            Set<String> primaryCodes = new LinkedHashSet<>();
+            if (roles.contains("PM")) {
+                primaryCodes.addAll(listPrimaryProjectCodes(currentEmployeeId, "PM"));
+            }
+            if (roles.contains("PD")) {
+                primaryCodes.addAll(listPrimaryProjectCodes(currentEmployeeId, "PD"));
+            }
+            Set<String> assignedCodes = roles.contains("评估人")
+                    ? new LinkedHashSet<>(listAssignedProjectCodes(currentEmployeeId))
+                    : new LinkedHashSet<>();
+
+            if (!hasOwn && primaryCodes.isEmpty() && assignedCodes.isEmpty()) {
                 return PageResult.of(0, query.getPage(), query.getSize(), List.of());
             }
-            wrapper.in(EmployeeProjectParticipation::getProjectCode, projectCodes);
+            wrapper.and(w -> {
+                boolean first = true;
+                if (hasOwn) {
+                    w.eq(EmployeeProjectParticipation::getEmployeeId, currentEmployeeId);
+                    first = false;
+                }
+                if (!primaryCodes.isEmpty()) {
+                    if (!first) w.or();
+                    w.in(EmployeeProjectParticipation::getProjectCode, primaryCodes);
+                    first = false;
+                }
+                if (!assignedCodes.isEmpty()) {
+                    if (!first) w.or();
+                    w.in(EmployeeProjectParticipation::getProjectCode, assignedCodes);
+                }
+            });
         }
 
         wrapper.orderByDesc(EmployeeProjectParticipation::getId);
@@ -187,6 +201,24 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         return "";
     }
 
+    // 功能：获取当前用户拥有的全部角色集合——供多角色数据隔离的并集计算使用（区别于 getPrimaryRole 的单角色坍缩）
+    private Set<String> getRoles() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return Set.of();
+        }
+        Set<String> roles = new LinkedHashSet<>();
+        for (GrantedAuthority authority : auth.getAuthorities()) {
+            String a = authority.getAuthority();
+            for (String role : new String[]{"ADMIN", "PM", "PD", "评估人", "员工"}) {
+                if (a.equals("ROLE_" + role)) {
+                    roles.add(role);
+                }
+            }
+        }
+        return roles;
+    }
+
     // 功能：员工填写项目参与——校验投入比重总和=100%、单项≥1%，逐条插入为 PENDING 状态
     @Transactional
     public List<EmployeeProjectParticipation> create(String employeeId, String periodId,
@@ -201,8 +233,8 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         if (!StringUtils.hasText(periodId)) {
             throw new BusinessException(400, "考核周期不能为空");
         }
-        // 周期锁定：仅在 ONGOING 期可填写项目参与（CALIBRATING/CONFIRMED/COMPLETED 均拒绝）
-        periodService.assertOngoing(periodId, "填写项目参与");
+        // 周期锁定：INIT/ONGOING 可填写项目参与（CALIBRATING/CONFIRMED/COMPLETED 均拒绝，校准期冻结）
+        periodService.assertParticipatable(periodId, "填写项目参与");
         if (items == null || items.isEmpty()) {
             throw new BusinessException(400, "至少填写一个项目的参与记录");
         }
@@ -314,8 +346,8 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
                 throw new BusinessException(403, "仅该项目的主 PM 可审批参与记录");
             }
         }
-        // 周期锁定：仅在 ONGOING 期可审批（CALIBRATING/CONFIRMED/COMPLETED 均拒绝）
-        periodService.assertOngoing(participation.getPeriodId(), "审批");
+        // 周期锁定：INIT/ONGOING 可审批（CALIBRATING/CONFIRMED/COMPLETED 均拒绝，校准期冻结）
+        periodService.assertParticipatable(participation.getPeriodId(), "审批");
         if (!"PENDING".equals(participation.getStatus())) {
             throw new BusinessException(400, "该参与记录已处理，不可重复审批");
         }
@@ -362,8 +394,8 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
                 throw new BusinessException(403, "无权操作他人参与记录");
             }
         }
-        // 周期锁定：仅在 ONGOING 期可重新提交（CALIBRATING/CONFIRMED/COMPLETED 均拒绝）
-        periodService.assertOngoing(participation.getPeriodId(), "重新提交");
+        // 周期锁定：INIT/ONGOING 可重新提交（CALIBRATING/CONFIRMED/COMPLETED 均拒绝，校准期冻结）
+        periodService.assertParticipatable(participation.getPeriodId(), "重新提交");
         if (!"REJECTED".equals(participation.getStatus())) {
             throw new BusinessException(400, "只有已拒绝的参与记录才能重新提交");
         }

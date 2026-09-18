@@ -253,8 +253,8 @@ function ParticipationPage() {
   const periodNameMap = {};
   periods.forEach((p) => { periodNameMap[p.periodId] = p.periodName; });
 
-  // 功能：可填写周期——排除已关闭(COMPLETED)，仅供新增弹窗选择；名称映射与筛选栏仍用全量 periods
-  const activePeriods = periods.filter((p) => p.status !== 'COMPLETED');
+  // 功能：可填写周期——仅 INIT/ONGOING 可选（CALIBRATING/CONFIRMED/COMPLETED 均已冻结或关闭）；名称映射与筛选栏仍用全量 periods
+  const activePeriods = periods.filter((p) => p.status === 'INIT' || p.status === 'ONGOING');
 
   const columns = [
     { title: '员工姓名', dataIndex: 'employeeId', key: 'employeeName', width: 110,
