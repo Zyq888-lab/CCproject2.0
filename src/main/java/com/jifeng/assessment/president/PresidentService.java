@@ -39,13 +39,15 @@ public class PresidentService {
     private final PeriodService periodService;
 
     private static final String ROLE_PRESIDENT = "PRESIDENT";
+    private static final String ROLE_PD = "PD";
     private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_APPROVED = "APPROVED";
     private static final String STATUS_RETURNED = "RETURNED";
 
-    // 确认清单项 DTO——含项目名，前端确认页直接渲染
+    // 确认清单项 DTO——含项目名；presidentConflict 标记该项目跨阶段存在多个主总裁（异常）
     public record ConfirmationItem(Long id, String periodId, String projectCode, String projectName,
-                                   String status, Integer returnCount, String returnReason, LocalDateTime confirmedAt) {
+                                   String status, Integer returnCount, String returnReason, LocalDateTime confirmedAt,
+                                   boolean presidentConflict) {
     }
 
     // 功能：查询当前登录人（主总裁）的确认清单——主总裁项目 ∩ 指定周期 project_confirmation
@@ -80,14 +82,31 @@ public class PresidentService {
             return List.of();
         }
 
-        Map<String, String> projectNames = projectMapper.selectList(null).stream()
+        Map<String, String> projectNames = projectMapper.selectList(
+                        new LambdaQueryWrapper<Project>()
+                                .in(Project::getProjectCode, projectCodes))
+                .stream()
                 .collect(Collectors.toMap(Project::getProjectCode, Project::getProjectName, (a, b) -> a));
+
+        // 标记「一项目多主总裁」异常：任一项目跨阶段存在多个 distinct 主总裁工号则 flag
+        Map<String, Boolean> presidentConflict = roleAssignmentMapper.selectList(
+                        new LambdaQueryWrapper<ProjectRoleAssignment>()
+                                .in(ProjectRoleAssignment::getProjectCode, projectCodes)
+                                .eq(ProjectRoleAssignment::getProjectRoleCode, ROLE_PRESIDENT)
+                                .eq(ProjectRoleAssignment::getIsPrimary, true)
+                                .eq(ProjectRoleAssignment::getDeleted, 0))
+                .stream()
+                .collect(Collectors.groupingBy(ProjectRoleAssignment::getProjectCode,
+                        Collectors.mapping(ProjectRoleAssignment::getEmployeeId, Collectors.toSet())))
+                .entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().size() > 1));
 
         return confirmations.stream()
                 .map(c -> new ConfirmationItem(
                         c.getId(), c.getPeriodId(), c.getProjectCode(),
                         projectNames.get(c.getProjectCode()),
-                        c.getStatus(), c.getReturnCount(), c.getReturnReason(), c.getConfirmedAt()))
+                        c.getStatus(), c.getReturnCount(), c.getReturnReason(), c.getConfirmedAt(),
+                        presidentConflict.getOrDefault(c.getProjectCode(), false)))
                 .toList();
     }
 
@@ -100,6 +119,8 @@ public class PresidentService {
     @Transactional
     public void approve(Long id) {
         ProjectConfirmation confirmation = requireConfirmation(id);
+        // 悲观锁：串行化同周期确认，消除「selectCount→tryConfirmPeriod」并发漏判
+        periodService.lockPeriod(confirmation.getPeriodId());
         assertPresidentOf(confirmation);
         if (STATUS_APPROVED.equals(confirmation.getStatus())) {
             return; // 幂等：已通过直接返回
@@ -123,6 +144,8 @@ public class PresidentService {
     @Transactional
     public void returnProject(Long id, String reason) {
         ProjectConfirmation confirmation = requireConfirmation(id);
+        // 悲观锁：串行化同周期写，与 approve 互斥，避免退回与通过并发导致漏判
+        periodService.lockPeriod(confirmation.getPeriodId());
         assertPresidentOf(confirmation);
         if (!STATUS_PENDING.equals(confirmation.getStatus())) {
             throw new BusinessException(400, "仅待确认的项目可退回");
@@ -143,6 +166,7 @@ public class PresidentService {
     @Transactional
     public void resubmit(Long id) {
         ProjectConfirmation confirmation = requireConfirmation(id);
+        assertPdOf(confirmation.getProjectCode());
         if (!STATUS_RETURNED.equals(confirmation.getStatus())) {
             throw new BusinessException(400, "仅退回的项目可重提交");
         }
@@ -168,6 +192,28 @@ public class PresidentService {
         if (president == null || !president.equals(current)) {
             throw new BusinessException(403, "仅该项目负责总裁可操作");
         }
+    }
+
+    // 功能：校验当前登录人是该项目主 PD，否则 403（PD 重提交不得跨项目）
+    private void assertPdOf(String projectCode) {
+        String current = currentEmployeeId();
+        if (current == null || !primaryPdsOf(projectCode).contains(current)) {
+            throw new BusinessException(403, "仅该项目负责 PD 可重提交");
+        }
+    }
+
+    // 功能：反查项目主 PD 工号列表（所有阶段去重）——project_role_assignment（PD 且 is_primary 且未删除）
+    private List<String> primaryPdsOf(String projectCode) {
+        return roleAssignmentMapper.selectList(
+                        new LambdaQueryWrapper<ProjectRoleAssignment>()
+                                .eq(ProjectRoleAssignment::getProjectCode, projectCode)
+                                .eq(ProjectRoleAssignment::getProjectRoleCode, ROLE_PD)
+                                .eq(ProjectRoleAssignment::getIsPrimary, true)
+                                .eq(ProjectRoleAssignment::getDeleted, 0))
+                .stream()
+                .map(ProjectRoleAssignment::getEmployeeId)
+                .distinct()
+                .toList();
     }
 
     // 功能：判断本周期是否已无待确认/退回项目

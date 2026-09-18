@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 @Mapper
@@ -16,6 +17,11 @@ public interface PeriodMapper extends BaseMapper<AssessmentPeriod> {
     int updateStatus(@Param("periodId") String periodId,
                      @Param("fromStatus") String fromStatus,
                      @Param("toStatus") String toStatus);
+
+    // 功能：悲观锁锁定周期行——SELECT ... FOR UPDATE（须在事务内调用），串行化同周期写
+    // 用途：PresidentService.approve/return 事务开头调用，消除「selectCount→tryConfirmPeriod」分离导致的并发漏判
+    @Select("SELECT * FROM assessment_period WHERE period_id = #{periodId} AND deleted = 0 FOR UPDATE")
+    AssessmentPeriod selectByIdForUpdate(@Param("periodId") String periodId);
 
     // 功能：强制关闭（abort）——任意非COMPLETED状态直接置为COMPLETED，返回受影响行数
     @Update("UPDATE assessment_period SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP "

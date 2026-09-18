@@ -1,6 +1,6 @@
 // 模块用途：员工考核结果 REST 接口——查询本人（或 ADMIN 指定员工）的最终结果
 // 依赖文件：ResultService.java, PeriodService.java, BaseController.java
-// 修改注意：结果仅 CONFIRMED/COMPLETED 可见（isResultVisible）；非 ADMIN 强制本人视角，
+// 修改注意：结果仅 PUBLISHED/COMPLETED 可见（isResultVisible）；非 ADMIN 强制本人视角，
 //   ADMIN 可传 assesseeId 查看任意员工；未发布抛 403
 package com.jifeng.assessment.result;
 
@@ -29,7 +29,7 @@ public class ResultController extends BaseController {
     private final ResultService resultService;
     private final SysUserMapper sysUserMapper;
 
-    // 功能：查询考核结果——结果分=adjusted_score；未发布(CONFIRMED/COMPLETED 之外)抛 403
+    // 功能：查询考核结果——结果分=adjusted_score；未发布(PUBLISHED/COMPLETED 之外)抛 403
     @GetMapping("/api/v1/periods/{periodId}/result")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
     public ApiResponse<EmployeeResultResponse> result(@PathVariable String periodId,

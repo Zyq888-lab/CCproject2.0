@@ -228,13 +228,16 @@ public class PeriodService {
             confirmation.setUpdatedAt(LocalDateTime.now());
             projectConfirmationMapper.insert(confirmation);
 
-            if (resolvePrimaryPresident(projectCode) == null) {
+            List<String> presidents = resolvePrimaryPresidents(projectCode);
+            if (presidents.size() != 1) {
                 DiscrepancyLog log = new DiscrepancyLog();
                 log.setPeriodId(periodId);
                 log.setEmployeeId("");
                 log.setProjectCode(projectCode);
                 log.setType(DISCREPANCY_NO_PRESIDENT);
-                log.setDetail("项目" + projectCode + "未分配主总裁，无法进行项目确认");
+                log.setDetail(presidents.isEmpty()
+                        ? "项目" + projectCode + "未分配主总裁，无法进行项目确认"
+                        : "项目" + projectCode + "存在多个主总裁(" + String.join(",", presidents) + ")，无法进行项目确认");
                 log.setResolved(false);
                 log.setCreatedAt(LocalDateTime.now());
                 log.setUpdatedAt(LocalDateTime.now());
@@ -243,19 +246,32 @@ public class PeriodService {
         }
     }
 
-    // 功能：反查项目主总裁工号——project_role_assignment（PRESIDENT 且 is_primary 且未删除），无则返回 null
-    public String resolvePrimaryPresident(String projectCode) {
-        ProjectRoleAssignment assignment = roleAssignmentMapper.selectList(
+    // 功能：悲观锁锁定周期行——SELECT ... FOR UPDATE（须在事务内调用），串行化同周期写，
+    //   消除 PresidentService「selectCount→tryConfirmPeriod」分离导致的并发漏判
+    public void lockPeriod(String periodId) {
+        periodMapper.selectByIdForUpdate(periodId);
+    }
+
+    // 功能：反查项目主总裁工号列表（所有阶段去重）——project_role_assignment（PRESIDENT 且 is_primary 且未删除）
+    //   用于检测「一项目多主总裁」冲突（跨阶段分配不一致）
+    public List<String> resolvePrimaryPresidents(String projectCode) {
+        return roleAssignmentMapper.selectList(
                         new LambdaQueryWrapper<ProjectRoleAssignment>()
                                 .eq(ProjectRoleAssignment::getProjectCode, projectCode)
                                 .eq(ProjectRoleAssignment::getProjectRoleCode, ROLE_PRESIDENT)
                                 .eq(ProjectRoleAssignment::getIsPrimary, true)
-                                .eq(ProjectRoleAssignment::getDeleted, 0)
-                                .last("LIMIT 1"))
+                                .eq(ProjectRoleAssignment::getDeleted, 0))
                 .stream()
-                .findFirst()
-                .orElse(null);
-        return assignment != null ? assignment.getEmployeeId() : null;
+                .map(ProjectRoleAssignment::getEmployeeId)
+                .distinct()
+                .toList();
+    }
+
+    // 功能：反查项目主总裁工号——所有阶段主总裁一致时返回该工号；无主总裁或多主总裁冲突时返回 null
+    //   （一项目一主总裁：跨阶段分配不一致视为异常，由 NO_PRESIDENT 差异兜底，不静默取首个）
+    public String resolvePrimaryPresident(String projectCode) {
+        List<String> presidents = resolvePrimaryPresidents(projectCode);
+        return presidents.size() == 1 ? presidents.get(0) : null;
     }
 
     // 功能：校验周期未关闭——周期已 COMPLETED 时拒绝所有写操作（评分/审批/提交参与/上传凭证等）
