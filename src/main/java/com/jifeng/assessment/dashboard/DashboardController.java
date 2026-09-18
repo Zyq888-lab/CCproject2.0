@@ -5,10 +5,11 @@ package com.jifeng.assessment.dashboard;
 
 import com.jifeng.assessment.common.ApiResponse;
 import com.jifeng.assessment.common.BaseController;
-import com.jifeng.assessment.task.DiscrepancyLog;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -47,10 +48,18 @@ public class DashboardController extends BaseController {
         return ok(dashboardService.pendingCount());
     }
 
-    // 功能：查询未处理的差异记录——仅返回 resolved=false 的异常项
+    // 功能：查询未处理的差异记录——仅返回 resolved=false 的异常项（含员工姓名/项目名）
     @GetMapping("/api/v1/dashboard/discrepancies")
     @PreAuthorize("hasRole('ADMIN')")
-    public ApiResponse<List<DiscrepancyLog>> discrepancies() {
+    public ApiResponse<List<DiscrepancyLogDTO>> discrepancies() {
         return ok(dashboardService.pendingDiscrepancies());
+    }
+
+    // 功能：标记差异已处理——ADMIN 补完配置后销账，resolved 置 true
+    @PostMapping("/api/v1/dashboard/discrepancies/{id}/resolve")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Void> resolveDiscrepancy(@PathVariable Long id) {
+        dashboardService.resolveDiscrepancy(id);
+        return ok("已处理", null);
     }
 }

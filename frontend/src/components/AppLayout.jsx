@@ -1,7 +1,7 @@
 {/* 模块用途：AppLayout——全局布局组件，左侧边栏+顶部导航+内容区域的三明治结构 */}
 {/* 依赖组件：react-router-dom, Ant Design Menu/Layout */}
 {/* 修改注意：菜单项变更时同步更新 menuItems 数组和路由配置 */}
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { Layout, Menu, Dropdown, Badge } from 'antd';
 import {
@@ -70,11 +70,16 @@ function AppLayout() {
   }, []);
 
   // 功能：获取未读通知数量——顶部红点显示
-  useEffect(() => {
+  const fetchUnreadCount = useCallback(() => {
     client.get('/notifications/unread-count').then((res) => {
       setUnreadCount(res.data || 0);
     }).catch(() => { /* 非关键 */ });
   }, []);
+
+  // 功能：路由切换时重拉未读数——处理完任务/通知后回到任意页红点即时更新
+  useEffect(() => {
+    fetchUnreadCount();
+  }, [fetchUnreadCount, location.pathname]);
 
   // 功能：根据用户角色过滤可见菜单项
   const menuItems = allMenuItems.filter((item) => {
@@ -164,7 +169,7 @@ function AppLayout() {
           <Badge count={unreadCount} size="small" style={{ marginRight: 24 }}>
             <BellOutlined
               style={{ fontSize: 18, color: '#1890FF', cursor: 'pointer' }}
-              onClick={() => navigate('/notifications')}
+              onClick={() => { navigate('/notifications'); fetchUnreadCount(); }}
             />
           </Badge>
           <Dropdown

@@ -4,12 +4,14 @@
 package com.jifeng.assessment.dashboard;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.kpi.FuncKpiMapper;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
 import com.jifeng.assessment.participation.EmployeeProjectParticipation;
 import com.jifeng.assessment.participation.ParticipationMapper;
 import com.jifeng.assessment.position.PositionConfigMapper;
+import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.projectrole.ProjectRoleMapper;
 import com.jifeng.assessment.task.AssessmentTask;
@@ -26,7 +28,11 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -158,11 +164,79 @@ public class DashboardService {
         return auth.getName();
     }
 
-    // 功能：查询未处理的差异记录——仅返回 resolved=false 的异常项
-    public List<DiscrepancyLog> pendingDiscrepancies() {
-        return discrepancyLogMapper.selectList(new LambdaQueryWrapper<DiscrepancyLog>()
+    // 功能：查询未处理的差异记录——仅返回 resolved=false 的异常项，批量 join 员工姓名/项目名避免 N+1
+    public List<DiscrepancyLogDTO> pendingDiscrepancies() {
+        List<DiscrepancyLog> logs = discrepancyLogMapper.selectList(new LambdaQueryWrapper<DiscrepancyLog>()
                 .eq(DiscrepancyLog::getResolved, false)
                 .orderByAsc(DiscrepancyLog::getId));
+        if (logs.isEmpty()) {
+            return List.of();
+        }
+
+        // 批量补员工姓名
+        Map<String, String> employeeNames = new HashMap<>();
+        List<String> employeeIds = logs.stream()
+                .map(DiscrepancyLog::getEmployeeId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (!employeeIds.isEmpty()) {
+            employeeMapper.selectBatchIds(employeeIds)
+                    .forEach(e -> employeeNames.put(e.getEmployeeId(), e.getName()));
+        }
+
+        // 批量补项目名——按 project_code 聚合（同一 code 各阶段共用 project_name）
+        Map<String, String> projectNames = new HashMap<>();
+        List<String> projectCodes = logs.stream()
+                .map(DiscrepancyLog::getProjectCode)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (!projectCodes.isEmpty()) {
+            projectMapper.selectList(new LambdaQueryWrapper<Project>()
+                            .in(Project::getProjectCode, projectCodes)
+                            .eq(Project::getDeleted, 0))
+                    .forEach(p -> projectNames.putIfAbsent(p.getProjectCode(), p.getProjectName()));
+        }
+
+        return logs.stream()
+                .map(log -> toDiscrepancyDTO(log, employeeNames, projectNames))
+                .toList();
+    }
+
+    // 功能：差异记录转 DTO——补员工姓名/项目名
+    private DiscrepancyLogDTO toDiscrepancyDTO(DiscrepancyLog log,
+                                               Map<String, String> employeeNames,
+                                               Map<String, String> projectNames) {
+        DiscrepancyLogDTO dto = new DiscrepancyLogDTO();
+        dto.setId(log.getId());
+        dto.setPeriodId(log.getPeriodId());
+        dto.setEmployeeId(log.getEmployeeId());
+        dto.setEmployeeName(employeeNames.get(log.getEmployeeId()));
+        dto.setProjectCode(log.getProjectCode());
+        dto.setProjectStage(log.getProjectStage());
+        dto.setProjectName(log.getProjectCode() == null ? null : projectNames.get(log.getProjectCode()));
+        dto.setType(log.getType());
+        dto.setDetail(log.getDetail());
+        dto.setResolved(log.getResolved());
+        dto.setCreatedAt(log.getCreatedAt());
+        return dto;
+    }
+
+    // 功能：标记差异已处理——ADMIN 补完配置后销账，resolved 置 true（幂等）
+    public void resolveDiscrepancy(Long id) {
+        DiscrepancyLog log = discrepancyLogMapper.selectById(id);
+        if (log == null) {
+            throw new BusinessException(404, "差异记录不存在: " + id);
+        }
+        if (Boolean.TRUE.equals(log.getResolved())) {
+            return;
+        }
+        DiscrepancyLog update = new DiscrepancyLog();
+        update.setId(id);
+        update.setResolved(true);
+        update.setUpdatedAt(LocalDateTime.now());
+        discrepancyLogMapper.updateById(update);
     }
 
     // 功能：获取当前用户主角色——取权限列表中第一个匹配的已知角色，未认证返回空
