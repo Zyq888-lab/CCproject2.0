@@ -22,6 +22,8 @@ class PeriodServiceTest {
 
     @Autowired
     private PeriodService periodService;
+    @Autowired
+    private PeriodMapper periodMapper;
 
     // 辅助方法：创建测试周期
     private AssessmentPeriod createTestPeriod(String name) {
@@ -32,9 +34,15 @@ class PeriodServiceTest {
         return periodService.createPeriod(period);
     }
 
+    // 辅助方法：INIT→ONGOING 原子翻转——发起考核的真实入口是 TaskGeneratorService.launch，
+    //   此处用底层 updateStatus 直接置态，避免依赖任务生成（startPeriod 端点已删除）
+    private void startPeriod(String periodId) {
+        periodMapper.updateStatus(periodId, "INIT", "ONGOING");
+    }
+
     // 辅助方法：走完整状态链到 CONFIRMED（INIT→ONGOING→CALIBRATING→CONFIRMED）
     private void walkToConfirmed(String periodId) {
-        periodService.startPeriod(periodId);
+        startPeriod(periodId);
         periodService.enterCalibration(periodId);
         periodService.confirmPeriod(periodId);
     }
@@ -156,7 +164,7 @@ class PeriodServiceTest {
     @Test
     void shouldRejectCloseBeforeConfirm() {
         AssessmentPeriod period = createTestPeriod("未确认关闭");
-        periodService.startPeriod(period.getPeriodId());
+        startPeriod(period.getPeriodId());
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> periodService.closePeriod(period.getPeriodId()));
@@ -168,7 +176,7 @@ class PeriodServiceTest {
     @Test
     void shouldEnterCalibration() {
         AssessmentPeriod period = createTestPeriod("进入校准");
-        periodService.startPeriod(period.getPeriodId());
+        startPeriod(period.getPeriodId());
 
         AssessmentPeriod calibrating = periodService.enterCalibration(period.getPeriodId());
         assertEquals("CALIBRATING", calibrating.getStatus());
@@ -188,7 +196,7 @@ class PeriodServiceTest {
     @Test
     void shouldConfirmPeriod() {
         AssessmentPeriod period = createTestPeriod("确认周期");
-        periodService.startPeriod(period.getPeriodId());
+        startPeriod(period.getPeriodId());
         periodService.enterCalibration(period.getPeriodId());
 
         AssessmentPeriod confirmed = periodService.confirmPeriod(period.getPeriodId());
@@ -199,7 +207,7 @@ class PeriodServiceTest {
     @Test
     void shouldRejectConfirmWhenNotCalibrating() {
         AssessmentPeriod period = createTestPeriod("非校准确认");
-        periodService.startPeriod(period.getPeriodId());
+        startPeriod(period.getPeriodId());
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> periodService.confirmPeriod(period.getPeriodId()));
@@ -210,7 +218,7 @@ class PeriodServiceTest {
     @Test
     void shouldAbortPeriod() {
         AssessmentPeriod period = createTestPeriod("中止周期");
-        periodService.startPeriod(period.getPeriodId());
+        startPeriod(period.getPeriodId());
 
         AssessmentPeriod aborted = periodService.abortPeriod(period.getPeriodId());
         assertEquals("COMPLETED", aborted.getStatus());
@@ -222,7 +230,7 @@ class PeriodServiceTest {
         AssessmentPeriod period = createTestPeriod("可见性周期");
         assertFalse(periodService.isResultVisible(period.getPeriodId())); // INIT
 
-        periodService.startPeriod(period.getPeriodId());
+        startPeriod(period.getPeriodId());
         assertFalse(periodService.isResultVisible(period.getPeriodId())); // ONGOING
 
         periodService.enterCalibration(period.getPeriodId());

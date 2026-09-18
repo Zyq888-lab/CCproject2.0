@@ -15,8 +15,16 @@ public class CalibrationMatrixResponse {
     private String periodId;
     private String periodName;
     private int unsubmittedCount;
+    private List<Unsubmitted> unsubmitted;
     private List<GroupSummary> summary;
     private List<Row> rows;
+
+    // 未提交员工——存在 PENDING/IN_PROGRESS 任务的去重员工，矩阵底部暗行展示（结果尚未纳入校准）
+    @Data
+    public static class Unsubmitted {
+        private String assesseeId;
+        private String employeeName;
+    }
 
     // 分布汇总带——按「项目」或「职能」分组的人均分/σ/离群数，供 PD 快速定位离群项目/职能
     @Data

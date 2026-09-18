@@ -85,22 +85,6 @@ public class PeriodService {
         return periodMapper.selectById(periodId);
     }
 
-    // 功能：开始考核周期——状态从INIT变为ONGOING
-    @Transactional
-    public AssessmentPeriod startPeriod(String periodId) {
-        AssessmentPeriod period = periodMapper.selectById(periodId);
-        if (period == null) {
-            throw new BusinessException(404, "考核周期不存在: " + periodId);
-        }
-        if (!INIT.equals(period.getStatus())) {
-            throw new BusinessException(400, "仅未开始的考核周期可以开始");
-        }
-        period.setStatus(ONGOING);
-        period.setUpdatedAt(LocalDateTime.now());
-        periodMapper.updateById(period);
-        return period;
-    }
-
     // 功能：进入校准——ONGOING→CALIBRATING 原子翻转，打分结束进入校准确认阶段
     @Transactional
     public AssessmentPeriod enterCalibration(String periodId) {

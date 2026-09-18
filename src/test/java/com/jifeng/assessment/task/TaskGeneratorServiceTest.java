@@ -171,6 +171,18 @@ class TaskGeneratorServiceTest {
     }
 
     // ========================================
+    // 2b. markPeriodOngoing: INIT→ONGOING 走原子 updateStatus（不再 select-then-updateById）
+    // ========================================
+    @Test
+    void markPeriodOngoingShouldUseAtomicStatusFlip() {
+        generatorService.markPeriodOngoing("PERIOD-001");
+
+        verify(periodMapper).updateStatus("PERIOD-001", "INIT", "ONGOING");
+        verify(periodMapper, never()).selectById(any());
+        verify(periodMapper, never()).updateById(any());
+    }
+
+    // ========================================
     // 3. launchPeriod: Savepoint 容错 → 缺配置员工跳过，其余正常生成
     // ========================================
     @Test

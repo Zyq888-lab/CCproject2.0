@@ -20,6 +20,7 @@ import {
   ProfileOutlined,
   BellOutlined,
   SlidersOutlined,
+  TrophyOutlined,
 } from '@ant-design/icons';
 import client from '../api/client';
 
@@ -43,6 +44,7 @@ const allMenuItems = [
   { type: 'divider', label: '考核流程', roles: ALL_STAFF_ROLES, group: 'flow' },
   { key: '/participation', icon: <FormOutlined />, label: '项目参与', roles: ALL_STAFF_ROLES },
   { key: '/my-assessment', icon: <ProfileOutlined />, label: '我的指标', roles: STAFF_ROLES },
+  { key: '/my-result', icon: <TrophyOutlined />, label: '我的结果', roles: STAFF_ROLES },
   { key: '/tasks', icon: <CarryOutOutlined />, label: '考核任务', roles: STAFF_ROLES },
   { key: '/period-config', icon: <SlidersOutlined />, label: '考核校准', roles: ['ROLE_PD'] },
   { type: 'divider', label: '系统设置', roles: ['ROLE_ADMIN'], group: 'system' },

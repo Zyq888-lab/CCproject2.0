@@ -8,7 +8,7 @@ import {
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, CalendarOutlined, LockOutlined, PlayCircleOutlined, BarChartOutlined,
-  ExperimentOutlined, SlidersOutlined,
+  ExperimentOutlined, SlidersOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
@@ -304,6 +304,17 @@ function PeriodConfigPage() {
                           onClick={() => navigate(`/period-calibration/${period.periodId}`)}
                         >
                           校准
+                        </Button>
+                      ),
+                      period.status === 'CALIBRATING' && isAdmin && (
+                        <Button
+                          type="link"
+                          size="small"
+                          danger
+                          icon={<CheckCircleOutlined />}
+                          onClick={() => navigate(`/period-confirm/${period.periodId}`)}
+                        >
+                          确认发布
                         </Button>
                       ),
                       (

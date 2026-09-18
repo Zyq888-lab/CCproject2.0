@@ -57,4 +57,10 @@ body {
   background: #FFF1F0 !important;
 }
 
+/* 校准矩阵——未提交员工暗行：灰底 + 弱化文字，沉底与已提交行区分 */
+.calibration-row-unsubmitted td {
+  background: #F5F5F5 !important;
+  color: #BFBFBF;
+}
+
 /* AI痕迹禁止清单：无紫色渐变、无彩色圆圈布局、无波浪线装饰、无统一大圆角、无卡片左边框彩色竖线 */

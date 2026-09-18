@@ -6,6 +6,7 @@
 package com.jifeng.assessment.result;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jifeng.assessment.calibration.AssessmentResult;
 import com.jifeng.assessment.calibration.AssessmentResultMapper;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.employee.Employee;
@@ -17,6 +18,7 @@ import com.jifeng.assessment.kpi.ProjectKpiMapper;
 import com.jifeng.assessment.kpi.ScoreCalculator;
 import com.jifeng.assessment.participation.EmployeeProjectParticipation;
 import com.jifeng.assessment.participation.ParticipationMapper;
+import com.jifeng.assessment.period.AssessmentPeriod;
 import com.jifeng.assessment.period.PeriodMapper;
 import com.jifeng.assessment.position.PositionAssessmentConfig;
 import com.jifeng.assessment.position.PositionConfigMapper;
@@ -50,6 +52,7 @@ public class ResultService {
     private final ParticipationMapper participationMapper;
     private final EmployeeMapper employeeMapper;
     private final AssessmentResultMapper resultMapper;
+    private final ScoreAdjustmentMapper adjustmentMapper;
     private final PeriodMapper periodMapper;
 
     private static final String STATUS_SUBMITTED = "SUBMITTED";
@@ -65,11 +68,23 @@ public class ResultService {
             throw new BusinessException(404, "考核周期不存在: " + periodId);
         }
 
-        // 仅聚合已提交的任务；未 SUBMITTED 员工跳过不生成结果行（完整性软门由矩阵/确认页告警，不阻断生成）
-        List<AssessmentTask> submittedTasks = taskMapper.selectList(
+        // 严格语义：仅聚合「所有非 CANCELED 任务均已 SUBMITTED」的员工；半提交员工（存在任一
+        // PENDING/IN_PROGRESS 任务）不生成结果行，归入未提交桶（完整性软门由矩阵/确认页告警，不阻断生成）
+        List<AssessmentTask> allTasks = taskMapper.selectList(
                 new LambdaQueryWrapper<AssessmentTask>()
                         .eq(AssessmentTask::getPeriodId, periodId)
-                        .eq(AssessmentTask::getStatus, STATUS_SUBMITTED));
+                        .ne(AssessmentTask::getStatus, "CANCELED"));
+        if (allTasks.isEmpty()) {
+            return 0;
+        }
+
+        // 按被考核人分组任务；半提交员工（组内存在任一非 SUBMITTED 任务）跳空不落库
+        Map<String, List<AssessmentTask>> tasksByAssessee = allTasks.stream()
+                .collect(Collectors.groupingBy(AssessmentTask::getAssesseeId));
+
+        List<AssessmentTask> submittedTasks = allTasks.stream()
+                .filter(t -> STATUS_SUBMITTED.equals(t.getStatus()))
+                .toList();
         if (submittedTasks.isEmpty()) {
             return 0;
         }
@@ -95,14 +110,16 @@ public class ResultService {
                                 .eq(EmployeeProjectParticipation::getStatus, "APPROVED"))
                 .stream().collect(Collectors.groupingBy(EmployeeProjectParticipation::getEmployeeId));
 
-        // 按被考核人分组任务，逐员工聚合
-        Map<String, List<AssessmentTask>> tasksByAssessee = submittedTasks.stream()
-                .collect(Collectors.groupingBy(AssessmentTask::getAssesseeId));
-
         int generated = 0;
         for (Map.Entry<String, List<AssessmentTask>> entry : tasksByAssessee.entrySet()) {
             String assesseeId = entry.getKey();
             List<AssessmentTask> tasks = entry.getValue();
+
+            // 半提交员工：所有非 CANCELED 任务未全部 SUBMITTED，不生成结果行（归入未提交桶）
+            boolean fullySubmitted = tasks.stream().allMatch(t -> STATUS_SUBMITTED.equals(t.getStatus()));
+            if (!fullySubmitted) {
+                continue;
+            }
 
             BigDecimal composite = computeComposite(assesseeId, tasks, scoresByTask,
                     projectWeightById, funcWeightById, participationsByEmployee.get(assesseeId));
@@ -126,6 +143,95 @@ public class ResultService {
                                 .eq(AssessmentTask::getPeriodId, periodId)
                                 .in(AssessmentTask::getStatus, "PENDING", "IN_PROGRESS"))
                 .stream().map(AssessmentTask::getAssesseeId).distinct().count();
+    }
+
+    // 功能：查询单个员工的考核结果——结果分=adjusted_score（D3）；KPI 明细来自指标分行（非 composite），
+    //   凭证列为 null 时前端回退「凭证暂不可用」；改分原因取最新一条审计行
+    public EmployeeResultResponse getEmployeeResult(String periodId, String assesseeId) {
+        if (periodMapper.selectById(periodId) == null) {
+            throw new BusinessException(404, "考核周期不存在: " + periodId);
+        }
+        AssessmentResult result = resultMapper.selectOne(new LambdaQueryWrapper<AssessmentResult>()
+                .eq(AssessmentResult::getPeriodId, periodId)
+                .eq(AssessmentResult::getAssesseeId, assesseeId));
+        if (result == null) {
+            throw new BusinessException(404, "该员工在本周期暂无考核结果");
+        }
+
+        EmployeeResultResponse resp = new EmployeeResultResponse();
+        resp.setPeriodId(periodId);
+        AssessmentPeriod period = periodMapper.selectById(periodId);
+        resp.setPeriodName(period.getPeriodName());
+        resp.setAssesseeId(assesseeId);
+        Employee emp = employeeMapper.selectById(assesseeId);
+        resp.setEmployeeName(emp != null ? emp.getName() : assesseeId);
+        resp.setOriginalScore(result.getOriginalScore());
+        resp.setAdjustedScore(result.getAdjustedScore());
+        boolean adjusted = result.getOriginalScore() != null && result.getAdjustedScore() != null
+                && result.getOriginalScore().compareTo(result.getAdjustedScore()) != 0;
+        resp.setAdjusted(adjusted);
+        if (adjusted) {
+            resp.setDelta(result.getAdjustedScore().subtract(result.getOriginalScore()));
+        }
+
+        ScoreAdjustment latest = adjustmentMapper.selectOne(new LambdaQueryWrapper<ScoreAdjustment>()
+                .eq(ScoreAdjustment::getAssessmentResultId, result.getId())
+                .orderByDesc(ScoreAdjustment::getId)
+                .last("LIMIT 1"));
+        if (latest != null) {
+            resp.setAdjustReason(latest.getReason());
+        }
+
+        resp.setKpis(buildKpiDetails(periodId, assesseeId));
+        return resp;
+    }
+
+    // 功能：构建 KPI 明细——按任务×指标分行展开，回填指标名/权重/评估人/凭证
+    private List<EmployeeResultResponse.KpiDetail> buildKpiDetails(String periodId, String assesseeId) {
+        List<AssessmentTask> tasks = taskMapper.selectList(new LambdaQueryWrapper<AssessmentTask>()
+                .eq(AssessmentTask::getPeriodId, periodId)
+                .eq(AssessmentTask::getAssesseeId, assesseeId)
+                .eq(AssessmentTask::getStatus, STATUS_SUBMITTED)
+                .orderByAsc(AssessmentTask::getId));
+        if (tasks.isEmpty()) {
+            return List.of();
+        }
+        List<Long> taskIds = tasks.stream().map(AssessmentTask::getId).toList();
+        Map<Long, List<AssessmentScore>> scoresByTask = scoreMapper.selectList(
+                        new LambdaQueryWrapper<AssessmentScore>()
+                                .in(AssessmentScore::getTaskId, taskIds)
+                                .eq(AssessmentScore::getStatus, STATUS_SUBMITTED))
+                .stream().collect(Collectors.groupingBy(AssessmentScore::getTaskId));
+
+        Map<Long, ProjectKpiConfig> projectKpiById = projectKpiMapper.selectList(null).stream()
+                .collect(Collectors.toMap(ProjectKpiConfig::getId, k -> k, (a, b) -> a));
+        Map<Long, FuncKpiConfig> funcKpiById = funcKpiMapper.selectList(null).stream()
+                .collect(Collectors.toMap(FuncKpiConfig::getId, k -> k, (a, b) -> a));
+        Map<String, String> employeeNameById = employeeMapper.selectList(null).stream()
+                .collect(Collectors.toMap(Employee::getEmployeeId, Employee::getName, (a, b) -> a));
+
+        List<EmployeeResultResponse.KpiDetail> details = new ArrayList<>();
+        for (AssessmentTask task : tasks) {
+            String assessorName = employeeNameById.getOrDefault(task.getAssessorId(), task.getAssessorId());
+            for (AssessmentScore score : scoresByTask.getOrDefault(task.getId(), List.of())) {
+                EmployeeResultResponse.KpiDetail d = new EmployeeResultResponse.KpiDetail();
+                d.setKpiType(score.getKpiType());
+                d.setScore(score.getScore());
+                d.setAssessorName(assessorName);
+                d.setEvidenceUrl(score.getEvidenceUrl());
+                if ("PROJECT".equals(score.getKpiType())) {
+                    ProjectKpiConfig kpi = projectKpiById.get(score.getKpiConfigId());
+                    d.setKpiName(kpi != null ? kpi.getKpiName() : null);
+                    d.setWeight(kpi != null ? kpi.getWeight() : null);
+                } else {
+                    FuncKpiConfig kpi = funcKpiById.get(score.getKpiConfigId());
+                    d.setKpiName(kpi != null ? kpi.getKpiName() : null);
+                    d.setWeight(kpi != null ? kpi.getWeight() : null);
+                }
+                details.add(d);
+            }
+        }
+        return details;
     }
 
     // 功能：计算单个员工的 composite 总分——项目加权 + 职能加权；

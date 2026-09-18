@@ -118,14 +118,11 @@ public class TaskGeneratorService {
     }
 
     // 功能：周期状态更新——REQUIRES_NEW 独立事务，先行提交 ONGOING 状态
+    // 原子翻转：WHERE status='INIT' 单条 UPDATE，与 enterCalibration/confirm/close/abort 口径一致，
+    //   避免 select-then-updateById 并发下重复置态（read-modify-write 漏检）
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markPeriodOngoing(String periodId) {
-        AssessmentPeriod period = periodMapper.selectById(periodId);
-        if (period != null && "INIT".equals(period.getStatus())) {
-            period.setStatus("ONGOING");
-            period.setUpdatedAt(LocalDateTime.now());
-            periodMapper.updateById(period);
-        }
+        periodMapper.updateStatus(periodId, "INIT", "ONGOING");
     }
 
     // 功能：为单个员工生成考核任务——返回任务数、差异列表、被分配的评估人集合

@@ -23,6 +23,9 @@ import MyAssessmentPage from './pages/MyAssessment/MyAssessmentPage';
 import NotificationListPage from './pages/Notification/NotificationListPage';
 import PeriodMonitorPage from './pages/PeriodMonitor/PeriodMonitorPage';
 import CalibrationMatrixPage from './pages/Calibration/CalibrationMatrixPage';
+import ConfirmPage from './pages/Confirm/ConfirmPage';
+import ResultPage from './pages/Result/ResultPage';
+import MyResultPage from './pages/Result/MyResultPage';
 
 function App() {
   return (
@@ -56,6 +59,9 @@ function App() {
           <Route path="/notifications" element={<NotificationListPage />} />
           <Route path="/period-monitor/:periodId" element={<PeriodMonitorPage />} />
           <Route path="/period-calibration/:periodId" element={<CalibrationMatrixPage />} />
+          <Route path="/period-confirm/:periodId" element={<ConfirmPage />} />
+          <Route path="/period-result/:periodId" element={<ResultPage />} />
+          <Route path="/my-result" element={<MyResultPage />} />
         </Route>
 
         {/* 功能：根路径重定向到仪表盘 */}

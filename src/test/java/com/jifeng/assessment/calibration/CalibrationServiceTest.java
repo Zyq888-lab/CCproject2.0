@@ -95,6 +95,28 @@ class CalibrationServiceTest {
         assertEquals("职能考核", funcRow.getGroupLabel());
     }
 
+    // 功能：半提交员工只出现在未提交暗行，不与正常结果行重复（后端严格完整性语义下行列互斥）
+    @Test
+    void matrixShouldNotDuplicatePartialSubmission() {
+        seedPeriod("CALIBRATING");
+        seedProject();
+        seedEmployee("ASSESSOR1");
+        // 全提交员工：有结果行 + SUBMITTED 项目任务 → 出现在正常行
+        seedResult("EMP_FULL", "4.0000");
+        seedProjectTask("EMP_FULL");
+        // 半提交员工：无结果行，仅一条 IN_PROGRESS 任务 → 归入未提交暗行
+        seedEmployee("EMP_HALF");
+        seedPendingTask("EMP_HALF");
+
+        CalibrationMatrixResponse matrix = calibrationService.getCalibrationMatrix(PERIOD);
+
+        assertEquals(1, matrix.getRows().size());
+        assertEquals("EMP_FULL", matrix.getRows().get(0).getAssesseeId());
+        assertEquals(1, matrix.getUnsubmitted().size());
+        assertEquals("EMP_HALF", matrix.getUnsubmitted().get(0).getAssesseeId());
+        assertEquals(1, matrix.getUnsubmittedCount());
+    }
+
     // 功能：改分写 adjusted_score + 追加审计行（无鉴权上下文中 adjusted_by 回退 system）
     @Test
     void adjustShouldUpdateScoreAndWriteAudit() {
@@ -182,6 +204,18 @@ class CalibrationServiceTest {
 
     private void seedFunctionalTask(String assesseeId) {
         seedTask(assesseeId, "FUNCTIONAL");
+    }
+
+    private void seedPendingTask(String assesseeId) {
+        AssessmentTask task = new AssessmentTask();
+        task.setPeriodId(PERIOD);
+        task.setAssessorId("ASSESSOR1");
+        task.setAssesseeId(assesseeId);
+        task.setProjectCode(PROJECT);
+        task.setProjectStage("P2");
+        task.setTaskType("PROJECT");
+        task.setStatus("IN_PROGRESS");
+        taskMapper.insert(task);
     }
 
     private void seedTask(String assesseeId, String taskType) {

@@ -56,13 +56,6 @@ public class PeriodController extends BaseController {
         return ok(periodService.updatePeriod(periodId, update));
     }
 
-    // 功能：开始考核周期——状态从INIT变为ONGOING
-    @PutMapping("/api/v1/periods/{periodId}/start")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ApiResponse<AssessmentPeriod> start(@PathVariable String periodId) {
-        return ok(periodService.startPeriod(periodId));
-    }
-
     // 功能：进入校准——状态从ONGOING变为CALIBRATING
     @PutMapping("/api/v1/periods/{periodId}/calibrate")
     @PreAuthorize("hasRole('ADMIN')")

@@ -177,6 +177,39 @@ class ResultServiceTest {
                 .eq(AssessmentResult::getAssesseeId, "EMP_PENDING")));
     }
 
+    // 功能：半提交员工（部分任务已提交、部分仍在打分）不生成结果行——严格完整性语义，
+    //   全部非 CANCELED 任务均 SUBMITTED 才落库，避免半成 composite 发布；半提交员工归入未提交桶
+    @Test
+    void generateShouldSkipPartiallySubmittedAssessee() {
+        seedPeriod();
+        seedEmployee("EMP_FULL");
+        seedEmployee("EMP_HALF");
+        seedEmployee("ASSESSOR1");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        Long projKpiId = seedProjectKpi(new BigDecimal("1.0000"));
+
+        // EMP_FULL：唯一 PROJECT 任务已提交 → 生成结果行
+        Long fullTaskId = seedTask("EMP_FULL", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        seedScore(fullTaskId, projKpiId, "PROJECT", new BigDecimal("4.0"));
+        seedParticipation("EMP_FULL", "PRJ1", "P2", new BigDecimal("100"));
+
+        // EMP_HALF：PROJECT 已提交但 FUNCTIONAL 仍在打分中 → 不生成结果行
+        Long halfSubmittedTaskId = seedTask("EMP_HALF", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        seedScore(halfSubmittedTaskId, projKpiId, "PROJECT", new BigDecimal("4.0"));
+        seedParticipation("EMP_HALF", "PRJ1", "P2", new BigDecimal("100"));
+        seedTask("EMP_HALF", "ASSESSOR1", null, null, "FUNCTIONAL", "IN_PROGRESS");
+
+        int generated = resultService.generateResults("PERIOD-001");
+
+        assertEquals(1, generated);
+        assertNotNull(resultMapper.selectOne(new LambdaQueryWrapper<AssessmentResult>()
+                .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                .eq(AssessmentResult::getAssesseeId, "EMP_FULL")));
+        assertNull(resultMapper.selectOne(new LambdaQueryWrapper<AssessmentResult>()
+                .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                .eq(AssessmentResult::getAssesseeId, "EMP_HALF")));
+    }
+
     // 功能：统计未提交员工数——PENDING/IN_PROGRESS 各 1 人计入，SUBMITTED/CANCELED 不计入
     @Test
     void countUnsubmittedShouldCountActiveButNotSubmittedAssessees() {

@@ -102,6 +102,13 @@ function CalibrationMatrixPage() {
   const rows = data?.rows || [];
   const filteredRows = onlyOutliers ? rows.filter((r) => r.outlier) : rows;
   const outlierCount = rows.filter((r) => r.outlier).length;
+  // 未提交员工 → 暗行（沉底，无成绩无改分入口）
+  const unsubmittedRows = (data?.unsubmitted || []).map((u) => ({
+    assesseeId: u.assesseeId,
+    employeeName: u.employeeName,
+    unsubmitted: true,
+  }));
+  const tableRows = [...filteredRows, ...unsubmittedRows];
 
   // 功能：离群标记——红↑偏高 / 蓝↓偏低，附 σ 偏离度
   const renderOutlier = (_, row) => {
@@ -180,16 +187,19 @@ function CalibrationMatrixPage() {
     { title: '离群标记', dataIndex: 'outlier', key: 'outlier', width: 130, align: 'center',
       render: renderOutlier },
     { title: '操作', key: 'action', width: 120, fixed: 'right', align: 'center',
-      render: (_, row) => (
-        editingKey === row.assesseeId ? (
+      render: (_, row) => {
+        if (row.unsubmitted) {
+          return <Tag color="default">未提交</Tag>;
+        }
+        return editingKey === row.assesseeId ? (
           <Space size={4}>
             <Button type="primary" size="small" loading={saving} onClick={() => saveEdit(row)}>保存</Button>
             <Button size="small" onClick={() => setEditingKey(null)}>取消</Button>
           </Space>
         ) : (
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => startEdit(row)}>改分</Button>
-        )
-      ) },
+        );
+      } },
   ];
 
   if (loading && !data) {
@@ -207,7 +217,7 @@ function CalibrationMatrixPage() {
     );
   }
 
-  const isEmpty = !loading && !error && rows.length === 0;
+  const isEmpty = !loading && !error && rows.length === 0 && unsubmittedRows.length === 0;
 
   return (
     <div id="calibration-matrix-area">
@@ -274,7 +284,7 @@ function CalibrationMatrixPage() {
         <Card id="calibration-table-card" style={{ borderRadius: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <span style={{ color: '#595959' }}>
-              共 {rows.length} 人 · 离群 {outlierCount} 人
+              共 {rows.length} 人 · 离群 {outlierCount} 人 · 未提交 {unsubmittedRows.length} 人
             </span>
             <Space>
               <span style={{ color: '#595959' }}>只看离群</span>
@@ -283,13 +293,13 @@ function CalibrationMatrixPage() {
           </div>
           <Table
             columns={columns}
-            dataSource={filteredRows}
-            rowKey="assesseeId"
+            dataSource={tableRows}
+            rowKey={(r) => (r.unsubmitted ? `unsub-${r.assesseeId}` : r.assesseeId)}
             loading={loading}
             size="middle"
             pagination={false}
             scroll={{ x: 890, y: 520 }}
-            rowClassName={(row) => (row.outlier ? 'calibration-row-outlier' : '')}
+            rowClassName={(row) => (row.unsubmitted ? 'calibration-row-unsubmitted' : (row.outlier ? 'calibration-row-outlier' : ''))}
             locale={{ emptyText: onlyOutliers ? '无离群员工' : '暂无数据' }}
           />
         </Card>

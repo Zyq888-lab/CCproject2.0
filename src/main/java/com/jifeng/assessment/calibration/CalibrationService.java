@@ -8,10 +8,13 @@ package com.jifeng.assessment.calibration;
 
 import com.jifeng.assessment.calibration.CalibrationMatrixResponse.GroupSummary;
 import com.jifeng.assessment.calibration.CalibrationMatrixResponse.Row;
+import com.jifeng.assessment.calibration.CalibrationMatrixResponse.Unsubmitted;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
+import com.jifeng.assessment.notification.Notification;
+import com.jifeng.assessment.notification.NotificationService;
 import com.jifeng.assessment.period.AssessmentPeriod;
 import com.jifeng.assessment.period.PeriodMapper;
 import com.jifeng.assessment.project.Project;
@@ -37,8 +40,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -53,6 +58,7 @@ public class CalibrationService {
     private final PeriodMapper periodMapper;
     private final SysUserMapper sysUserMapper;
     private final ResultService resultService;
+    private final NotificationService notificationService;
 
     private static final String STATUS_CALIBRATING = "CALIBRATING";
     private static final String STATUS_SUBMITTED = "SUBMITTED";
@@ -160,10 +166,26 @@ public class CalibrationService {
                         ? BigDecimal.ZERO : r.getOriginalScore(), Comparator.reverseOrder())
                 .thenComparing(r -> r.getEmployeeName() == null ? "" : r.getEmployeeName()));
 
+        // 未提交员工列表——与 countUnsubmitted 同口径：PENDING/IN_PROGRESS 任务的去重员工，矩阵底部暗行展示
+        List<Unsubmitted> unsubmitted = taskMapper.selectList(new LambdaQueryWrapper<AssessmentTask>()
+                        .eq(AssessmentTask::getPeriodId, periodId)
+                        .in(AssessmentTask::getStatus, "PENDING", "IN_PROGRESS"))
+                .stream()
+                .map(AssessmentTask::getAssesseeId)
+                .distinct()
+                .map(assesseeId -> {
+                    Unsubmitted u = new Unsubmitted();
+                    u.setAssesseeId(assesseeId);
+                    u.setEmployeeName(employeeNameById.getOrDefault(assesseeId, assesseeId));
+                    return u;
+                })
+                .toList();
+
         CalibrationMatrixResponse resp = new CalibrationMatrixResponse();
         resp.setPeriodId(periodId);
         resp.setPeriodName(period.getPeriodName());
         resp.setUnsubmittedCount(resultService.countUnsubmitted(periodId));
+        resp.setUnsubmitted(unsubmitted);
         resp.setSummary(summary);
         resp.setRows(rows);
         return resp;
@@ -212,6 +234,51 @@ public class CalibrationService {
         audit.setReason(reason);
         audit.setCreatedAt(LocalDateTime.now());
         adjustmentMapper.insert(audit);
+
+        // 改分成功 → 通知评估人（best-effort 异步，失败不影响改分主流程）
+        Employee assessee = employeeMapper.selectById(assesseeId);
+        notifyAssessorsAfterAdjust(periodId, assesseeId,
+                assessee != null ? assessee.getName() : assesseeId, oldScore, normalized, reason);
+    }
+
+    // 功能：改分后通知评估人——将被考核人 SUBMITTED 任务的评估人(employeeId)映射为 userId，
+    //   发送含「原分→新分 + 差额 + 原因」的站内通知；通知失败仅记录日志不影响改分
+    private void notifyAssessorsAfterAdjust(String periodId, String assesseeId, String employeeName,
+                                            BigDecimal oldScore, BigDecimal newScore, String reason) {
+        Set<String> assessorIds = taskMapper.selectList(new LambdaQueryWrapper<AssessmentTask>()
+                        .eq(AssessmentTask::getPeriodId, periodId)
+                        .eq(AssessmentTask::getAssesseeId, assesseeId)
+                        .eq(AssessmentTask::getStatus, STATUS_SUBMITTED))
+                .stream()
+                .map(AssessmentTask::getAssessorId)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (assessorIds.isEmpty()) {
+            return;
+        }
+        List<SysUser> users = sysUserMapper.selectList(new LambdaQueryWrapper<SysUser>()
+                .in(SysUser::getEmployeeId, assessorIds));
+        if (users.isEmpty()) {
+            return;
+        }
+
+        BigDecimal delta = newScore.subtract(oldScore);
+        String deltaText = (delta.signum() >= 0 ? "+" : "") + delta.setScale(2, RoundingMode.HALF_UP).toPlainString();
+        String content = "您评估的员工「" + employeeName + "」总分已由 "
+                + oldScore.setScale(2, RoundingMode.HALF_UP).toPlainString() + " 调整为 "
+                + newScore.setScale(2, RoundingMode.HALF_UP).toPlainString()
+                + "（差额 " + deltaText + "），原因：" + reason;
+        List<Notification> notifications = users.stream().map(user -> {
+            Notification n = new Notification();
+            n.setRecipientId(user.getUserId());
+            n.setTitle("考核结果改分通知");
+            n.setContent(content);
+            n.setType("SCORE_ADJUSTED");
+            n.setTargetUrl("/tasks");
+            n.setIsRead(false);
+            return n;
+        }).toList();
+        notificationService.notifyBatch(notifications);
     }
 
     // 功能：解析员工分组——有 SUBMITTED 项目任务归「首个项目」组，仅职能任务归「职能」组
