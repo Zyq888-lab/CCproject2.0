@@ -1,6 +1,7 @@
 package com.jifeng.assessment.period;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;
@@ -20,4 +21,9 @@ public interface PeriodMapper extends BaseMapper<AssessmentPeriod> {
     @Update("UPDATE assessment_period SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP "
             + "WHERE period_id = #{periodId} AND status <> 'COMPLETED' AND deleted = 0")
     int forceComplete(@Param("periodId") String periodId);
+
+    // 功能：物理删除周期——绕过 @TableLogic 软删，用于测试清理固定主键的残留行，
+    //   避免 deleteById 软删(置 deleted=1)后物理行残留导致下次插入主键冲突
+    @Delete("DELETE FROM assessment_period WHERE period_id = #{periodId}")
+    int physicalDelete(@Param("periodId") String periodId);
 }

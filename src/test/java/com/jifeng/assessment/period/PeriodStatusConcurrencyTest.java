@@ -64,7 +64,7 @@ class PeriodStatusConcurrencyTest {
             assertEquals(1, successCount, "并发下 INIT→ONGOING 应恰好成功一次");
             assertEquals("ONGOING", periodMapper.selectById(PERIOD_ID).getStatus());
         } finally {
-            periodMapper.deleteById(PERIOD_ID); // 软删清理，避免污染其他用例的活跃周期唯一约束
+            periodMapper.physicalDelete(PERIOD_ID); // 物理删除，避免软删残留行导致下次运行固定主键冲突
         }
     }
 }
