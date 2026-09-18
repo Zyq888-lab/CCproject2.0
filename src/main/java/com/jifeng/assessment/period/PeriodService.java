@@ -155,13 +155,13 @@ public class PeriodService {
         return periodMapper.selectById(periodId);
     }
 
-    // 功能：结果可见性——仅 CONFIRMED（已确认待关闭）或 COMPLETED（已关闭）时员工可查看最终结果
+    // 功能：结果可见性——仅 PUBLISHED（已发布）或 COMPLETED（已归档）时员工可查看最终结果；CONFIRMED 待发布不可见
     public boolean isResultVisible(String periodId) {
         if (!StringUtils.hasText(periodId)) {
             return false;
         }
         AssessmentPeriod period = periodMapper.selectById(periodId);
-        return period != null && (CONFIRMED.equals(period.getStatus()) || COMPLETED.equals(period.getStatus()));
+        return period != null && PeriodStatusPolicy.isResultVisible(period.getStatus());
     }
 
     // 功能：加载周期，不存在抛404
@@ -203,8 +203,8 @@ public class PeriodService {
         }
     }
 
-    // 功能：校验周期可填写/审批项目参与——INIT 与 ONGOING 均允许（INIT 期参与由 launch 统一生成任务）；
-    //   COMPLETED 抛「已关闭」，CALIBRATING/CONFIRMED 抛「已进入校准/确认」，冻结参与写操作
+    // 功能：校验周期可填写/审批项目参与——仅 INIT 与 ONGOING 放行（INIT 期参与由 launch 统一生成任务）；
+    //   COMPLETED 抛「已关闭」，其余（CALIBRATING/CONFIRMED/PUBLISHED）抛「已进入校准/确认」，冻结参与写操作
     public void assertParticipatable(String periodId, String action) {
         if (!StringUtils.hasText(periodId)) {
             return; // 无周期信息的记录（历史遗留）不拦截
@@ -214,12 +214,12 @@ public class PeriodService {
             return;
         }
         String status = period.getStatus();
-        if (COMPLETED.equals(status)) {
+        if (PeriodStatusPolicy.isParticipatable(status)) {
+            return; // INIT / ONGOING 放行
+        }
+        if (PeriodStatusPolicy.COMPLETED.equals(status)) {
             throw new BusinessException(400, "考核周期已关闭，不可再" + action);
         }
-        if (CALIBRATING.equals(status) || CONFIRMED.equals(status)) {
-            throw new BusinessException(400, "考核已进入校准/确认，不可再" + action);
-        }
-        // INIT / ONGOING 放行
+        throw new BusinessException(400, "考核已进入校准/确认，不可再" + action);
     }
 }

@@ -47,16 +47,16 @@ class DashboardServiceTest {
     @Autowired
     private FuncKpiMapper funcKpiMapper;
 
-    // 功能：仅种子数据时——admin员工已配置，其余模块为待配置
+    // 功能：仅种子数据时——admin员工 + PRESIDENT角色已配置，其余模块为待配置
     @Test
     void shouldShowOnlySeedDataWhenNoOtherData() {
-        // DataInitializer creates 1 admin employee
+        // DataInitializer 种子 1 admin 员工；V27 迁移种子 1 个 PRESIDENT 项目角色
         List<DashboardService.ConfigProgressItem> items = dashboardService.configProgress();
         assertEquals(5, items.size());
         assertEquals(1, getCount(items, "employee"), "seed admin employee");
         assertEquals(DashboardService.STATUS_CONFIGURED, getStatus(items, "employee"));
-        assertEquals(0, getCount(items, "projectRole"));
-        assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "projectRole"));
+        assertEquals(1, getCount(items, "projectRole"), "seed PRESIDENT role");
+        assertEquals(DashboardService.STATUS_CONFIGURED, getStatus(items, "projectRole"));
         assertEquals(0, getCount(items, "project"));
         assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "project"));
         assertEquals(0, getCount(items, "positionConfig"));
@@ -115,7 +115,8 @@ class DashboardServiceTest {
 
         // 1 seed admin + 1 test employee = 2
         assertEquals(2, getCount(items, "employee"));
-        assertEquals(1, getCount(items, "projectRole"));
+        // 1 seed PRESIDENT + 1 test DASH_ROLE = 2
+        assertEquals(2, getCount(items, "projectRole"));
         assertEquals(1, getCount(items, "project"));
         assertEquals(1, getCount(items, "positionConfig"));
         assertEquals(1, getCount(items, "kpi"));
@@ -143,8 +144,8 @@ class DashboardServiceTest {
         // 1 seed admin + 1 test employee = 2
         assertEquals(2, getCount(items, "employee"));
         assertEquals(DashboardService.STATUS_CONFIGURED, getStatus(items, "employee"));
-        assertEquals(0, getCount(items, "projectRole"));
-        assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "projectRole"));
+        assertEquals(1, getCount(items, "projectRole"), "seed PRESIDENT role");
+        assertEquals(DashboardService.STATUS_CONFIGURED, getStatus(items, "projectRole"));
         assertEquals(0, getCount(items, "project"));
         assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "project"));
     }

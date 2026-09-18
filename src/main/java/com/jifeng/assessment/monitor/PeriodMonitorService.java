@@ -13,6 +13,7 @@ import com.jifeng.assessment.kpi.ProjectKpiConfig;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
 import com.jifeng.assessment.period.AssessmentPeriod;
 import com.jifeng.assessment.period.PeriodMapper;
+import com.jifeng.assessment.period.PeriodStatusPolicy;
 import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
@@ -135,10 +136,11 @@ public class PeriodMonitorService {
             item.setTotalScore(total);
             item.setScoredCount(scored);
 
-            // 当前审批人：优先周期状态——CALIBRATING 依校准提交时间分叉（未提交=PD待校准；已提交=总裁待确认）；
-            //   终态(CONFIRMED/COMPLETED)=无；否则(INIT/ONGOING)回落任务状态映射（评分阶段=评估人；待确认=PD）
+            // 当前审批人：优先周期状态（PeriodStatusPolicy 六态映射）——CALIBRATING 依校准提交时间分叉
+            //   （未提交=PD待校准；已提交=总裁待确认）；终态(CONFIRMED/PUBLISHED/COMPLETED)=无；否则(INIT/ONGOING)回落任务映射
             String periodStatus = period.getStatus();
-            if ("CALIBRATING".equals(periodStatus)) {
+            String approvalNode = PeriodStatusPolicy.approvalNode(periodStatus);
+            if ("CALIBRATION".equals(approvalNode)) {
                 if (period.getCalibrationSubmittedAt() == null) {
                     // 未提交校准：显示所属项目主 PD 姓名（PROJECT 任务）；FUNCTIONAL 无项目或查不到主 PD 时回退占位
                     String pdEmployeeId = t.getProjectCode() != null && t.getProjectStage() != null
@@ -153,7 +155,7 @@ public class PeriodMonitorService {
                 } else {
                     item.setCurrentApproverName("总裁（待确认）");
                 }
-            } else if (!"CONFIRMED".equals(periodStatus) && !"COMPLETED".equals(periodStatus)) {
+            } else if ("TASK".equals(approvalNode)) {
                 String status = t.getStatus();
                 if ("PENDING".equals(status) || "IN_PROGRESS".equals(status)) {
                     item.setCurrentApproverId(t.getAssessorId());

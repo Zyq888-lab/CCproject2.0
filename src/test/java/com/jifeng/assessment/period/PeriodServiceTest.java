@@ -258,7 +258,7 @@ class PeriodServiceTest {
         assertEquals(first.getCalibrationSubmittedAt(), second.getCalibrationSubmittedAt());
     }
 
-    // 功能：结果可见性由周期态推导——仅 CONFIRMED/COMPLETED 可见
+    // 功能：结果可见性由周期态推导——仅 PUBLISHED/COMPLETED 可见；CONFIRMED 待发布不可见
     @Test
     void shouldDeriveResultVisibilityFromPeriodStatus() {
         AssessmentPeriod period = createTestPeriod("可见性周期");
@@ -271,7 +271,7 @@ class PeriodServiceTest {
         assertFalse(periodService.isResultVisible(period.getPeriodId())); // CALIBRATING
 
         periodService.confirmPeriod(period.getPeriodId());
-        assertTrue(periodService.isResultVisible(period.getPeriodId())); // CONFIRMED
+        assertFalse(periodService.isResultVisible(period.getPeriodId())); // CONFIRMED 待发布不可见
 
         periodService.closePeriod(period.getPeriodId());
         assertTrue(periodService.isResultVisible(period.getPeriodId())); // COMPLETED
