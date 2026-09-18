@@ -19,11 +19,16 @@ function LoginPage() {
     setLoading(true);
     setError('');
     const doLogin = async () => {
-      await client.post('/auth/login', {
+      const res = await client.post('/auth/login', {
         username: values.username,
         password: values.password,
       });
-      navigate('/dashboard');
+      // 首登强制改密：后端返回 mustChangePassword=true 时跳转改密页
+      if (res?.data?.mustChangePassword) {
+        navigate('/change-password');
+      } else {
+        navigate('/dashboard');
+      }
     };
     try {
       await doLogin();

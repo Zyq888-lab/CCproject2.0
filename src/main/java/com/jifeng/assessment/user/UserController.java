@@ -45,6 +45,12 @@ public class UserController extends BaseController {
                 request.getPassword()));
     }
 
+    // 功能：一键激活账号——username=工号、初始密码、首登强制改密、授权角色（ADMIN）
+    @PostMapping("/activate")
+    public ApiResponse<UserDTO> activate(@Valid @RequestBody ActivateRequest request) {
+        return ok(userService.activate(request.getEmployeeId(), request.getRoleTypes()));
+    }
+
     // 功能：覆盖式更新用户角色——先删除原有角色再插入新角色，返回更新后的角色列表
     @PutMapping("/{userId}/roles")
     public ApiResponse<List<String>> updateRoles(
@@ -65,6 +71,14 @@ public class UserController extends BaseController {
 
     @Data
     public static class UpdateRolesRequest {
+        @NotEmpty
+        private List<String> roleTypes;
+    }
+
+    @Data
+    public static class ActivateRequest {
+        @NotBlank
+        private String employeeId;
         @NotEmpty
         private List<String> roleTypes;
     }

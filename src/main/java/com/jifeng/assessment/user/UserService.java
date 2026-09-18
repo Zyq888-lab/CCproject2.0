@@ -10,6 +10,8 @@ import com.jifeng.assessment.common.PageQuery;
 import com.jifeng.assessment.common.PageResult;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
+import com.jifeng.assessment.system.SystemParam;
+import com.jifeng.assessment.system.SystemParamMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.core.Authentication;
@@ -31,6 +33,7 @@ public class UserService extends BaseService<SysUserMapper, SysUser> {
     private final UserRoleMapper userRoleMapper;
     private final EmployeeMapper employeeMapper;
     private final PasswordEncoder passwordEncoder;
+    private final SystemParamMapper systemParamMapper;
 
     // 功能：分页查询用户列表，关联 employee 表返回员工姓名
     public PageResult<UserDTO> listUsers(PageQuery query) {
@@ -114,6 +117,94 @@ public class UserService extends BaseService<SysUserMapper, SysUser> {
         dto.setEnabled(user.getEnabled());
         dto.setRoles(List.of());
         return dto;
+    }
+
+    // 功能：一键激活账号——username=工号、密码=bcrypt(默认初始密码)、must_change_password=true、写入 user_role
+    // 说明：复用 createUser 的员工存在/未关联校验；仅新激活账号置 true，不回溯已有账号（D3）
+    @Transactional
+    public UserDTO activate(String employeeId, List<String> roleTypes) {
+        if (!StringUtils.hasText(employeeId)) {
+            throw new BusinessException(400, "关联员工工号不能为空");
+        }
+        if (roleTypes == null || roleTypes.isEmpty()) {
+            throw new BusinessException(400, "请至少选择一个角色");
+        }
+
+        // 校验员工存在
+        Employee employee = employeeMapper.selectById(employeeId);
+        if (employee == null) {
+            throw new BusinessException(400, "员工工号不存在: " + employeeId);
+        }
+
+        // 校验该员工未被其他用户关联
+        LambdaQueryWrapper<SysUser> existWrapper = new LambdaQueryWrapper<>();
+        existWrapper.eq(SysUser::getEmployeeId, employeeId);
+        if (baseMapper.selectCount(existWrapper) > 0) {
+            throw new BusinessException(409, "该员工已关联系统用户，无法重复激活");
+        }
+
+        // 校验角色代码合法性
+        for (String roleType : roleTypes) {
+            if (RoleType.fromCode(roleType) == null) {
+                throw new BusinessException(400, "无效的角色类型: " + roleType);
+            }
+        }
+
+        // username = 工号；工号可能已被其他用户用作 username，先查重
+        String username = employeeId;
+        LambdaQueryWrapper<SysUser> usernameWrapper = new LambdaQueryWrapper<>();
+        usernameWrapper.eq(SysUser::getUsername, username);
+        if (baseMapper.selectCount(usernameWrapper) > 0) {
+            throw new BusinessException(409, "用户名已存在: " + username);
+        }
+
+        // 默认初始密码（系统参数可改，缺失回退 '123456'）
+        String initialPassword = getDefaultInitialPassword();
+
+        String nextUserId = generateNextUserId();
+
+        SysUser user = new SysUser();
+        user.setUserId(nextUserId);
+        user.setUsername(username);
+        user.setPasswordHash(passwordEncoder.encode(initialPassword));
+        user.setEmployeeId(employeeId);
+        user.setEnabled(true);
+        user.setMustChangePassword(true);
+
+        try {
+            baseMapper.insert(user);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException(409, "用户名已存在: " + username);
+        }
+
+        // 写入角色（去重）
+        List<String> distinctRoleTypes = roleTypes.stream().distinct().toList();
+        for (String roleType : distinctRoleTypes) {
+            UserRole role = new UserRole();
+            role.setUserId(nextUserId);
+            role.setRoleType(roleType);
+            userRoleMapper.insert(role);
+        }
+
+        UserDTO dto = new UserDTO();
+        dto.setUserId(user.getUserId());
+        dto.setUsername(user.getUsername());
+        dto.setEmployeeId(user.getEmployeeId());
+        dto.setEmployeeName(employee.getName());
+        dto.setEnabled(user.getEnabled());
+        dto.setRoles(distinctRoleTypes);
+        return dto;
+    }
+
+    // 功能：读取默认初始密码参数——系统参数缺失或为空时回退 '123456'
+    private String getDefaultInitialPassword() {
+        SystemParam param = systemParamMapper.selectOne(
+                new LambdaQueryWrapper<SystemParam>()
+                        .eq(SystemParam::getParamKey, "DEFAULT_INITIAL_PASSWORD"));
+        if (param != null && StringUtils.hasText(param.getParamValue())) {
+            return param.getParamValue();
+        }
+        return "123456";
     }
 
     // 功能：覆盖式更新用户角色——物理删除原有角色后插入去重后的新角色列表

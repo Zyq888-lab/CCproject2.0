@@ -3,7 +3,7 @@
 {/* 修改注意：角色选项与后端RoleType枚举同步，分配角色时覆盖式更新 */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Table, Button, Tag, Space, Modal, Form, Input, Select, Checkbox, message, Card,
+  Table, Button, Tag, Space, Modal, Form, Select, Checkbox, message, Card,
 } from 'antd';
 import {
   UserOutlined, PlusOutlined, ReloadOutlined,
@@ -110,13 +110,16 @@ function UserRolePage() {
     setCreateModalVisible(true);
   };
 
-  // 功能：提交新增用户——POST /api/v1/users
+  // 功能：提交激活账号——POST /api/v1/users/activate（工号/默认密码/强制改密由后端生成）
   const handleCreateSubmit = async () => {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
-      await client.post('/users', values);
-      message.success({ content: '用户创建成功', duration: 3 });
+      await client.post('/users/activate', {
+        employeeId: values.employeeId,
+        roleTypes: values.roleTypes,
+      });
+      message.success({ content: '账号激活成功，工号+初始密码可登录', duration: 3 });
       setCreateModalVisible(false);
       fetchUsers(pagination.current, pagination.pageSize);
     } catch (err) {
@@ -186,7 +189,7 @@ function UserRolePage() {
       <PageHeader
         title="用户管理"
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
-        actions={[{ label: '新增用户', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate }]}
+        actions={[{ label: '激活账号', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate }]}
       />
 
       {/* 功能：错误提示——加载失败时显示重试 */}
@@ -202,8 +205,8 @@ function UserRolePage() {
         <EmptyState
           image={<UserOutlined style={{ fontSize: 72, color: '#1890FF' }} />}
           title="还没有任何系统用户"
-          description="为需要使用系统的人创建登录账号"
-          primaryAction={{ label: '新增用户', onClick: handleCreate }}
+          description="为需要使用系统的人激活登录账号"
+          primaryAction={{ label: '激活账号', onClick: handleCreate }}
         />
       )}
 
@@ -231,14 +234,14 @@ function UserRolePage() {
         </Card>
       )}
 
-      {/* 功能：新增用户弹窗——选择员工+填写用户名+初始密码 */}
+      {/* 功能：激活账号弹窗——选择员工+选择角色，工号/默认密码/强制改密由后端生成 */}
       <Modal
-        title="新增用户"
+        title="激活账号"
         open={createModalVisible}
         onOk={handleCreateSubmit}
         onCancel={() => setCreateModalVisible(false)}
         confirmLoading={submitting}
-        okText="保存"
+        okText="激活"
         cancelText="取消"
         width={480}
       >
@@ -249,7 +252,7 @@ function UserRolePage() {
             rules={[{ required: true, message: '请选择关联员工' }]}
           >
             <Select
-              placeholder="选择员工"
+              placeholder="选择员工（登录账号 = 工号）"
               showSearch
               filterOption={(input, option) =>
                 (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
@@ -258,18 +261,16 @@ function UserRolePage() {
             />
           </Form.Item>
           <Form.Item
-            name="username"
-            label="用户名"
-            rules={[{ required: true, message: '请输入用户名' }]}
+            name="roleTypes"
+            label="分配角色"
+            rules={[{ required: true, message: '请至少选择一个角色' }]}
           >
-            <Input placeholder="登录用户名" maxLength={50} />
-          </Form.Item>
-          <Form.Item
-            name="password"
-            label="初始密码"
-            rules={[{ required: true, message: '请输入初始密码' }]}
-          >
-            <Input.Password placeholder="初始密码" maxLength={100} />
+            <Select
+              mode="multiple"
+              placeholder="选择角色"
+              options={ROLE_OPTIONS}
+              allowClear
+            />
           </Form.Item>
         </Form>
       </Modal>

@@ -4,6 +4,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import LoginPage from './pages/Login/LoginPage';
+import ChangePasswordPage from './pages/Login/ChangePasswordPage';
 import DashboardPage from './pages/Dashboard/DashboardPage';
 import EmployeeListPage from './pages/Employee/EmployeeListPage';
 import UserRolePage from './pages/UserRole/UserRolePage';
@@ -33,6 +34,9 @@ function App() {
       <Routes>
         {/* 功能：登录页——公开访问，不走AppLayout包裹 */}
         <Route path="/login" element={<LoginPage />} />
+
+        {/* 功能：强制改密页——公开访问（首登改密时仍在会话内，但不走AppLayout以免触发业务接口403） */}
+        <Route path="/change-password" element={<ChangePasswordPage />} />
 
         {/* 功能：所有需登录页面——由AppLayout包裹，通过<Outlet />渲染子路由 */}
         <Route element={<AppLayout />}>
