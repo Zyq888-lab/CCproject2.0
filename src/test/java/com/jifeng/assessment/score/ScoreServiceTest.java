@@ -56,8 +56,6 @@ class ScoreServiceTest {
         inProgressTask.setAssessorId("E001");
         inProgressTask.setTaskType("PROJECT");
         inProgressTask.setStatus("IN_PROGRESS");
-        inProgressTask.setReturnCount(0);
-        inProgressTask.setMaxReturns(3);
         inProgressTask.setVersion(0L);
 
         // 注入真实状态机（纯逻辑，无依赖）

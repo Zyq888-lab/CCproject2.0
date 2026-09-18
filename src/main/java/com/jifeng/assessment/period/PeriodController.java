@@ -5,6 +5,7 @@ package com.jifeng.assessment.period;
 
 import com.jifeng.assessment.common.ApiResponse;
 import com.jifeng.assessment.common.BaseController;
+import com.jifeng.assessment.result.ResultService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -21,6 +22,7 @@ import java.util.List;
 public class PeriodController extends BaseController {
 
     private final PeriodService periodService;
+    private final ResultService resultService;
 
     // 功能：查询考核周期列表，支持按状态筛选——员工录入参与需选周期，故对所有角色开放只读
     @GetMapping("/api/v1/periods")
@@ -73,6 +75,13 @@ public class PeriodController extends BaseController {
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<AssessmentPeriod> confirm(@PathVariable String periodId) {
         return ok(periodService.confirmPeriod(periodId));
+    }
+
+    // 功能：查询周期「未提交」员工数——校准矩阵/确认页「N 人未提交」告警的数据源
+    @GetMapping("/api/v1/periods/{periodId}/unsubmitted-count")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PD')")
+    public ApiResponse<Integer> unsubmittedCount(@PathVariable String periodId) {
+        return ok(resultService.countUnsubmitted(periodId));
     }
 
     // 功能：关闭考核周期——仅CONFIRMED状态可关闭，状态变为COMPLETED

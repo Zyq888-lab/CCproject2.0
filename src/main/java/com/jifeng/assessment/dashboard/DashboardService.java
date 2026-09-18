@@ -105,7 +105,7 @@ public class DashboardService {
                 // 与 TaskService.listTasks(scope=pending) 对齐：只统计可操作状态，排除历史 SELF 自评，且仅限已发起(ONGOING)周期
                 return taskMapper.selectCount(new LambdaQueryWrapper<AssessmentTask>()
                         .eq(AssessmentTask::getAssessorId, employeeId)
-                        .in(AssessmentTask::getStatus, "PENDING", "IN_PROGRESS", "RETURNED")
+                        .in(AssessmentTask::getStatus, "PENDING", "IN_PROGRESS")
                         .ne(AssessmentTask::getTaskType, "SELF")
                         .inSql(AssessmentTask::getPeriodId,
                                 "SELECT period_id FROM assessment_period WHERE status = 'ONGOING' AND deleted = 0"));

@@ -35,12 +35,6 @@ public class AssessmentTask {
 
     private String status;
 
-    @TableField("return_count")
-    private Integer returnCount;
-
-    @TableField("max_returns")
-    private Integer maxReturns;
-
     @TableLogic
     private Integer deleted;
 

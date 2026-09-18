@@ -5,6 +5,7 @@ package com.jifeng.assessment.period;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.result.ResultService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,7 @@ import java.util.UUID;
 public class PeriodService {
 
     private final PeriodMapper periodMapper;
+    private final ResultService resultService;
 
     private static final String COMPLETED = "COMPLETED";
     private static final String CONFIRMED = "CONFIRMED";
@@ -107,6 +109,8 @@ public class PeriodService {
         if (updated == 0) {
             throw new BusinessException(400, "仅进行中的周期可进入校准");
         }
+        // 进入校准即生成结果行：仅聚合 SUBMITTED 任务，未提交员工跳空不生成（完整性软门不阻断）
+        resultService.generateResults(periodId);
         return periodMapper.selectById(periodId);
     }
 
@@ -119,6 +123,8 @@ public class PeriodService {
         if (updated == 0) {
             throw new BusinessException(400, "仅校准中的周期可确认");
         }
+        // 确认时重生成一次结果（幂等 upsert，刷新 original、保留 adjusted），未提交员工仍跳空
+        resultService.generateResults(periodId);
         return periodMapper.selectById(periodId);
     }
 

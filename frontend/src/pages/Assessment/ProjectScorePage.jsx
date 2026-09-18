@@ -238,7 +238,6 @@ function ProjectScorePage({ kpiType = 'PROJECT' }) {
         <Space size={24} wrap>
           <span>被考核人：<strong>{task?.assesseeId || '-'}</strong></span>
           <span>考核人：<strong>{task?.assessorId || '-'}</strong></span>
-          <span>退回次数：{task?.returnCount ?? 0}/{task?.maxReturns ?? 3}</span>
         </Space>
       </Card>
 

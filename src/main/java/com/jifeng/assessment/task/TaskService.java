@@ -80,9 +80,9 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
         // 自评已移除：所有列表一律排除历史 SELF 残留数据（存量数据清理前的兜底）
         wrapper.ne(AssessmentTask::getTaskType, "SELF");
 
-        // 待评分列表：只显示可评分状态（PENDING/IN_PROGRESS/RETURNED），已提交/已确认/已取消移入「我的进度」
+        // 待评分列表：只显示可评分状态（PENDING/IN_PROGRESS），已提交/已确认/已取消移入「我的进度」
         if ("pending".equals(scope)) {
-            wrapper.in(AssessmentTask::getStatus, "PENDING", "IN_PROGRESS", "RETURNED");
+            wrapper.in(AssessmentTask::getStatus, "PENDING", "IN_PROGRESS");
             // 待评分列表仅返回已发起(ONGOING)周期的任务，避免 INIT 周期存量任务提前暴露评分入口
             wrapper.inSql(AssessmentTask::getPeriodId,
                     "SELECT period_id FROM assessment_period WHERE status = 'ONGOING' AND deleted = 0");
@@ -198,15 +198,14 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
         // 周期锁定：考核尚未发起或已关闭时拒绝开始评分
         periodService.assertOngoing(task.getPeriodId(), "开始评分");
         TaskStatus target = taskStateMachine.transition(
-                TaskStatus.valueOf(task.getStatus()), TaskAction.START,
-                task.getReturnCount(), task.getMaxReturns());
+                TaskStatus.valueOf(task.getStatus()), TaskAction.START);
         task.setStatus(target.name());
         task.setUpdatedAt(LocalDateTime.now());
         updateWithOptimisticLock(task);
         return task;
     }
 
-    // 功能：取消任务——PENDING/IN_PROGRESS/RETURNED → CANCELED，经状态机校验
+    // 功能：取消任务——PENDING/IN_PROGRESS → CANCELED，经状态机校验
     @Transactional
     public AssessmentTask cancel(Long taskId) {
         AssessmentTask task = baseMapper.selectById(taskId);
@@ -216,8 +215,7 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
         // 周期锁定：考核周期已关闭时拒绝取消任务
         periodService.assertNotCompleted(task.getPeriodId(), "取消任务");
         TaskStatus target = taskStateMachine.transition(
-                TaskStatus.valueOf(task.getStatus()), TaskAction.CANCEL,
-                task.getReturnCount(), task.getMaxReturns());
+                TaskStatus.valueOf(task.getStatus()), TaskAction.CANCEL);
         task.setStatus(target.name());
         task.setUpdatedAt(LocalDateTime.now());
         updateWithOptimisticLock(task);

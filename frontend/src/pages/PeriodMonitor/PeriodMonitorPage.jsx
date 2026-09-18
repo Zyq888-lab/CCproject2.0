@@ -18,7 +18,6 @@ const STATUS_LABEL_MAP = {
   PENDING: '待评分',
   IN_PROGRESS: '评分中',
   SUBMITTED: '已提交',
-  RETURNED: '已退回',
   CONFIRMED: '已确认',
   CANCELED: '已取消',
 };
@@ -27,7 +26,6 @@ const STATUS_COLOR_MAP = {
   PENDING: 'orange',
   IN_PROGRESS: 'blue',
   SUBMITTED: 'green',
-  RETURNED: 'red',
   CONFIRMED: 'cyan',
   CANCELED: 'default',
 };
@@ -42,7 +40,6 @@ const NODE_LABEL_MAP = {
   PENDING: '待评估人评分',
   IN_PROGRESS: '评估人评分中',
   SUBMITTED: '待确认',
-  RETURNED: '待评估人重新评分',
   CONFIRMED: '已完成',
   CANCELED: '已取消',
 };
@@ -265,7 +262,6 @@ function PeriodMonitorPage() {
               <Descriptions.Item label="当前审批人">{detail.currentApproverName || detail.currentApproverId || '-'}</Descriptions.Item>
               <Descriptions.Item label="评分进度">{detail.kpiCount ? `${detail.scoredCount ?? 0}/${detail.kpiCount}` : '-'}</Descriptions.Item>
               <Descriptions.Item label="加权总分">{detail.totalScore != null ? Number(detail.totalScore).toFixed(2) : '-'}</Descriptions.Item>
-              <Descriptions.Item label="退回次数">{`${detail.returnCount ?? 0}/${detail.maxReturns ?? 3}`}</Descriptions.Item>
             </Descriptions>
             <div style={{ marginTop: 16, fontWeight: 500 }}>指标明细</div>
             <Table

@@ -130,8 +130,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
 
         // 乐观锁更新任务状态：IN_PROGRESS → SUBMITTED，version 冲突抛 409
         TaskStatus target = taskStateMachine.transition(
-                TaskStatus.valueOf(task.getStatus()), TaskAction.SUBMIT,
-                task.getReturnCount(), task.getMaxReturns());
+                TaskStatus.valueOf(task.getStatus()), TaskAction.SUBMIT);
         task.setStatus(target.name());
         task.setUpdatedAt(now);
         updateTaskWithOptimisticLock(task);

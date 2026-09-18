@@ -113,8 +113,6 @@ public class PeriodMonitorService {
                     : null);
             item.setTaskType(t.getTaskType());
             item.setStatus(t.getStatus());
-            item.setReturnCount(t.getReturnCount());
-            item.setMaxReturns(t.getMaxReturns());
 
             // 指标 + 分数：反查 KPI 并回填单项得分，计算加权总分与评分进度
             List<KpiIndicatorDTO> indicators = resolveIndicators(t,
@@ -136,7 +134,7 @@ public class PeriodMonitorService {
 
             // 当前审批人：评分阶段=评估人；待确认=PD；终态=无
             String status = t.getStatus();
-            if ("PENDING".equals(status) || "IN_PROGRESS".equals(status) || "RETURNED".equals(status)) {
+            if ("PENDING".equals(status) || "IN_PROGRESS".equals(status)) {
                 item.setCurrentApproverId(t.getAssessorId());
                 item.setCurrentApproverName(employeeNames.get(t.getAssessorId()));
             } else if ("SUBMITTED".equals(status)) {

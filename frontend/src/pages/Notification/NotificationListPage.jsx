@@ -13,7 +13,6 @@ import client from '../../api/client';
 
 const TYPE_LABEL_MAP = {
   TASK_ASSIGNED: '考核任务',
-  RETURNED: '退回',
   CONFIRMED: '确认',
   URGE: '催办',
   PARTICIPATION_PENDING: '待审批参与',
@@ -21,7 +20,6 @@ const TYPE_LABEL_MAP = {
 
 const TYPE_COLOR_MAP = {
   TASK_ASSIGNED: 'blue',
-  RETURNED: 'red',
   CONFIRMED: 'green',
   URGE: 'orange',
   PARTICIPATION_PENDING: 'gold',

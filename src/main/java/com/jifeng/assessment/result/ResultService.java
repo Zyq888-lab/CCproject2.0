@@ -115,6 +115,19 @@ public class ResultService {
         return generated;
     }
 
+    // 功能：统计周期内「未提交」员工数——存在 PENDING/IN_PROGRESS 任务（尚未 SUBMITTED）的去重员工数，
+    //   用于校准矩阵/确认页「N 人未提交」告警；已取消(CANCELED)任务不计入
+    public int countUnsubmitted(String periodId) {
+        if (periodMapper.selectById(periodId) == null) {
+            throw new BusinessException(404, "考核周期不存在: " + periodId);
+        }
+        return (int) taskMapper.selectList(
+                        new LambdaQueryWrapper<AssessmentTask>()
+                                .eq(AssessmentTask::getPeriodId, periodId)
+                                .in(AssessmentTask::getStatus, "PENDING", "IN_PROGRESS"))
+                .stream().map(AssessmentTask::getAssesseeId).distinct().count();
+    }
+
     // 功能：计算单个员工的 composite 总分——项目加权 + 职能加权；
     //   单组件员工（仅项目/仅职能）权重重归一化（单一组件权重置 1）+ WARN 标记
     private BigDecimal computeComposite(String assesseeId, List<AssessmentTask> tasks,

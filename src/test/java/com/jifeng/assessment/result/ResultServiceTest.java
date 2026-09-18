@@ -16,6 +16,7 @@ import com.jifeng.assessment.participation.EmployeeProjectParticipation;
 import com.jifeng.assessment.participation.ParticipationMapper;
 import com.jifeng.assessment.period.AssessmentPeriod;
 import com.jifeng.assessment.period.PeriodMapper;
+import com.jifeng.assessment.period.PeriodService;
 import com.jifeng.assessment.position.PositionAssessmentConfig;
 import com.jifeng.assessment.position.PositionConfigMapper;
 import com.jifeng.assessment.project.Project;
@@ -44,6 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ResultServiceTest {
 
     @Autowired private ResultService resultService;
+    @Autowired private PeriodService periodService;
     @Autowired private AssessmentResultMapper resultMapper;
     @Autowired private PeriodMapper periodMapper;
     @Autowired private EmployeeMapper employeeMapper;
@@ -149,6 +151,77 @@ class ResultServiceTest {
         assertEquals(0, new BigDecimal("4.5000").compareTo(reloaded.getAdjustedScore()));
     }
 
+    // 功能：完整性软门——未 SUBMITTED 员工跳空不生成结果行，仅 SUBMITTED 员工落库
+    @Test
+    void generateShouldSkipUnsubmittedAssessees() {
+        seedPeriod();
+        seedEmployee("EMP_SUBMITTED");
+        seedEmployee("EMP_PENDING");
+        seedEmployee("ASSESSOR1");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        Long projKpiId = seedProjectKpi(new BigDecimal("1.0000"));
+
+        Long submittedTaskId = seedTask("EMP_SUBMITTED", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        seedScore(submittedTaskId, projKpiId, "PROJECT", new BigDecimal("4.0"));
+        seedParticipation("EMP_SUBMITTED", "PRJ1", "P2", new BigDecimal("100"));
+        seedTask("EMP_PENDING", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "IN_PROGRESS");
+
+        int generated = resultService.generateResults("PERIOD-001");
+
+        assertEquals(1, generated);
+        assertNotNull(resultMapper.selectOne(new LambdaQueryWrapper<AssessmentResult>()
+                .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                .eq(AssessmentResult::getAssesseeId, "EMP_SUBMITTED")));
+        assertNull(resultMapper.selectOne(new LambdaQueryWrapper<AssessmentResult>()
+                .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                .eq(AssessmentResult::getAssesseeId, "EMP_PENDING")));
+    }
+
+    // 功能：统计未提交员工数——PENDING/IN_PROGRESS 各 1 人计入，SUBMITTED/CANCELED 不计入
+    @Test
+    void countUnsubmittedShouldCountActiveButNotSubmittedAssessees() {
+        seedPeriod();
+        seedEmployee("EMP_PENDING");
+        seedEmployee("EMP_INPROGRESS");
+        seedEmployee("EMP_SUBMITTED");
+        seedEmployee("EMP_CANCELED");
+        seedEmployee("ASSESSOR1");
+
+        seedTask("EMP_PENDING", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "PENDING");
+        seedTask("EMP_INPROGRESS", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "IN_PROGRESS");
+        seedTask("EMP_SUBMITTED", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        seedTask("EMP_CANCELED", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "CANCELED");
+
+        assertEquals(2, resultService.countUnsubmitted("PERIOD-001"));
+    }
+
+    // 功能：进入校准触发结果生成——SUBMITTED 员工落库、未提交员工跳空、未提交计数=1
+    @Test
+    void enterCalibrationShouldGenerateResultsAndSkipUnsubmitted() {
+        seedPeriod();
+        seedEmployee("EMP_SUBMITTED");
+        seedEmployee("EMP_PENDING");
+        seedEmployee("ASSESSOR1");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        Long projKpiId = seedProjectKpi(new BigDecimal("1.0000"));
+
+        Long submittedTaskId = seedTask("EMP_SUBMITTED", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        seedScore(submittedTaskId, projKpiId, "PROJECT", new BigDecimal("4.0"));
+        seedParticipation("EMP_SUBMITTED", "PRJ1", "P2", new BigDecimal("100"));
+        seedTask("EMP_PENDING", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "IN_PROGRESS");
+
+        AssessmentPeriod calibrated = periodService.enterCalibration("PERIOD-001");
+
+        assertEquals("CALIBRATING", calibrated.getStatus());
+        assertNotNull(resultMapper.selectOne(new LambdaQueryWrapper<AssessmentResult>()
+                .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                .eq(AssessmentResult::getAssesseeId, "EMP_SUBMITTED")));
+        assertNull(resultMapper.selectOne(new LambdaQueryWrapper<AssessmentResult>()
+                .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                .eq(AssessmentResult::getAssesseeId, "EMP_PENDING")));
+        assertEquals(1, resultService.countUnsubmitted("PERIOD-001"));
+    }
+
     // ================= 辅助：种子数据 =================
 
     private void seedPeriod() {
@@ -228,8 +301,6 @@ class ResultServiceTest {
         task.setProjectStage(projectStage);
         task.setTaskType(taskType);
         task.setStatus(status);
-        task.setReturnCount(0);
-        task.setMaxReturns(3);
         taskMapper.insert(task);
         return task.getId();
     }

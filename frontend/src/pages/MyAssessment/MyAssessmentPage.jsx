@@ -14,7 +14,6 @@ const STATUS_LABEL_MAP = {
   PENDING: '待评分',
   IN_PROGRESS: '评分中',
   SUBMITTED: '已提交',
-  RETURNED: '已退回',
   CONFIRMED: '已确认',
   CANCELED: '已取消',
 };
@@ -23,7 +22,6 @@ const STATUS_COLOR_MAP = {
   PENDING: 'orange',
   IN_PROGRESS: 'blue',
   SUBMITTED: 'green',
-  RETURNED: 'red',
   CONFIRMED: 'cyan',
   CANCELED: 'default',
 };

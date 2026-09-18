@@ -323,8 +323,6 @@ public class TaskGeneratorService {
         task.setProjectStage(projectStage);
         task.setTaskType(taskType);
         task.setStatus(STATUS_PENDING);
-        task.setReturnCount(0);
-        task.setMaxReturns(3);
         taskMapper.insertIgnore(task);
     }
 

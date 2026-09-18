@@ -1,6 +1,6 @@
 {/* 模块用途：TaskListPage——考核任务列表页，三Tab(待评分/我的进度/待审批[仅PM·ADMIN])+周期/状态/项目编码筛选+状态Tag */}
 {/* 依赖组件：PageHeader, EmptyState, client.js, Ant Design Tabs/Table/Select/Input/Tag/Space/Card/Modal/Form/Radio/InputNumber */}
-{/* 修改注意：状态Tag颜色 PENDING=orange/IN_PROGRESS=blue/SUBMITTED=green/RETURNED=red/CONFIRMED=cyan/CANCELED=default */}
+{/* 修改注意：状态Tag颜色 PENDING=orange/IN_PROGRESS=blue/SUBMITTED=green/CONFIRMED=cyan/CANCELED=default */}
 {/* 修改注意：待审批Tab调 GET /participations?status=PENDING，审批提交 PUT /participations/{id}/approve */}
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -18,7 +18,6 @@ const STATUS_OPTIONS = [
   { label: '待评分', value: 'PENDING' },
   { label: '评分中', value: 'IN_PROGRESS' },
   { label: '已提交', value: 'SUBMITTED' },
-  { label: '已退回', value: 'RETURNED' },
   { label: '已确认', value: 'CONFIRMED' },
   { label: '已取消', value: 'CANCELED' },
 ];
@@ -27,7 +26,6 @@ const STATUS_LABEL_MAP = {
   'PENDING': '待评分',
   'IN_PROGRESS': '评分中',
   'SUBMITTED': '已提交',
-  'RETURNED': '已退回',
   'CONFIRMED': '已确认',
   'CANCELED': '已取消',
 };
@@ -36,7 +34,6 @@ const STATUS_COLOR_MAP = {
   'PENDING': 'orange',
   'IN_PROGRESS': 'blue',
   'SUBMITTED': 'green',
-  'RETURNED': 'red',
   'CONFIRMED': 'cyan',
   'CANCELED': 'default',
 };
@@ -46,11 +43,10 @@ const TASK_TYPE_LABEL = { 'PROJECT': '项目考核', 'FUNCTIONAL': '职能考核
 // 功能：状态合并优先级——数字越小越「未完成」，合并行取优先级最高（最小）的状态
 const STATUS_PRIORITY = {
   'PENDING': 0,
-  'RETURNED': 1,
-  'IN_PROGRESS': 2,
-  'SUBMITTED': 3,
-  'CONFIRMED': 4,
-  'CANCELED': 5,
+  'IN_PROGRESS': 1,
+  'SUBMITTED': 2,
+  'CONFIRMED': 3,
+  'CANCELED': 4,
 };
 
 // 功能：将扁平任务列表按「被考核人+项目」合并——同一人同一项目的多条不同 taskType 任务合并为一行
@@ -101,7 +97,7 @@ function TaskGroupDetail({ tasks, employeeNameMap, onGoScore, currentEmployeeId 
     <div style={{ padding: '8px 16px 12px 32px' }}>
       {tasks.map((t) => {
         const d = details[t.id];
-        const actionable = ['PENDING', 'IN_PROGRESS', 'RETURNED'].includes(t.status)
+        const actionable = ['PENDING', 'IN_PROGRESS'].includes(t.status)
           && currentEmployeeId && t.assessorId === currentEmployeeId
           && d?.indicators?.length > 0;
         const label = t.status === 'PENDING' ? '开始评分' : '继续评分';
@@ -283,7 +279,7 @@ function TaskListPage() {
     }
   };
 
-  // 功能：去打分——PENDING 先开始评分再跳转，IN_PROGRESS/RETURNED 直接跳转打分页（按 taskType 区分项目/职能）
+  // 功能：去打分——PENDING 先开始评分再跳转，IN_PROGRESS 直接跳转打分页（按 taskType 区分项目/职能）
   const handleGoScore = async (task) => {
     try {
       if (task.status === 'PENDING') {

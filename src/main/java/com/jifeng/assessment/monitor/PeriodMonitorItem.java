@@ -30,11 +30,8 @@ public class PeriodMonitorItem {
     /** PROJECT / FUNCTIONAL */
     private String taskType;
 
-    /** PENDING / IN_PROGRESS / SUBMITTED / RETURNED / CONFIRMED / CANCELED */
+    /** PENDING / IN_PROGRESS / SUBMITTED / CONFIRMED / CANCELED */
     private String status;
-
-    private Integer returnCount;
-    private Integer maxReturns;
 
     /** KPI 指标列表（含单项得分回填） */
     private List<KpiIndicatorDTO> indicators;
@@ -46,7 +43,7 @@ public class PeriodMonitorItem {
     private Integer scoredCount;
     private Integer kpiCount;
 
-    /** 当前审批人（PENDING/IN_PROGRESS/RETURNED=评估人；SUBMITTED=PD；终态=null） */
+    /** 当前审批人（PENDING/IN_PROGRESS=评估人；SUBMITTED=PD；终态=null） */
     private String currentApproverId;
     private String currentApproverName;
 }
