@@ -8,7 +8,7 @@ import {
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, CalendarOutlined, LockOutlined, PlayCircleOutlined, BarChartOutlined,
-  ExperimentOutlined, SlidersOutlined, CheckCircleOutlined,
+  ExperimentOutlined, SlidersOutlined, CheckCircleOutlined, SendOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
@@ -21,6 +21,7 @@ const STATUS_CONFIG = {
   ONGOING:     { color: 'processing', label: '进行中' },
   CALIBRATING: { color: 'warning', label: '校准中' },
   CONFIRMED:   { color: 'cyan', label: '已确认' },
+  PUBLISHED:   { color: 'geekblue', label: '已发布' },
   COMPLETED:   { color: 'success', label: '已完成' },
 };
 
@@ -179,6 +180,24 @@ function PeriodConfigPage() {
     });
   };
 
+  // 功能：发布周期——CONFIRMED 后由 ADMIN 发布，员工可见结果，状态变为已发布
+  const handlePublish = (period) => {
+    showConfirm({
+      title: `确定发布「${period.periodName}」吗？`,
+      content: '发布后员工可查看考核结果，周期状态变为"已发布"。',
+      okText: '确认发布',
+      onOk: async () => {
+        try {
+          await client.put(`/periods/${period.periodId}/publish`);
+          message.success({ content: '考核周期已发布', duration: 3 });
+          fetchPeriods();
+        } catch (err) {
+          message.error({ content: err?.message || '发布失败' });
+        }
+      },
+    });
+  };
+
   const formatDate = (d) => {
     if (!d) return '-';
     return d.length > 10 ? d.substring(0, 10) : d;
@@ -315,6 +334,16 @@ function PeriodConfigPage() {
                           onClick={() => navigate(`/period-confirm/${period.periodId}`)}
                         >
                           确认发布
+                        </Button>
+                      ),
+                      period.status === 'CONFIRMED' && isAdmin && (
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<SendOutlined />}
+                          onClick={() => handlePublish(period)}
+                        >
+                          发布
                         </Button>
                       ),
                       isAdmin && (

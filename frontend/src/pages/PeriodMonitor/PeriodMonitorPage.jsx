@@ -41,14 +41,18 @@ const NODE_LABEL_MAP = {
   IN_PROGRESS: '评估人评分中',
   SUBMITTED: '待确认',
   CONFIRMED: '已完成',
+  PUBLISHED: '已发布',
   CANCELED: '已取消',
 };
 
-// 功能：当前审批节点文案——CALIBRATING 期按校准提交状态映射（未提交=待校准；已提交=待总裁确认），
-//   其余状态沿用任务状态映射 NODE_LABEL_MAP
+// 功能：当前审批节点文案——CALIBRATING 期按校准提交状态映射（未提交=待校准；已提交=总裁确认中），
+//   PUBLISHED 期显示已发布，其余状态沿用任务状态映射 NODE_LABEL_MAP
 const resolveNodeLabel = (r) => {
   if (r?.periodStatus === 'CALIBRATING') {
-    return r.calibrationSubmittedAt ? '待总裁确认' : '待校准';
+    return r.calibrationSubmittedAt ? '总裁确认中' : '待校准';
+  }
+  if (r?.periodStatus === 'PUBLISHED') {
+    return '已发布';
   }
   return NODE_LABEL_MAP[r.status] || '-';
 };
@@ -193,7 +197,7 @@ function PeriodMonitorPage() {
           type={data[0]?.calibrationSubmittedAt ? 'success' : 'warning'}
           showIcon
           style={{ marginBottom: 16 }}
-          message={data[0]?.calibrationSubmittedAt ? 'PD 已提交校准，待总裁确认' : 'PD 尚未提交校准'}
+          message={data[0]?.calibrationSubmittedAt ? 'PD 已提交校准，总裁确认中' : 'PD 尚未提交校准'}
         />
       )}
 
@@ -277,7 +281,7 @@ function PeriodMonitorPage() {
               <Descriptions.Item label="状态">
                 <Tag color={STATUS_COLOR_MAP[detail.status] || 'default'}>{STATUS_LABEL_MAP[detail.status] || detail.status || '-'}</Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="当前审批节点">{NODE_LABEL_MAP[detail.status] || '-'}</Descriptions.Item>
+              <Descriptions.Item label="当前审批节点">{resolveNodeLabel(detail)}</Descriptions.Item>
               <Descriptions.Item label="当前审批人">{detail.currentApproverName || detail.currentApproverId || '-'}</Descriptions.Item>
               <Descriptions.Item label="评分进度">{detail.kpiCount ? `${detail.scoredCount ?? 0}/${detail.kpiCount}` : '-'}</Descriptions.Item>
               <Descriptions.Item label="加权总分">{detail.totalScore != null ? Number(detail.totalScore).toFixed(2) : '-'}</Descriptions.Item>

@@ -25,6 +25,7 @@ import NotificationListPage from './pages/Notification/NotificationListPage';
 import PeriodMonitorPage from './pages/PeriodMonitor/PeriodMonitorPage';
 import CalibrationMatrixPage from './pages/Calibration/CalibrationMatrixPage';
 import ConfirmPage from './pages/Confirm/ConfirmPage';
+import PresidentConfirmPage from './pages/PresidentConfirm/PresidentConfirmPage';
 import ResultPage from './pages/Result/ResultPage';
 import MyResultPage from './pages/Result/MyResultPage';
 
@@ -64,6 +65,7 @@ function App() {
           <Route path="/period-monitor/:periodId" element={<PeriodMonitorPage />} />
           <Route path="/period-calibration/:periodId" element={<CalibrationMatrixPage />} />
           <Route path="/period-confirm/:periodId" element={<ConfirmPage />} />
+          <Route path="/president-confirm" element={<PresidentConfirmPage />} />
           <Route path="/period-result/:periodId" element={<ResultPage />} />
           <Route path="/my-result" element={<MyResultPage />} />
         </Route>

@@ -89,6 +89,15 @@ public class RoleAssignmentController extends BaseController {
         return ok("已移除", null);
     }
 
+    // 功能：跨阶段同步主总裁——将当前阶段主总裁分配到同项目其它阶段（PRESIDENT 角色专用）
+    @PostMapping("/api/v1/projects/{projectCode}/president/sync-stages")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM') and !hasRole('PD')")
+    public ApiResponse<Map<String, Object>> syncPresident(
+            @PathVariable String projectCode,
+            @RequestParam String sourceStage) {
+        return ok(roleAssignmentService.syncPresidentAcrossStages(projectCode, sourceStage));
+    }
+
     // 功能：批量导入角色分配——逐行处理，跳过已存在的分配
     @PostMapping("/api/v1/projects/assignments/import")
     @PreAuthorize("hasAnyRole('ADMIN', 'PM') and !hasRole('PD')")

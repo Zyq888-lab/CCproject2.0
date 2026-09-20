@@ -21,13 +21,14 @@ import {
   BellOutlined,
   SlidersOutlined,
   TrophyOutlined,
+  AuditOutlined,
 } from '@ant-design/icons';
 import client from '../api/client';
 
 const { Sider, Header, Content } = Layout;
 
 // 功能：全员可见的角色集合（Phase 2.0 考核流程入口）
-const ALL_STAFF_ROLES = ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工'];
+const ALL_STAFF_ROLES = ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工', 'ROLE_总裁'];
 
 // 功能：非 ADMIN 员工角色集合——「本人」视角页面（我的指标/考核任务）ADMIN 无需看到
 const STAFF_ROLES = ['ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工'];
@@ -46,6 +47,7 @@ const allMenuItems = [
   { key: '/my-assessment', icon: <ProfileOutlined />, label: '我的指标', roles: STAFF_ROLES },
   { key: '/my-result', icon: <TrophyOutlined />, label: '我的结果', roles: STAFF_ROLES },
   { key: '/tasks', icon: <CarryOutOutlined />, label: '考核任务', roles: STAFF_ROLES },
+  { key: '/president-confirm', icon: <AuditOutlined />, label: '总裁确认', roles: ['ROLE_总裁'] },
   { key: '/period-config', icon: <SlidersOutlined />, label: '考核校准', roles: ['ROLE_PD'] },
   { type: 'divider', label: '系统设置', roles: ['ROLE_ADMIN'], group: 'system' },
   { key: '/user-role', icon: <UserOutlined />, label: '用户管理', roles: ['ROLE_ADMIN'] },

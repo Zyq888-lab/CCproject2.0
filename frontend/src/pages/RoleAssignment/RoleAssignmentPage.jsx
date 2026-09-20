@@ -7,11 +7,11 @@ import {
   Table, Button, Tag, Space, Modal, Form, Select, message, Card, Spin, Result,
 } from 'antd';
 import {
-  PlusOutlined, LinkOutlined, StarOutlined, DeleteOutlined,
+  PlusOutlined, LinkOutlined, StarOutlined, DeleteOutlined, SyncOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
-import { showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
+import { showConfirm, showDeleteConfirm, showConflictWarning } from '../../components/ConfirmModal';
 import client from '../../api/client';
 
 function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propProjectStage }) {
@@ -214,6 +214,29 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
     }, `${assignment.employeeName}（${assignment.projectRoleCode}）`);
   };
 
+  // 功能：跨阶段同步主总裁——将当前阶段主总裁分配到同项目其它阶段（仅 PRESIDENT 且 is_primary）
+  const handleSyncPresident = (assignment) => {
+    showConfirm({
+      title: '跨阶段同步主总裁？',
+      content: `将把「${assignment.employeeName}」同步为该项目所有其它阶段的 PRESIDENT 主总裁，覆盖其它阶段已有的主总裁。`,
+      okText: '同步',
+      onOk: async () => {
+        try {
+          const res = await client.post(
+            `/projects/${projectCode}/president/sync-stages`,
+            null,
+            { params: { sourceStage: projectStage } },
+          );
+          const result = res.data || {};
+          message.success({ content: `已同步到 ${result.syncedStages ?? 0} 个阶段`, duration: 3 });
+          fetchAssignments();
+        } catch (err) {
+          message.error({ content: err?.message || '同步失败' });
+        }
+      },
+    });
+  };
+
   const roleOptions = roles.map((r) => ({
     label: `${r.roleCode} — ${r.roleName}`,
     value: r.roleCode,
@@ -238,9 +261,9 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
       render: (v, record) => v ? <Tag color="blue">{primaryText(record.projectRoleCode).tag}</Tag> : null,
     },
     ...(canEdit ? [{
-      title: '操作', key: 'action', width: 180,
+      title: '操作', key: 'action', width: 280,
       render: (_, record) => (
-        <Space size="small">
+        <Space size="small" wrap>
           {record.isPrimary ? (
             <Button type="link" size="small" icon={<StarOutlined />} onClick={() => handleUnmarkPrimary(record)}>
               取消主
@@ -248,6 +271,11 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
           ) : (
             <Button type="link" size="small" icon={<StarOutlined />} onClick={() => handleMarkPd(record)}>
               {primaryText(record.projectRoleCode).mark}
+            </Button>
+          )}
+          {record.projectRoleCode === 'PRESIDENT' && record.isPrimary && (
+            <Button type="link" size="small" icon={<SyncOutlined />} onClick={() => handleSyncPresident(record)}>
+              跨阶段同步
             </Button>
           )}
           <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleRemove(record)}>
@@ -323,7 +351,7 @@ function RoleAssignmentPage({ projectCode: propProjectCode, projectStage: propPr
             size="middle"
             rowClassName={(_, index) => index % 2 === 1 ? 'table-row-striped' : ''}
             pagination={false}
-            scroll={{ x: 740 }}
+            scroll={{ x: 900 }}
           />
         </Card>
       )}
