@@ -41,7 +41,6 @@ const NODE_LABEL_MAP = {
   IN_PROGRESS: '评估人评分中',
   SUBMITTED: '待确认',
   CONFIRMED: '已完成',
-  PUBLISHED: '已发布',
   CANCELED: '已取消',
 };
 
@@ -50,6 +49,9 @@ const NODE_LABEL_MAP = {
 const resolveNodeLabel = (r) => {
   if (r?.periodStatus === 'CALIBRATING') {
     return r.calibrationSubmittedAt ? '总裁确认中' : '待校准';
+  }
+  if (r?.periodStatus === 'CONFIRMED') {
+    return '待发布';
   }
   if (r?.periodStatus === 'PUBLISHED') {
     return '已发布';

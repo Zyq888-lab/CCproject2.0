@@ -133,7 +133,10 @@ public class PresidentService {
         confirmation.setConfirmedAt(LocalDateTime.now());
         confirmation.setReturnReason(null);
         confirmation.setUpdatedAt(LocalDateTime.now());
-        projectConfirmationMapper.updateById(confirmation);
+        int updated = projectConfirmationMapper.updateById(confirmation);
+        if (updated == 0) {
+            throw new BusinessException(409, "数据已被他人修改，请刷新后重试");
+        }
         // 本周期无待确认/退回项目时，原子翻转周期状态
         if (noPendingOrReturned(confirmation.getPeriodId())) {
             periodService.tryConfirmPeriod(confirmation.getPeriodId());
@@ -159,7 +162,10 @@ public class PresidentService {
         confirmation.setReturnCount(next);
         confirmation.setReturnReason(reason);
         confirmation.setUpdatedAt(LocalDateTime.now());
-        projectConfirmationMapper.updateById(confirmation);
+        int updated = projectConfirmationMapper.updateById(confirmation);
+        if (updated == 0) {
+            throw new BusinessException(409, "数据已被他人修改，请刷新后重试");
+        }
     }
 
     // 功能：重新提交——PD 重校准后 RETURNED→PENDING，清除退回原因（保留退回计数）
@@ -173,7 +179,10 @@ public class PresidentService {
         confirmation.setStatus(STATUS_PENDING);
         confirmation.setReturnReason(null);
         confirmation.setUpdatedAt(LocalDateTime.now());
-        projectConfirmationMapper.updateById(confirmation);
+        int updated = projectConfirmationMapper.updateById(confirmation);
+        if (updated == 0) {
+            throw new BusinessException(409, "数据已被他人修改，请刷新后重试");
+        }
     }
 
     // 功能：加载确认项，不存在抛 404

@@ -39,6 +39,7 @@ const DISCREPANCY_TYPE_MAP = {
   NO_ASSESSOR: { label: '无考核人', color: 'red' },
   NO_LEADER: { label: '无直属上级', color: 'red' },
   NO_PRIMARY_ASSESSOR: { label: '角色未标主', color: 'volcano' },
+  NO_PRESIDENT: { label: '缺负责总裁', color: 'red' },
 };
 
 // 功能：差异类型→跳转目标映射——ADMIN 点「去处理」跳到对应配置页
@@ -47,6 +48,7 @@ const DISCREPANCY_TYPE_LINK = {
   NO_LEADER: { to: '/employee-management', label: '去补上级' },
   NO_ASSESSOR: { to: '/project/assignment-summary', label: '去分配考核人' },
   NO_PRIMARY_ASSESSOR: { to: '/project/assignment-summary', label: '去标主' },
+  NO_PRESIDENT: { to: '/project/list', label: '去分配总裁' },
 };
 
 // 功能：从后端返回的5项数据中查找对应卡片的count，projectKpi使用kpi聚合值

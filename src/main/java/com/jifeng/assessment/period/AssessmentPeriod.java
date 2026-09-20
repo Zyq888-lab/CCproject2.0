@@ -1,4 +1,4 @@
-// 模块用途：考核周期实体——对应 assessment_period 表，status: INIT/ONGOING/CALIBRATING/COMPLETED
+// 模块用途：考核周期实体——对应 assessment_period 表，status: INIT/ONGOING/CALIBRATING/CONFIRMED/PUBLISHED/COMPLETED
 // 依赖文件：无
 // 修改注意：period_id 为业务主键（服务端生成），同一时间只能有一个非COMPLETED周期
 package com.jifeng.assessment.period;
