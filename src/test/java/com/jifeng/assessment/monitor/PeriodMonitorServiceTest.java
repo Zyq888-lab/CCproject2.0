@@ -74,6 +74,26 @@ class PeriodMonitorServiceTest {
         assertEquals("CALIBRATING", items.get(0).getPeriodStatus());
     }
 
+    // 功能：CALIBRATING 且已提交校准 + PROJECT 任务带主总裁时，「当前审批人」应显示具体主总裁姓名 +「（待确认）」
+    @Test
+    void calibratingWithSubmissionProjectTaskShouldShowPrimaryPresidentName() {
+        seedPeriodWithSubmittedAt("PERIOD-MON-7", "CALIBRATING", LocalDateTime.now());
+        seedEmployee("EMP-MON-PRES-7");
+        seedEmployee("EMP-MON-ASR-7");
+        seedEmployee("EMP-MON-ASE-7");
+        seedProjectTask("PERIOD-MON-7", "EMP-MON-ASR-7", "EMP-MON-ASE-7", "PROJ-MON-3", "STAGE-1");
+        seedProject("PROJ-MON-3", "STAGE-1");
+        // PRESIDENT 项目角色已在 V27 种子，直接插分配即可
+        seedPrimaryPresident("PROJ-MON-3", "STAGE-1", "EMP-MON-PRES-7");
+
+        List<PeriodMonitorItem> items = periodMonitorService.monitor("PERIOD-MON-7");
+
+        assertEquals(1, items.size());
+        assertEquals("员工EMP-MON-PRES-7（待确认）", items.get(0).getCurrentApproverName());
+        assertEquals("EMP-MON-PRES-7", items.get(0).getCurrentApproverId());
+        assertEquals("CALIBRATING", items.get(0).getPeriodStatus());
+    }
+
     // 功能：CALIBRATING 且未提交校准 + PROJECT 任务带主 PD 时，「当前审批人」应显示具体主 PD 姓名 +「（待校准）」
     @Test
     void calibratingWithoutSubmissionProjectTaskShouldShowPrimaryPdName() {
@@ -207,6 +227,17 @@ class PeriodMonitorServiceTest {
         a.setProjectCode(projectCode);
         a.setProjectStage(projectStage);
         a.setProjectRoleCode("PD");
+        a.setEmployeeId(employeeId);
+        a.setIsPrimary(true);
+        a.setDeleted(0);
+        projectRoleAssignmentMapper.insert(a);
+    }
+
+    private void seedPrimaryPresident(String projectCode, String projectStage, String employeeId) {
+        ProjectRoleAssignment a = new ProjectRoleAssignment();
+        a.setProjectCode(projectCode);
+        a.setProjectStage(projectStage);
+        a.setProjectRoleCode("PRESIDENT");
         a.setEmployeeId(employeeId);
         a.setIsPrimary(true);
         a.setDeleted(0);

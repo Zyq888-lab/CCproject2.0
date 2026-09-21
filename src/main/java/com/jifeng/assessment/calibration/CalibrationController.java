@@ -24,7 +24,7 @@ public class CalibrationController extends BaseController {
 
     // 功能：校准矩阵——分布汇总带 + 离群优先排序的员工结果行 + 未提交人数告警
     @GetMapping("/api/v1/periods/{periodId}/calibration")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PD')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PD', '总裁')")
     public ApiResponse<CalibrationMatrixResponse> matrix(@PathVariable String periodId) {
         return ok(calibrationService.getCalibrationMatrix(periodId));
     }

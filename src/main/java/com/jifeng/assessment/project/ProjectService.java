@@ -58,6 +58,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         //   项目管理（默认，scope 为空）：仅见自己为主 PM/主 PD 的项目。
         //   scope=assigned：见自己被分配了任意项目角色的项目阶段（参与录入用）。
         boolean isAdmin = hasRole("ADMIN");
+        boolean isPresident = hasRole("总裁");
         Map<String, Boolean> pmByProject = new HashMap<>();
         if (!isAdmin) {
             String employeeId = getCurrentEmployeeId();
@@ -69,8 +70,14 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
                             .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
                             .eq(ProjectRoleAssignment::getDeleted, 0);
             if (!"assigned".equals(scope)) {
-                assignWrapper.in(ProjectRoleAssignment::getProjectRoleCode, "PM", "PD")
-                        .eq(ProjectRoleAssignment::getIsPrimary, true);
+                if (isPresident) {
+                    // 总裁：只读入口，仅返回自己作为主总裁（PRESIDENT）的项目，与 PD 分支同类
+                    assignWrapper.eq(ProjectRoleAssignment::getProjectRoleCode, "PRESIDENT")
+                            .eq(ProjectRoleAssignment::getIsPrimary, true);
+                } else {
+                    assignWrapper.in(ProjectRoleAssignment::getProjectRoleCode, "PM", "PD")
+                            .eq(ProjectRoleAssignment::getIsPrimary, true);
+                }
             }
             List<ProjectRoleAssignment> assignments = roleAssignmentMapper.selectList(assignWrapper);
             if (assignments.isEmpty()) {

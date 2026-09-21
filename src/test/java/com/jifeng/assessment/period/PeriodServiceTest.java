@@ -277,7 +277,7 @@ class PeriodServiceTest {
         task.setProjectCode("PRJ_NOPRES");
         task.setProjectStage("P2");
         task.setTaskType("PROJECT");
-        task.setStatus("PENDING");
+        task.setStatus("SUBMITTED");
         taskMapper.insert(task);
 
         periodService.enterCalibration(period.getPeriodId());
@@ -326,6 +326,29 @@ class PeriodServiceTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> periodService.submitCalibration(period.getPeriodId()));
         assertEquals(400, ex.getCode());
+    }
+
+    // 功能：总裁退回后 PD 重新提交——周期内 RETURNED 确认行重置为 PENDING（配合周期级「提交校准」按钮）
+    @Test
+    void shouldResetReturnedToPendingOnSubmitCalibration() {
+        AssessmentPeriod period = createTestPeriod("重新提交校准");
+        startPeriod(period.getPeriodId());
+        periodService.enterCalibration(period.getPeriodId());
+
+        ProjectConfirmation returned = new ProjectConfirmation();
+        returned.setPeriodId(period.getPeriodId());
+        returned.setProjectCode("PRJ_RESUBMIT");
+        returned.setAssesseeId("EMP_RESUBMIT");
+        returned.setStatus("RETURNED");
+        returned.setReturnCount(1);
+        returned.setReturnReason("结果有误");
+        projectConfirmationMapper.insert(returned);
+
+        periodService.submitCalibration(period.getPeriodId());
+
+        ProjectConfirmation after = projectConfirmationMapper.selectById(returned.getId());
+        assertEquals("PENDING", after.getStatus(), "重新提交后 RETURNED 应重置为 PENDING");
+        assertNull(after.getReturnReason(), "重新提交后应清除退回原因");
     }
 
     // 功能：提交校准幂等——重复提交不报错且保留首次提交时间

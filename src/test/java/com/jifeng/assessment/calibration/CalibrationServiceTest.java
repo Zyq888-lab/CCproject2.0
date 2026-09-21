@@ -5,6 +5,8 @@ package com.jifeng.assessment.calibration;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.confirmation.ProjectConfirmation;
+import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.period.AssessmentPeriod;
@@ -15,7 +17,15 @@ import com.jifeng.assessment.result.ScoreAdjustment;
 import com.jifeng.assessment.result.ScoreAdjustmentMapper;
 import com.jifeng.assessment.task.AssessmentTask;
 import com.jifeng.assessment.task.TaskMapper;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
+import com.jifeng.assessment.user.SysUser;
+import com.jifeng.assessment.user.SysUserMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -23,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -38,9 +49,17 @@ class CalibrationServiceTest {
     @Autowired private EmployeeMapper employeeMapper;
     @Autowired private ProjectMapper projectMapper;
     @Autowired private TaskMapper taskMapper;
+    @Autowired private SysUserMapper sysUserMapper;
+    @Autowired private ProjectRoleAssignmentMapper roleAssignmentMapper;
+    @Autowired private ProjectConfirmationMapper projectConfirmationMapper;
 
     private static final String PERIOD = "PERIOD-CAL";
     private static final String PROJECT = "PRJ1";
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     // 功能：矩阵按项目归组并正确标记离群——[4.0,4.1,4.2,2.0] 中 2.0 偏离均值 >1σ，判 LOW 离群且置顶
     @Test
@@ -151,6 +170,58 @@ class CalibrationServiceTest {
         assertEquals(400, ex.getCode());
     }
 
+    // 功能：总裁调用校准矩阵只返回自己作为主总裁的项目的评分明细，其它项目数据不泄露
+    @Test
+    void presidentShouldOnlySeeOwnProjectsInMatrix() {
+        seedPeriod("CALIBRATING");
+        seedEmployee("ASSESSOR1");
+        seedEmployee("EMP_PRES_OWNER");
+        seedEmployee("EMP_PRES_OTHER");
+        seedUser("U_PRES_OWNER", "pres_cal", "EMP_PRES_OWNER");
+
+        seedProject("PRJ_OWN", "P2");
+        seedProject("PRJ_OTHER", "P2");
+        seedPresidentAssignment("PRJ_OWN", "P2", "EMP_PRES_OWNER");
+        seedPresidentAssignment("PRJ_OTHER", "P2", "EMP_PRES_OTHER");
+
+        // 自有项目员工 EMP_A；他人项目员工 EMP_B
+        seedResult("EMP_A", "4.0000");
+        seedResult("EMP_B", "3.0000");
+        seedProjectTask("EMP_A", "PRJ_OWN", "P2");
+        seedProjectTask("EMP_B", "PRJ_OTHER", "P2");
+
+        auth("pres_cal", "总裁");
+
+        CalibrationMatrixResponse matrix = calibrationService.getCalibrationMatrix(PERIOD);
+
+        List<String> assessees = matrix.getRows().stream()
+                .map(CalibrationMatrixResponse.Row::getAssesseeId).toList();
+        assertEquals(1, assessees.size());
+        assertTrue(assessees.contains("EMP_A"));
+        assertFalse(assessees.contains("EMP_B"));
+        // 汇总带仅含自有项目分组
+        assertEquals(1, matrix.getSummary().size());
+        assertEquals("project:PRJ_OWN", matrix.getSummary().get(0).getKey());
+    }
+
+    // 功能：校准矩阵回填总裁确认状态与退回意见——被退回人员行带 RETURNED 状态 + returnReason（问题2）
+    @Test
+    void matrixShouldReturnConfirmationStatusAndReturnReason() {
+        seedPeriod("CALIBRATING");
+        seedProject();
+        seedEmployee("ASSESSOR1");
+        seedResult("EMP_A", "4.0000");
+        seedProjectTask("EMP_A");
+        seedConfirmation("EMP_A", "RETURNED", "结果有误");
+
+        CalibrationMatrixResponse matrix = calibrationService.getCalibrationMatrix(PERIOD);
+
+        CalibrationMatrixResponse.Row row = matrix.getRows().stream()
+                .filter(r -> "EMP_A".equals(r.getAssesseeId())).findFirst().orElseThrow();
+        assertEquals("RETURNED", row.getConfirmationStatus());
+        assertEquals("结果有误", row.getReturnReason());
+    }
+
     // ================= 辅助：种子数据 =================
 
     private void seedPeriod(String status) {
@@ -198,6 +269,17 @@ class CalibrationServiceTest {
         resultMapper.insert(result);
     }
 
+    private void seedConfirmation(String assesseeId, String status, String returnReason) {
+        ProjectConfirmation c = new ProjectConfirmation();
+        c.setPeriodId(PERIOD);
+        c.setProjectCode(PROJECT);
+        c.setAssesseeId(assesseeId);
+        c.setStatus(status);
+        c.setReturnCount(0);
+        c.setReturnReason(returnReason);
+        projectConfirmationMapper.insert(c);
+    }
+
     private void seedProjectTask(String assesseeId) {
         seedTask(assesseeId, "PROJECT");
     }
@@ -228,5 +310,59 @@ class CalibrationServiceTest {
         task.setTaskType(taskType);
         task.setStatus("SUBMITTED");
         taskMapper.insert(task);
+    }
+
+    // 辅助：插入指定编码/阶段的项目
+    private void seedProject(String code, String stage) {
+        Project project = new Project();
+        project.setProjectCode(code);
+        project.setProjectName("项目" + code);
+        project.setProjectStage(stage);
+        project.setStatus("ACTIVE");
+        project.setStageConfirmed(false);
+        projectMapper.insert(project);
+    }
+
+    // 辅助：插入指定项目编码/阶段的 SUBMITTED 项目任务
+    private void seedProjectTask(String assesseeId, String projectCode, String projectStage) {
+        AssessmentTask task = new AssessmentTask();
+        task.setPeriodId(PERIOD);
+        task.setAssessorId("ASSESSOR1");
+        task.setAssesseeId(assesseeId);
+        task.setProjectCode(projectCode);
+        task.setProjectStage(projectStage);
+        task.setTaskType("PROJECT");
+        task.setStatus("SUBMITTED");
+        taskMapper.insert(task);
+    }
+
+    // 辅助：插入主总裁角色分配（PRESIDENT 角色已在 V27 种子，无需重复插 project_role）
+    private void seedPresidentAssignment(String projectCode, String stage, String employeeId) {
+        ProjectRoleAssignment a = new ProjectRoleAssignment();
+        a.setProjectCode(projectCode);
+        a.setProjectStage(stage);
+        a.setProjectRoleCode("PRESIDENT");
+        a.setEmployeeId(employeeId);
+        a.setIsPrimary(true);
+        a.setDeleted(0);
+        roleAssignmentMapper.insert(a);
+    }
+
+    // 辅助：插入系统用户（绑定员工）
+    private void seedUser(String userId, String username, String employeeId) {
+        SysUser user = new SysUser();
+        user.setUserId(userId);
+        user.setUsername(username);
+        user.setPasswordHash("test-hash");
+        user.setEmployeeId(employeeId);
+        user.setEnabled(true);
+        sysUserMapper.insert(user);
+    }
+
+    // 辅助：设置当前登录用户及其角色
+    private void auth(String username, String role) {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(username, null,
+                        List.of(new SimpleGrantedAuthority("ROLE_" + role))));
     }
 }

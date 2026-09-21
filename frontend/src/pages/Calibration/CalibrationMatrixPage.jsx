@@ -45,6 +45,10 @@ function CalibrationMatrixPage() {
   const isPd = userRoles.includes('ROLE_PD');
   // 是否已提交校准——由周期 calibrationSubmittedAt 推导（NULL=尚未提交）
   const submitted = !!data?.calibrationSubmittedAt;
+  // 总裁是否退回过（存在 RETURNED 确认行）——退回后需 PD 重新提交，按钮据此放开（问题2）
+  const hasReturned = !!data?.hasReturned;
+  // 提交按钮可见：尚未提交，或已提交但总裁退回需重新提交
+  const canSubmit = !submitted || hasReturned;
 
   // 功能：加载校准矩阵——汇总带 + 离群优先排序行
   const fetchData = async () => {
@@ -216,19 +220,41 @@ function CalibrationMatrixPage() {
       render: renderAdjusted },
     { title: '离群标记', dataIndex: 'outlier', key: 'outlier', width: 130, align: 'center',
       render: renderOutlier },
+    { title: '总裁确认', dataIndex: 'confirmationStatus', key: 'confirmationStatus', width: 200,
+      render: (status, row) => {
+        if (status === 'RETURNED') {
+          return (
+            <div>
+              <Tag color="red">已退回</Tag>
+              {row.returnReason && (
+                <div style={{ color: '#FF4D4F', fontSize: 12, marginTop: 2 }}>{row.returnReason}</div>
+              )}
+            </div>
+          );
+        }
+        if (status === 'APPROVED') return <Tag color="green">已通过</Tag>;
+        if (status === 'PENDING') return <Tag color="orange">待确认</Tag>;
+        return <span style={{ color: '#BFBFBF' }}>-</span>;
+      } },
     { title: '操作', key: 'action', width: 120, fixed: 'right', align: 'center',
       render: (_, row) => {
         if (row.unsubmitted) {
           return <Tag color="default">未提交</Tag>;
         }
-        return editingKey === row.assesseeId ? (
-          <Space size={4}>
-            <Button type="primary" size="small" loading={saving} onClick={() => saveEdit(row)}>保存</Button>
-            <Button size="small" onClick={() => setEditingKey(null)}>取消</Button>
-          </Space>
-        ) : (
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => startEdit(row)}>改分</Button>
-        );
+        if (editingKey === row.assesseeId) {
+          return (
+            <Space size={4}>
+              <Button type="primary" size="small" loading={saving} onClick={() => saveEdit(row)}>保存</Button>
+              <Button size="small" onClick={() => setEditingKey(null)}>取消</Button>
+            </Space>
+          );
+        }
+        // 总裁退回后仅被退回人员可重新改分，其余只读；未退回（初始校准/待确认）保持全员可编辑（问题2）
+        const canEdit = !hasReturned || row.confirmationStatus === 'RETURNED';
+        if (!canEdit) {
+          return <span style={{ color: '#BFBFBF', fontSize: 13 }}>只读</span>;
+        }
+        return <Button type="link" size="small" icon={<EditOutlined />} onClick={() => startEdit(row)}>改分</Button>;
       } },
   ];
 
@@ -256,10 +282,10 @@ function CalibrationMatrixPage() {
         breadcrumb={[{ title: '首页', path: '/dashboard' }, { title: '考核周期', path: '/period-config' }]}
         actions={[
           { label: '返回周期列表', icon: <ArrowLeftOutlined />, onClick: () => navigate('/period-config') },
-          ...(isPd && data && !submitted
-            ? [{ label: '提交校准', icon: <SendOutlined />, type: 'primary', onClick: () => setSubmitVisible(true) }]
+          ...(isPd && data && canSubmit
+            ? [{ label: hasReturned ? '重新提交校准' : '提交校准', icon: <SendOutlined />, type: 'primary', onClick: () => setSubmitVisible(true) }]
             : []),
-          ...(isPd && submitted
+          ...(isPd && submitted && !hasReturned
             ? [{ label: '已提交待总裁确认', icon: <CheckCircleOutlined />, disabled: true }]
             : []),
         ]}
@@ -334,7 +360,7 @@ function CalibrationMatrixPage() {
             loading={loading}
             size="middle"
             pagination={false}
-            scroll={{ x: 890, y: 520 }}
+            scroll={{ x: 1090, y: 520 }}
             rowClassName={(row) => (row.unsubmitted ? 'calibration-row-unsubmitted' : (row.outlier ? 'calibration-row-outlier' : ''))}
             locale={{ emptyText: onlyOutliers ? '无离群员工' : '暂无数据' }}
           />

@@ -11,6 +11,8 @@ import com.jifeng.assessment.calibration.CalibrationMatrixResponse.Row;
 import com.jifeng.assessment.calibration.CalibrationMatrixResponse.Unsubmitted;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.confirmation.ProjectConfirmation;
+import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.notification.Notification;
@@ -19,6 +21,8 @@ import com.jifeng.assessment.period.AssessmentPeriod;
 import com.jifeng.assessment.period.PeriodMapper;
 import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import com.jifeng.assessment.result.ResultService;
 import com.jifeng.assessment.result.ScoreAdjustment;
 import com.jifeng.assessment.result.ScoreAdjustmentMapper;
@@ -59,6 +63,8 @@ public class CalibrationService {
     private final SysUserMapper sysUserMapper;
     private final ResultService resultService;
     private final NotificationService notificationService;
+    private final ProjectRoleAssignmentMapper roleAssignmentMapper;
+    private final ProjectConfirmationMapper projectConfirmationMapper;
 
     private static final String STATUS_CALIBRATING = "CALIBRATING";
     private static final String STATUS_SUBMITTED = "SUBMITTED";
@@ -89,6 +95,25 @@ public class CalibrationService {
                                 .eq(AssessmentTask::getStatus, STATUS_SUBMITTED))
                 .stream().collect(Collectors.groupingBy(AssessmentTask::getAssesseeId));
 
+        // 总裁只读视角：仅返回自己作为主总裁（PRESIDENT AND is_primary=true）的项目的评分明细；
+        //   其余角色（ADMIN/PD）无此过滤，presidentProjectCodes 保持 null
+        Set<String> presidentProjectCodes = hasRole("总裁") ? presidentProjectCodes() : null;
+        if (presidentProjectCodes != null) {
+            results = results.stream()
+                    .filter(r -> inPresidentProjects(r.getAssesseeId(), tasksByAssessee, presidentProjectCodes))
+                    .toList();
+        }
+
+        // 批量预加载项目确认行——按 (projectCode, assesseeId) 建索引，回填每人的总裁确认状态与退回意见（问题2）
+        Map<String, ProjectConfirmation> confirmationByKey = projectConfirmationMapper.selectList(
+                        new LambdaQueryWrapper<ProjectConfirmation>()
+                                .eq(ProjectConfirmation::getPeriodId, periodId))
+                .stream()
+                .collect(Collectors.toMap(
+                        c -> c.getProjectCode() + "::" + c.getAssesseeId(),
+                        c -> c,
+                        (a, b) -> a));
+
         // 分组聚合原始分：key 为分组键，value 为组内原始分列表
         Map<String, List<BigDecimal>> scoresByGroup = new LinkedHashMap<>();
         List<Row> rows = new ArrayList<>();
@@ -105,6 +130,18 @@ public class CalibrationService {
             row.setAdjustedScore(result.getAdjustedScore());
             row.setAdjusted(result.getOriginalScore().compareTo(result.getAdjustedScore()) != 0);
             row.setVersion(result.getVersion());
+
+            // 回填总裁确认状态与退回意见——项目型员工按 (projectCode, assesseeId) 反查确认行
+            String rowProjectCode = ref.key.startsWith("project:")
+                    ? ref.key.substring("project:".length()) : null;
+            if (rowProjectCode != null) {
+                ProjectConfirmation confirmation = confirmationByKey.get(rowProjectCode + "::" + result.getAssesseeId());
+                if (confirmation != null) {
+                    row.setConfirmationStatus(confirmation.getStatus());
+                    row.setReturnReason(confirmation.getReturnReason());
+                }
+            }
+
             rows.add(row);
         }
 
@@ -171,6 +208,8 @@ public class CalibrationService {
                         .eq(AssessmentTask::getPeriodId, periodId)
                         .in(AssessmentTask::getStatus, "PENDING", "IN_PROGRESS"))
                 .stream()
+                .filter(t -> presidentProjectCodes == null
+                        || (t.getProjectCode() != null && presidentProjectCodes.contains(t.getProjectCode())))
                 .map(AssessmentTask::getAssesseeId)
                 .distinct()
                 .map(assesseeId -> {
@@ -185,7 +224,9 @@ public class CalibrationService {
         resp.setPeriodId(periodId);
         resp.setPeriodName(period.getPeriodName());
         resp.setCalibrationSubmittedAt(period.getCalibrationSubmittedAt());
-        resp.setUnsubmittedCount(resultService.countUnsubmitted(periodId));
+        resp.setHasReturned(hasReturnedConfirmations(periodId));
+        resp.setUnsubmittedCount(presidentProjectCodes != null
+                ? unsubmitted.size() : resultService.countUnsubmitted(periodId));
         resp.setUnsubmitted(unsubmitted);
         resp.setSummary(summary);
         resp.setRows(rows);
@@ -322,6 +363,61 @@ public class CalibrationService {
             return user.getEmployeeId();
         }
         return auth.getName();
+    }
+
+    // 功能：判断当前用户是否具有指定角色（如 ADMIN/总裁）——检查权限列表中是否含 ROLE_<role>
+    private boolean hasRole(String role) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_" + role));
+    }
+
+    // 功能：查询当前总裁（PRESIDENT 主角色）负责的项目编码集合；未登录/未绑定返回空集
+    private Set<String> presidentProjectCodes() {
+        String presidentEmployeeId = currentEmployeeId();
+        if (presidentEmployeeId == null) {
+            return Set.of();
+        }
+        return roleAssignmentMapper.selectList(new LambdaQueryWrapper<ProjectRoleAssignment>()
+                        .eq(ProjectRoleAssignment::getEmployeeId, presidentEmployeeId)
+                        .eq(ProjectRoleAssignment::getProjectRoleCode, "PRESIDENT")
+                        .eq(ProjectRoleAssignment::getIsPrimary, true)
+                        .eq(ProjectRoleAssignment::getDeleted, 0))
+                .stream()
+                .map(ProjectRoleAssignment::getProjectCode)
+                .collect(Collectors.toSet());
+    }
+
+    // 功能：从 SecurityContext 用户名反查当前用户 employeeId，未登录/未绑定返回 null
+    private String currentEmployeeId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return null;
+        }
+        SysUser user = sysUserMapper.selectOne(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getUsername, auth.getName()));
+        return user != null ? user.getEmployeeId() : null;
+    }
+
+    // 功能：判断员工是否有 SUBMITTED 项目任务落在主总裁项目集合内（总裁只读视角过滤用）
+    private boolean inPresidentProjects(String assesseeId, Map<String, List<AssessmentTask>> tasksByAssessee,
+                                        Set<String> presidentProjectCodes) {
+        return tasksByAssessee.getOrDefault(assesseeId, List.of()).stream()
+                .filter(t -> "PROJECT".equals(t.getTaskType()))
+                .map(AssessmentTask::getProjectCode)
+                .anyMatch(code -> code != null && presidentProjectCodes.contains(code));
+    }
+
+    // 功能：本周期是否存在 RETURNED 确认行——总裁退回后前端据此放开「提交校准」按钮（问题2）
+    private boolean hasReturnedConfirmations(String periodId) {
+        Long count = projectConfirmationMapper.selectCount(
+                new LambdaQueryWrapper<ProjectConfirmation>()
+                        .eq(ProjectConfirmation::getPeriodId, periodId)
+                        .eq(ProjectConfirmation::getStatus, "RETURNED"));
+        return count != null && count > 0;
     }
 
     // 功能：算术均值（0-5 分制，4 位小数）

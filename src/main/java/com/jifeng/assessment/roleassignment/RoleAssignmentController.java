@@ -26,7 +26,7 @@ public class RoleAssignmentController extends BaseController {
 
     // 功能：查询项目下所有角色分配，返回含员工姓名的分配列表
     @GetMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '总裁')")
     public ApiResponse<List<ProjectRoleAssignmentDTO>> list(
             @PathVariable String projectCode, @PathVariable String projectStage) {
         return ok(roleAssignmentService.listAssignments(projectCode, projectStage));
@@ -34,7 +34,7 @@ public class RoleAssignmentController extends BaseController {
 
     // 功能：跨项目角色分配汇总查询——四表JOIN，支持多条件筛选和分页
     @GetMapping("/api/v1/projects/assignments/summary")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '总裁')")
     public ApiResponse<PageResult<ProjectRoleAssignmentSummaryDTO>> listSummary(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,

@@ -8,7 +8,7 @@ import {
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, CalendarOutlined, LockOutlined, PlayCircleOutlined, BarChartOutlined,
-  ExperimentOutlined, SlidersOutlined, SendOutlined,
+  ExperimentOutlined, SlidersOutlined, SendOutlined, StopOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
@@ -158,6 +158,25 @@ function PeriodConfigPage() {
           fetchPeriods();
         } catch (err) {
           message.error({ content: err?.message || '关闭失败' });
+        }
+      },
+    });
+  };
+
+  // 功能：强制关闭——非 PUBLISHED 非 COMPLETED 的异常/卡死周期逃生出口，任意状态直接置为 COMPLETED
+  const handleAbort = (period) => {
+    showConfirm({
+      title: `确定要强制关闭"${period.periodName}"吗？`,
+      content: '强制关闭后该周期不可恢复，状态变为"已完成"。仅用于异常或卡死的周期。',
+      okText: '强制关闭',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          await client.put(`/periods/${period.periodId}/abort`);
+          message.success({ content: '考核周期已强制关闭', duration: 3 });
+          fetchPeriods();
+        } catch (err) {
+          message.error({ content: err?.message || '强制关闭失败' });
         }
       },
     });
@@ -354,6 +373,17 @@ function PeriodConfigPage() {
                           onClick={() => handleClose(period)}
                         >
                           关闭
+                        </Button>
+                      ),
+                      period.status !== 'COMPLETED' && period.status !== 'PUBLISHED' && isAdmin && (
+                        <Button
+                          type="link"
+                          size="small"
+                          danger
+                          icon={<StopOutlined />}
+                          onClick={() => handleAbort(period)}
+                        >
+                          强制关闭
                         </Button>
                       ),
                     ].filter(Boolean)}

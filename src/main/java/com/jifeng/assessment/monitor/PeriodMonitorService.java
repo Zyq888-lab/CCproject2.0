@@ -102,6 +102,8 @@ public class PeriodMonitorService {
 
         // 批量反查 SUBMITTED 项目任务的主 PD 工号——「当前审批人」动态显示所属项目主 PD 姓名，避免 N+1
         Map<String, String> primaryPdByKey = resolvePrimaryPdByProject(tasks);
+        // 批量反查 CALIBRATING 已提交项目任务的主总裁工号——「当前审批人」动态显示所属项目主总裁姓名，避免 N+1
+        Map<String, String> primaryPresidentByKey = resolvePrimaryPresidentByProject(tasks);
 
         return tasks.stream().map(t -> {
             PeriodMonitorItem item = new PeriodMonitorItem();
@@ -153,7 +155,16 @@ public class PeriodMonitorService {
                         item.setCurrentApproverName("PD（待校准）");
                     }
                 } else {
-                    item.setCurrentApproverName("总裁（待确认）");
+                    // 已提交校准：反查所属项目主总裁姓名（PROJECT 任务）；FUNCTIONAL 无项目或查不到主总裁时回退占位
+                    String presidentEmployeeId = t.getProjectCode() != null && t.getProjectStage() != null
+                            ? primaryPresidentByKey.get(t.getProjectCode() + "|" + t.getProjectStage())
+                            : null;
+                    if (presidentEmployeeId != null) {
+                        item.setCurrentApproverId(presidentEmployeeId);
+                        item.setCurrentApproverName(employeeNames.get(presidentEmployeeId) + "（待确认）");
+                    } else {
+                        item.setCurrentApproverName("总裁（待确认）");
+                    }
                 }
             } else if ("TASK".equals(approvalNode)) {
                 String status = t.getStatus();
@@ -268,6 +279,46 @@ public class PeriodMonitorService {
                         a -> a.getProjectCode() + "|" + a.getProjectStage(),
                         ProjectRoleAssignment::getEmployeeId,
                         (a, b) -> a)); // 同 (code,stage) 多主 PD 时取第一个
+    }
+
+    // 功能：批量反查 CALIBRATING 已提交项目任务所属 (projectCode, projectStage) 的主总裁工号——
+    //   用于「当前审批人」动态显示主总裁姓名（project_role_code='PRESIDENT' AND is_primary=true）
+    private Map<String, String> resolvePrimaryPresidentByProject(List<AssessmentTask> tasks) {
+        List<String> keys = tasks.stream()
+                .filter(t -> "PROJECT".equals(t.getTaskType())
+                        && t.getProjectCode() != null && t.getProjectStage() != null)
+                .map(t -> t.getProjectCode() + "|" + t.getProjectStage())
+                .distinct()
+                .toList();
+        if (keys.isEmpty()) {
+            return Map.of();
+        }
+        LambdaQueryWrapper<ProjectRoleAssignment> wrapper = new LambdaQueryWrapper<ProjectRoleAssignment>()
+                .eq(ProjectRoleAssignment::getProjectRoleCode, "PRESIDENT")
+                .eq(ProjectRoleAssignment::getIsPrimary, true)
+                .eq(ProjectRoleAssignment::getDeleted, 0);
+        wrapper.and(w -> {
+            boolean first = true;
+            for (String key : keys) {
+                String[] parts = key.split("\\|", 2);
+                String code = parts[0];
+                String stage = parts.length > 1 ? parts[1] : "";
+                if (first) {
+                    w.eq(ProjectRoleAssignment::getProjectCode, code)
+                     .eq(ProjectRoleAssignment::getProjectStage, stage);
+                    first = false;
+                } else {
+                    w.or().eq(ProjectRoleAssignment::getProjectCode, code)
+                           .eq(ProjectRoleAssignment::getProjectStage, stage);
+                }
+            }
+        });
+        return roleAssignmentMapper.selectList(wrapper).stream()
+                .filter(a -> a.getEmployeeId() != null && !a.getEmployeeId().isBlank())
+                .collect(Collectors.toMap(
+                        a -> a.getProjectCode() + "|" + a.getProjectStage(),
+                        ProjectRoleAssignment::getEmployeeId,
+                        (a, b) -> a)); // 同 (code,stage) 多主总裁时取第一个
     }
 
     // 功能：获取当前用户主角色——取权限列表中第一个匹配的已知角色

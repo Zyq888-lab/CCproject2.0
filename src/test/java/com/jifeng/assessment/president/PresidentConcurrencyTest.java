@@ -181,11 +181,12 @@ class PresidentConcurrencyTest {
         roleAssignmentMapper.insert(a);
     }
 
-    // 辅助：插入项目确认行，返回自增主键
+    // 辅助：插入项目确认行（assesseeId 缺省取 projectCode），返回自增主键
     private Long seedConfirmation(String periodId, String projectCode, String status, int returnCount) {
         ProjectConfirmation c = new ProjectConfirmation();
         c.setPeriodId(periodId);
         c.setProjectCode(projectCode);
+        c.setAssesseeId(projectCode);
         c.setStatus(status);
         c.setReturnCount(returnCount);
         c.setCreatedAt(LocalDateTime.now());

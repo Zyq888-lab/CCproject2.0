@@ -1,6 +1,6 @@
-// 模块用途：项目确认实体——对应 project_confirmation 表，逐项目总裁确认状态机
+// 模块用途：项目确认实体——对应 project_confirmation 表，逐「项目 × 员工」总裁确认状态机
 // 依赖文件：无
-// 修改注意：status: PENDING/APPROVED/RETURNED；确认单元 = (period_id, project_code) 唯一
+// 修改注意：status: PENDING/APPROVED/RETURNED；确认单元 = (period_id, project_code, assessee_id) 唯一
 package com.jifeng.assessment.confirmation;
 
 import com.baomidou.mybatisplus.annotation.*;
@@ -20,6 +20,9 @@ public class ProjectConfirmation {
 
     @TableField("project_code")
     private String projectCode;
+
+    @TableField("assessee_id")
+    private String assesseeId;
 
     private String status;
 

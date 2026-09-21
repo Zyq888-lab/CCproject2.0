@@ -41,9 +41,9 @@ public class DashboardController extends BaseController {
         return ok(dashboardService.diffReport());
     }
 
-    // 功能：待处理任务计数——按角色返回不同数据（评估人/员工/PM/ADMIN）
+    // 功能：待处理任务计数——按角色返回不同数据（评估人/员工/PM/ADMIN/PD/总裁）
     @GetMapping("/api/v1/dashboard/pending-count")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工', '总裁')")
     public ApiResponse<Long> pendingCount() {
         return ok(dashboardService.pendingCount());
     }

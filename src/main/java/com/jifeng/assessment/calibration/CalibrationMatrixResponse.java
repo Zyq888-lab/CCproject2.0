@@ -16,6 +16,7 @@ public class CalibrationMatrixResponse {
     private String periodId;
     private String periodName;
     private LocalDateTime calibrationSubmittedAt; // PD 提交校准时间（NULL=尚未提交）
+    private boolean hasReturned; // 本周期是否存在 RETURNED 确认行（总裁已退回，PD 需重新提交）
     private int unsubmittedCount;
     private List<Unsubmitted> unsubmitted;
     private List<GroupSummary> summary;
@@ -53,5 +54,7 @@ public class CalibrationMatrixResponse {
         private boolean outlier;      // |deviation| > 1
         private String direction;     // HIGH（红↑）/ LOW（蓝↓）/ null
         private Long version;
+        private String confirmationStatus; // 总裁确认状态：PENDING/APPROVED/RETURNED（无确认行时为 null）
+        private String returnReason;       // 总裁退回意见（仅 RETURNED 时有值）
     }
 }

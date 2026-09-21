@@ -5,11 +5,15 @@ package com.jifeng.assessment.dashboard;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.confirmation.ProjectConfirmation;
+import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.kpi.FuncKpiMapper;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
 import com.jifeng.assessment.participation.EmployeeProjectParticipation;
 import com.jifeng.assessment.participation.ParticipationMapper;
+import com.jifeng.assessment.period.AssessmentPeriod;
+import com.jifeng.assessment.period.PeriodMapper;
 import com.jifeng.assessment.position.PositionConfigMapper;
 import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
@@ -49,6 +53,8 @@ public class DashboardService {
     private final DiscrepancyLogMapper discrepancyLogMapper;
     private final SysUserMapper sysUserMapper;
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
+    private final PeriodMapper periodMapper;
+    private final ProjectConfirmationMapper projectConfirmationMapper;
 
     public static final String STATUS_CONFIGURED = "已配置";
     public static final String STATUS_PENDING = "待配置";
@@ -99,7 +105,8 @@ public class DashboardService {
 
     // 功能：待处理任务计数——按角色返回不同数据，且按当前用户 employeeId 过滤：
     //   评估人=自己待评分任务数、员工=自己待参与项目数(PENDING参与)、
-    //   PM=自己项目的待审批参与数、ADMIN=差异报告未处理数(resolved=false)
+    //   PM=自己项目的待审批参与数、ADMIN=差异报告未处理数(resolved=false)、
+    //   PD=我为主 PD 的未提交校准周期数、总裁=我为主总裁的待确认人数(PENDING/RETURNED)
     public long pendingCount() {
         String role = getPrimaryRole();
         String employeeId = getCurrentEmployeeId();
@@ -121,9 +128,66 @@ public class DashboardService {
                         .eq(EmployeeProjectParticipation::getStatus, "PENDING"));
             case "PM":
                 return countPendingParticipationForPm(employeeId);
+            case "PD":
+                return countUnsubmittedCalibrationPeriodsForPd(employeeId);
+            case "总裁":
+                return countPendingConfirmationsForPresident(employeeId);
             default:
                 return 0;
         }
+    }
+
+    // 功能：PD 待处理——CALIBRATING 且尚未提交校准(calibration_submitted_at 为空)的周期中，我为主 PD 的周期数
+    private long countUnsubmittedCalibrationPeriodsForPd(String employeeId) {
+        List<String> projectCodes = primaryProjectCodes(employeeId, "PD");
+        if (projectCodes.isEmpty()) {
+            return 0;
+        }
+        // 我为主 PD 的项目在本周期内有 PROJECT 任务的周期集合
+        List<String> periodIds = taskMapper.selectList(new LambdaQueryWrapper<AssessmentTask>()
+                        .in(AssessmentTask::getProjectCode, projectCodes)
+                        .eq(AssessmentTask::getTaskType, "PROJECT"))
+                .stream()
+                .map(AssessmentTask::getPeriodId)
+                .distinct()
+                .toList();
+        if (periodIds.isEmpty()) {
+            return 0;
+        }
+        return periodMapper.selectCount(new LambdaQueryWrapper<AssessmentPeriod>()
+                .in(AssessmentPeriod::getPeriodId, periodIds)
+                .eq(AssessmentPeriod::getStatus, "CALIBRATING")
+                .isNull(AssessmentPeriod::getCalibrationSubmittedAt));
+    }
+
+    // 功能：总裁待处理——CALIBRATING 且已提交校准、我为主总裁的项目中，PENDING/RETURNED 确认人数
+    private long countPendingConfirmationsForPresident(String employeeId) {
+        List<String> projectCodes = primaryProjectCodes(employeeId, "PRESIDENT");
+        if (projectCodes.isEmpty()) {
+            return 0;
+        }
+        return projectConfirmationMapper.selectCount(new LambdaQueryWrapper<ProjectConfirmation>()
+                .in(ProjectConfirmation::getProjectCode, projectCodes)
+                .in(ProjectConfirmation::getStatus, "PENDING", "RETURNED")
+                .inSql(ProjectConfirmation::getPeriodId,
+                        "SELECT period_id FROM assessment_period WHERE status = 'CALIBRATING' "
+                                + "AND calibration_submitted_at IS NOT NULL AND deleted = 0"));
+    }
+
+    // 功能：反查我为主角色(roleCode)的项目编码集合——project_role_assignment（is_primary 且未删除）
+    private List<String> primaryProjectCodes(String employeeId, String roleCode) {
+        if (employeeId == null) {
+            return List.of();
+        }
+        return roleAssignmentMapper.selectList(new LambdaQueryWrapper<ProjectRoleAssignment>()
+                        .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
+                        .eq(ProjectRoleAssignment::getProjectRoleCode, roleCode)
+                        .eq(ProjectRoleAssignment::getIsPrimary, true)
+                        .eq(ProjectRoleAssignment::getDeleted, 0))
+                .stream()
+                .map(ProjectRoleAssignment::getProjectCode)
+                .distinct()
+                .toList();
     }
 
     // 功能：统计 PM 自己项目的待审批参与数——先查 PM 分配的项目编码集合，再按项目过滤参与记录
@@ -247,7 +311,7 @@ public class DashboardService {
         }
         for (GrantedAuthority authority : auth.getAuthorities()) {
             String a = authority.getAuthority();
-            for (String role : new String[]{"ADMIN", "PM", "PD", "评估人", "员工"}) {
+            for (String role : new String[]{"ADMIN", "PM", "PD", "评估人", "员工", "总裁"}) {
                 if (a.equals("ROLE_" + role)) {
                     return role;
                 }

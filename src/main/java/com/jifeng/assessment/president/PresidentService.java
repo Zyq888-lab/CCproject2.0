@@ -4,9 +4,14 @@
 package com.jifeng.assessment.president;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.confirmation.ProjectConfirmation;
 import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
+import com.jifeng.assessment.employee.Employee;
+import com.jifeng.assessment.employee.EmployeeMapper;
+import com.jifeng.assessment.period.AssessmentPeriod;
+import com.jifeng.assessment.period.PeriodMapper;
 import com.jifeng.assessment.period.PeriodService;
 import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
@@ -37,6 +42,8 @@ public class PresidentService {
     private final SysUserMapper sysUserMapper;
     private final ProjectMapper projectMapper;
     private final PeriodService periodService;
+    private final PeriodMapper periodMapper;
+    private final EmployeeMapper employeeMapper;
 
     private static final String ROLE_PRESIDENT = "PRESIDENT";
     private static final String ROLE_PD = "PD";
@@ -44,8 +51,9 @@ public class PresidentService {
     private static final String STATUS_APPROVED = "APPROVED";
     private static final String STATUS_RETURNED = "RETURNED";
 
-    // 确认清单项 DTO——含项目名；presidentConflict 标记该项目跨阶段存在多个主总裁（异常）
-    public record ConfirmationItem(Long id, String periodId, String projectCode, String projectName,
+    // 确认清单项 DTO——含项目名、周期名与员工名；presidentConflict 标记该项目跨阶段存在多个主总裁（异常）
+    public record ConfirmationItem(Long id, String periodId, String periodName, String projectCode, String projectName,
+                                   String assesseeId, String employeeName,
                                    String status, Integer returnCount, String returnReason, LocalDateTime confirmedAt,
                                    boolean presidentConflict) {
     }
@@ -101,10 +109,35 @@ public class PresidentService {
                 .entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().size() > 1));
 
+        // 批量回填周期名，避免逐条查 assessment_period
+        List<String> periodIds = confirmations.stream()
+                .map(ProjectConfirmation::getPeriodId)
+                .filter(StringUtils::hasText)
+                .distinct()
+                .toList();
+        Map<String, String> periodNames = periodIds.isEmpty() ? Map.of()
+                : periodMapper.selectList(new LambdaQueryWrapper<AssessmentPeriod>()
+                                .in(AssessmentPeriod::getPeriodId, periodIds))
+                .stream()
+                .collect(Collectors.toMap(AssessmentPeriod::getPeriodId, AssessmentPeriod::getPeriodName, (a, b) -> a));
+
+        // 批量回填员工姓名，避免逐条查 employee 表
+        List<String> assesseeIds = confirmations.stream()
+                .map(ProjectConfirmation::getAssesseeId)
+                .filter(StringUtils::hasText)
+                .distinct()
+                .toList();
+        Map<String, String> employeeNames = assesseeIds.isEmpty() ? Map.of()
+                : employeeMapper.selectList(new LambdaQueryWrapper<Employee>()
+                                .in(Employee::getEmployeeId, assesseeIds))
+                .stream()
+                .collect(Collectors.toMap(Employee::getEmployeeId, Employee::getName, (a, b) -> a));
+
         return confirmations.stream()
                 .map(c -> new ConfirmationItem(
-                        c.getId(), c.getPeriodId(), c.getProjectCode(),
+                        c.getId(), c.getPeriodId(), periodNames.get(c.getPeriodId()), c.getProjectCode(),
                         projectNames.get(c.getProjectCode()),
+                        c.getAssesseeId(), employeeNames.get(c.getAssesseeId()),
                         c.getStatus(), c.getReturnCount(), c.getReturnReason(), c.getConfirmedAt(),
                         presidentConflict.getOrDefault(c.getProjectCode(), false)))
                 .toList();
@@ -115,7 +148,7 @@ public class PresidentService {
         return periodService.resolvePrimaryPresident(projectCode);
     }
 
-    // 功能：单项目确认通过——仅主总裁可操作；全部项目通过后原子翻转周期 CALIBRATING→CONFIRMED
+    // 功能：单人员确认通过——仅主总裁可操作；全部人员通过后原子翻转周期 CALIBRATING→CONFIRMED
     @Transactional
     public void approve(Long id) {
         ProjectConfirmation confirmation = requireConfirmation(id);
@@ -126,7 +159,7 @@ public class PresidentService {
             return; // 幂等：已通过直接返回
         }
         if (!STATUS_PENDING.equals(confirmation.getStatus())) {
-            throw new BusinessException(400, "仅待确认的项目可确认通过");
+            throw new BusinessException(400, "仅待确认的人员可确认通过");
         }
         confirmation.setStatus(STATUS_APPROVED);
         confirmation.setConfirmedByEmployeeId(currentEmployeeId());
@@ -143,7 +176,8 @@ public class PresidentService {
         }
     }
 
-    // 功能：单项目退回——附原因；return_count 达 PRESIDENT_RETURN_TIMES 上限时拒绝
+    // 功能：单人员退回——附原因；return_count 达 PRESIDENT_RETURN_TIMES 上限时拒绝；
+    //   退回后清空 assessment_period.calibration_submitted_at，让周期回到「待校准」供 PD 重新提交
     @Transactional
     public void returnProject(Long id, String reason) {
         ProjectConfirmation confirmation = requireConfirmation(id);
@@ -151,7 +185,7 @@ public class PresidentService {
         periodService.lockPeriod(confirmation.getPeriodId());
         assertPresidentOf(confirmation);
         if (!STATUS_PENDING.equals(confirmation.getStatus())) {
-            throw new BusinessException(400, "仅待确认的项目可退回");
+            throw new BusinessException(400, "仅待确认的人员可退回");
         }
         int cap = parseReturnCap();
         int next = (confirmation.getReturnCount() == null ? 0 : confirmation.getReturnCount()) + 1;
@@ -166,6 +200,50 @@ public class PresidentService {
         if (updated == 0) {
             throw new BusinessException(409, "数据已被他人修改，请刷新后重试");
         }
+        // 退回后周期回到待校准状态：清空周期级提交时间戳（问题2）
+        clearCalibrationSubmittedAt(confirmation.getPeriodId());
+    }
+
+    // 功能：清空周期校准提交时间戳——用 UpdateWrapper 显式置 NULL（MyBatis-Plus 默认跳过 null 字段）
+    private void clearCalibrationSubmittedAt(String periodId) {
+        periodMapper.update(null, new LambdaUpdateWrapper<AssessmentPeriod>()
+                .eq(AssessmentPeriod::getPeriodId, periodId)
+                .set(AssessmentPeriod::getCalibrationSubmittedAt, null));
+    }
+
+    // 功能：整项目一键确认——将该项目下所有 PENDING 确认行一次性通过；全部通过后翻转周期
+    @Transactional
+    public int approveAll(String periodId, String projectCode) {
+        if (!StringUtils.hasText(projectCode)) {
+            throw new BusinessException(400, "项目编码不能为空");
+        }
+        String current = currentEmployeeId();
+        String president = resolvePrimaryPresident(projectCode);
+        if (president == null || !president.equals(current)) {
+            throw new BusinessException(403, "仅该项目负责总裁可操作");
+        }
+        periodService.lockPeriod(periodId);
+        List<ProjectConfirmation> pending = projectConfirmationMapper.selectList(
+                new LambdaQueryWrapper<ProjectConfirmation>()
+                        .eq(ProjectConfirmation::getPeriodId, periodId)
+                        .eq(ProjectConfirmation::getProjectCode, projectCode)
+                        .eq(ProjectConfirmation::getStatus, STATUS_PENDING));
+        for (ProjectConfirmation c : pending) {
+            c.setStatus(STATUS_APPROVED);
+            c.setConfirmedByEmployeeId(current);
+            c.setConfirmedAt(LocalDateTime.now());
+            c.setReturnReason(null);
+            c.setUpdatedAt(LocalDateTime.now());
+            int updated = projectConfirmationMapper.updateById(c);
+            if (updated == 0) {
+                throw new BusinessException(409, "数据已被他人修改，请刷新后重试");
+            }
+        }
+        // 本周期无待确认/退回人员时，原子翻转周期状态
+        if (noPendingOrReturned(periodId)) {
+            periodService.tryConfirmPeriod(periodId);
+        }
+        return pending.size();
     }
 
     // 功能：重新提交——PD 重校准后 RETURNED→PENDING，清除退回原因（保留退回计数）
@@ -225,7 +303,7 @@ public class PresidentService {
                 .toList();
     }
 
-    // 功能：判断本周期是否已无待确认/退回项目
+    // 功能：判断本周期是否已「所有确认行均为 APPROVED」——等价于无 PENDING/RETURNED 行
     private boolean noPendingOrReturned(String periodId) {
         Long count = projectConfirmationMapper.selectCount(
                 new LambdaQueryWrapper<ProjectConfirmation>()

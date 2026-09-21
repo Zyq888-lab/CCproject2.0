@@ -36,12 +36,19 @@ public class PresidentController extends BaseController {
         return ok(null);
     }
 
-    // 功能：单项目退回（附原因）
+    // 功能：单人员退回（附原因）
     @PostMapping("/api/v1/president/confirmations/{id}/return")
     @PreAuthorize("hasRole('总裁')")
     public ApiResponse<Void> returnProject(@PathVariable Long id, @Valid @RequestBody ReturnRequest request) {
         presidentService.returnProject(id, request.getReason());
         return ok(null);
+    }
+
+    // 功能：整项目一键确认——该项目下所有待确认人员一次性通过
+    @PostMapping("/api/v1/president/confirmations/approve-all")
+    @PreAuthorize("hasRole('总裁')")
+    public ApiResponse<Integer> approveAll(@RequestParam String periodId, @RequestParam String projectCode) {
+        return ok(presidentService.approveAll(periodId, projectCode));
     }
 
     // 功能：PD 重校准后重新提交

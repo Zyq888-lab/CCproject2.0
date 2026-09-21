@@ -90,6 +90,51 @@ class PresidentServiceTest {
         assertEquals("CALIBRATING", periodMapper.selectById("PERIOD_R1").getStatus());
     }
 
+    // 功能：单人员退回不影响同项目其他人——退回其一，同项目另一人仍 PENDING，其它项目仍 PENDING
+    @Test
+    void returnProjectShouldNotAffectSameProjectOthers() {
+        seedEmployee("EMP_PRES_11");
+        seedUser("U_PRES_11", "pres11", "EMP_PRES_11");
+        seedProject("PRJ_11", "P2");
+        seedProject("PRJ_12", "P2");
+        seedPeriod("PERIOD_R11", "CALIBRATING");
+        seedAssignment("PRJ_11", "P2", "PRESIDENT", "EMP_PRES_11", true);
+        seedAssignment("PRJ_12", "P2", "PRESIDENT", "EMP_PRES_11", true);
+        Long idA = seedConfirmation("PERIOD_R11", "PRJ_11", "EMP_A", "PENDING", 0);
+        Long idB = seedConfirmation("PERIOD_R11", "PRJ_11", "EMP_B", "PENDING", 0);
+        Long idOther = seedConfirmation("PERIOD_R11", "PRJ_12", "EMP_C", "PENDING", 0);
+
+        auth("pres11", "总裁");
+
+        presidentService.returnProject(idA, "员工A结果有误");
+
+        assertEquals("RETURNED", projectConfirmationMapper.selectById(idA).getStatus());
+        assertEquals("PENDING", projectConfirmationMapper.selectById(idB).getStatus(), "同项目其他人不应被退回");
+        assertEquals("PENDING", projectConfirmationMapper.selectById(idOther).getStatus(), "其它项目不应被退回");
+        assertEquals("CALIBRATING", periodMapper.selectById("PERIOD_R11").getStatus());
+    }
+
+    // 功能：退回后清空周期校准提交时间戳——周期回到待校准，PD 可重新提交（问题2）
+    @Test
+    void returnProjectShouldClearCalibrationSubmittedAt() {
+        seedEmployee("EMP_PRES_12");
+        seedUser("U_PRES_12", "pres12", "EMP_PRES_12");
+        seedProject("PRJ_13", "P2");
+        seedPeriod("PERIOD_R12", "CALIBRATING");
+        seedAssignment("PRJ_13", "P2", "PRESIDENT", "EMP_PRES_12", true);
+        Long id = seedConfirmation("PERIOD_R12", "PRJ_13", "EMP_D", "PENDING", 0);
+        AssessmentPeriod p = periodMapper.selectById("PERIOD_R12");
+        p.setCalibrationSubmittedAt(LocalDateTime.now());
+        periodMapper.updateById(p);
+
+        auth("pres12", "总裁");
+
+        presidentService.returnProject(id, "结果有误");
+
+        assertNull(periodMapper.selectById("PERIOD_R12").getCalibrationSubmittedAt(),
+                "退回后 calibration_submitted_at 应被清空");
+    }
+
     // 功能：全部项目确认通过后周期原子翻 CONFIRMED——最后一项通过前仍 CALIBRATING
     @Test
     void approveAllShouldFlipPeriodToConfirmed() {
@@ -200,6 +245,24 @@ class PresidentServiceTest {
 
         assertEquals(1, items.size());
         assertEquals("PRJ_7", items.get(0).projectCode());
+    }
+
+    // 功能：确认清单返回周期名——periodName 从 assessment_period 批量回填，供前端周期列展示
+    @Test
+    void listConfirmationsShouldReturnPeriodName() {
+        seedEmployee("EMP_PN_1");
+        seedUser("U_PN_1", "pres_pn", "EMP_PN_1");
+        seedProject("PRJ_PN", "P2");
+        seedPeriod("PERIOD_PN", "CALIBRATING");
+        seedAssignment("PRJ_PN", "P2", "PRESIDENT", "EMP_PN_1", true);
+        seedConfirmation("PERIOD_PN", "PRJ_PN", "PENDING", 0);
+
+        auth("pres_pn", "总裁");
+
+        List<PresidentService.ConfirmationItem> items = presidentService.listConfirmations("PERIOD_PN");
+
+        assertEquals(1, items.size());
+        assertEquals("周期PERIOD_PN", items.get(0).periodName());
     }
 
     // 功能：非该项目的负责总裁被 403——虽为总裁角色，但非主总裁无权操作
@@ -333,11 +396,17 @@ class PresidentServiceTest {
         roleAssignmentMapper.insert(a);
     }
 
-    // 辅助：插入项目确认行，返回自增主键
+    // 辅助：插入项目确认行（assesseeId 缺省取 projectCode），返回自增主键
     private Long seedConfirmation(String periodId, String projectCode, String status, int returnCount) {
+        return seedConfirmation(periodId, projectCode, projectCode, status, returnCount);
+    }
+
+    // 辅助：插入项目确认行（显式 assesseeId，用于同一项目多人确认场景），返回自增主键
+    private Long seedConfirmation(String periodId, String projectCode, String assesseeId, String status, int returnCount) {
         ProjectConfirmation c = new ProjectConfirmation();
         c.setPeriodId(periodId);
         c.setProjectCode(projectCode);
+        c.setAssesseeId(assesseeId);
         c.setStatus(status);
         c.setReturnCount(returnCount);
         c.setCreatedAt(LocalDateTime.now());

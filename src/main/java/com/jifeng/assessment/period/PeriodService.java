@@ -4,6 +4,8 @@
 package com.jifeng.assessment.period;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jifeng.assessment.calibration.AssessmentResult;
+import com.jifeng.assessment.calibration.AssessmentResultMapper;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.confirmation.ProjectConfirmation;
 import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
@@ -20,8 +22,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -33,6 +39,7 @@ public class PeriodService {
     private final ProjectConfirmationMapper projectConfirmationMapper;
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
     private final DiscrepancyLogMapper discrepancyLogMapper;
+    private final AssessmentResultMapper assessmentResultMapper;
 
     private static final String COMPLETED = "COMPLETED";
     private static final String CONFIRMED = "CONFIRMED";
@@ -166,7 +173,8 @@ public class PeriodService {
         return periodMapper.selectById(periodId);
     }
 
-    // 功能：PD 提交校准——仅 CALIBRATING 周期可提交；写入当前时间，幂等（已提交则保持首次时间戳不变）
+    // 功能：PD 提交校准——仅 CALIBRATING 周期可提交；写入当前时间，幂等（已提交则保持首次时间戳不变）。
+    //   重新提交时（总裁退回后）同时将本周期所有 RETURNED 确认行重置为 PENDING，总裁可再次逐人确认
     @Transactional
     public AssessmentPeriod submitCalibration(String periodId) {
         AssessmentPeriod period = requirePeriod(periodId);
@@ -178,7 +186,23 @@ public class PeriodService {
             period.setUpdatedAt(LocalDateTime.now());
             periodMapper.updateById(period);
         }
+        resetReturnedToPending(periodId);
         return periodMapper.selectById(periodId);
+    }
+
+    // 功能：重新提交时 RETURNED→PENDING——清除退回原因，保留退回计数（与 PresidentService.resubmit 同语义，
+    //   但作用于周期内全部退回行，配合周期级「提交校准」按钮完成「退回→重校准→再提交→再确认」闭环）
+    private void resetReturnedToPending(String periodId) {
+        List<ProjectConfirmation> returned = projectConfirmationMapper.selectList(
+                new LambdaQueryWrapper<ProjectConfirmation>()
+                        .eq(ProjectConfirmation::getPeriodId, periodId)
+                        .eq(ProjectConfirmation::getStatus, "RETURNED"));
+        for (ProjectConfirmation c : returned) {
+            c.setStatus("PENDING");
+            c.setReturnReason(null);
+            c.setUpdatedAt(LocalDateTime.now());
+            projectConfirmationMapper.updateById(c);
+        }
     }
 
     // 功能：结果可见性——仅 PUBLISHED（已发布）或 COMPLETED（已归档）时员工可查看最终结果；CONFIRMED 待发布不可见
@@ -199,50 +223,81 @@ public class PeriodService {
         return period;
     }
 
-    // 功能：进入校准时生成项目确认行——从本周期 PROJECT 任务取 distinct project_code 逐条插 PENDING，
-    //   未分配主总裁的项目另写 NO_PRESIDENT 差异（幂等：已存在确认行则跳过）
+    // 功能：进入校准时生成项目确认行——按「项目 × 员工」逐人插 PENDING：
+    //   员工来源 = assessment_result（本周期已生成结果的 distinct assessee_id），
+    //   项目归属 = 该员工首个 PROJECT 任务的 project_code；未分配主总裁的项目另写 NO_PRESIDENT 差异
     private void generateProjectConfirmations(String periodId) {
-        List<String> projectCodes = taskMapper.selectList(
+        // 员工 → 项目 映射（取员工首个 PROJECT 任务的 project_code；仅项目型员工参与项目确认）
+        Map<String, String> projectByAssessee = taskMapper.selectList(
                         new LambdaQueryWrapper<AssessmentTask>()
                                 .eq(AssessmentTask::getPeriodId, periodId)
+                                .eq(AssessmentTask::getTaskType, "PROJECT")
                                 .isNotNull(AssessmentTask::getProjectCode)
                                 .ne(AssessmentTask::getProjectCode, ""))
                 .stream()
-                .map(AssessmentTask::getProjectCode)
+                .collect(Collectors.toMap(AssessmentTask::getAssesseeId,
+                        AssessmentTask::getProjectCode, (a, b) -> a));
+
+        // 已生成结果（全部 SUBMITTED）的员工 = 需总裁逐人确认的人员
+        List<String> assesseeIds = assessmentResultMapper.selectList(
+                        new LambdaQueryWrapper<AssessmentResult>()
+                                .eq(AssessmentResult::getPeriodId, periodId))
+                .stream()
+                .map(AssessmentResult::getAssesseeId)
                 .distinct()
                 .toList();
-        for (String projectCode : projectCodes) {
+
+        // 逐人插入 PENDING 确认行（幂等：已存在 (period, project, assessee) 行则跳过）
+        for (String assesseeId : assesseeIds) {
+            String projectCode = projectByAssessee.get(assesseeId);
+            if (!StringUtils.hasText(projectCode)) {
+                continue; // 纯职能员工无项目，不参与项目确认
+            }
             Long existing = projectConfirmationMapper.selectCount(
                     new LambdaQueryWrapper<ProjectConfirmation>()
                             .eq(ProjectConfirmation::getPeriodId, periodId)
-                            .eq(ProjectConfirmation::getProjectCode, projectCode));
+                            .eq(ProjectConfirmation::getProjectCode, projectCode)
+                            .eq(ProjectConfirmation::getAssesseeId, assesseeId));
             if (existing != null && existing > 0) {
                 continue;
             }
             ProjectConfirmation confirmation = new ProjectConfirmation();
             confirmation.setPeriodId(periodId);
             confirmation.setProjectCode(projectCode);
+            confirmation.setAssesseeId(assesseeId);
             confirmation.setStatus("PENDING");
             confirmation.setReturnCount(0);
             confirmation.setCreatedAt(LocalDateTime.now());
             confirmation.setUpdatedAt(LocalDateTime.now());
             projectConfirmationMapper.insert(confirmation);
+        }
 
+        // 未分配主总裁的项目写 NO_PRESIDENT 差异（按项目去重，保留配置完整性告警语义）
+        Set<String> projectCodes = taskMapper.selectList(
+                        new LambdaQueryWrapper<AssessmentTask>()
+                                .eq(AssessmentTask::getPeriodId, periodId)
+                                .isNotNull(AssessmentTask::getProjectCode)
+                                .ne(AssessmentTask::getProjectCode, ""))
+                .stream()
+                .map(AssessmentTask::getProjectCode)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        for (String projectCode : projectCodes) {
             List<String> presidents = resolvePrimaryPresidents(projectCode);
-            if (presidents.size() != 1) {
-                DiscrepancyLog log = new DiscrepancyLog();
-                log.setPeriodId(periodId);
-                log.setEmployeeId("");
-                log.setProjectCode(projectCode);
-                log.setType(DISCREPANCY_NO_PRESIDENT);
-                log.setDetail(presidents.isEmpty()
-                        ? "项目" + projectCode + "未分配主总裁，无法进行项目确认"
-                        : "项目" + projectCode + "存在多个主总裁(" + String.join(",", presidents) + ")，无法进行项目确认");
-                log.setResolved(false);
-                log.setCreatedAt(LocalDateTime.now());
-                log.setUpdatedAt(LocalDateTime.now());
-                discrepancyLogMapper.insert(log);
+            if (presidents.size() == 1) {
+                continue;
             }
+            DiscrepancyLog log = new DiscrepancyLog();
+            log.setPeriodId(periodId);
+            log.setEmployeeId("");
+            log.setProjectCode(projectCode);
+            log.setType(DISCREPANCY_NO_PRESIDENT);
+            log.setDetail(presidents.isEmpty()
+                    ? "项目" + projectCode + "未分配主总裁，无法进行项目确认"
+                    : "项目" + projectCode + "存在多个主总裁(" + String.join(",", presidents) + ")，无法进行项目确认");
+            log.setResolved(false);
+            log.setCreatedAt(LocalDateTime.now());
+            log.setUpdatedAt(LocalDateTime.now());
+            discrepancyLogMapper.insert(log);
         }
     }
 

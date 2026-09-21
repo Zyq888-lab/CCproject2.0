@@ -61,6 +61,17 @@ function resolveCount(backendItems, cardKey) {
   return item ? item.count : 0;
 }
 
+// 功能：待处理任务跳转目标——按登录角色区分（总裁=总裁确认/PD=考核校准/评估人=考核任务/员工&PM=项目参与/ADMIN=项目列表）
+function resolvePendingLink(roles) {
+  if (roles.includes('ROLE_总裁')) return '/president-confirm';
+  if (roles.includes('ROLE_PD')) return '/period-config';
+  if (roles.includes('ROLE_评估人')) return '/tasks';
+  if (roles.includes('ROLE_员工')) return '/participation';
+  if (roles.includes('ROLE_PM')) return '/participation';
+  if (roles.includes('ROLE_ADMIN')) return '/project/list';
+  return '/tasks';
+}
+
 function DashboardPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +80,7 @@ function DashboardPage() {
   const [rolesLoaded, setRolesLoaded] = useState(false);
   const [isConfigRole, setIsConfigRole] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [userRoles, setUserRoles] = useState([]);
   const [discrepancies, setDiscrepancies] = useState([]);
   const [resolvingIds, setResolvingIds] = useState(new Set());
   const navigate = useNavigate();
@@ -80,10 +92,12 @@ function DashboardPage() {
     client.get('/auth/me').then((res) => {
       const data = res.data || res;
       const roles = data.roles || [];
+      setUserRoles(roles);
       setIsConfigRole(roles.includes('ROLE_ADMIN') || roles.includes('ROLE_PM'));
       setIsAdmin(roles.includes('ROLE_ADMIN'));
       setRolesLoaded(true);
     }).catch(() => {
+      setUserRoles([]);
       setIsConfigRole(false);
       setIsAdmin(false);
       setRolesLoaded(true);
@@ -213,7 +227,7 @@ function DashboardPage() {
           <span style={{ fontSize: 20, fontWeight: 600, color: pendingCount > 0 ? '#FA8C16' : '#52C41A' }}>
             {pendingCount}
           </span>
-          {!isAdmin && <Button type="link" onClick={() => navigate('/tasks')}>查看任务 →</Button>}
+          <Button type="link" onClick={() => navigate(resolvePendingLink(userRoles))}>查看 →</Button>
         </div>
       </Card>
 

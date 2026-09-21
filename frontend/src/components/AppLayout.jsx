@@ -37,7 +37,7 @@ const allMenuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', roles: ALL_STAFF_ROLES, group: 'top' },
   { type: 'divider', label: '配置中心', roles: ['ROLE_ADMIN', 'ROLE_PM'], group: 'config' },
   { key: '/employee-management', icon: <TeamOutlined />, label: '员工管理', roles: ['ROLE_ADMIN'] },
-  { key: '/project/list', icon: <FolderOutlined />, label: '项目管理', roles: ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD'] },
+  { key: '/project/list', icon: <FolderOutlined />, label: '项目管理', roles: ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_总裁'] },
   { key: '/project-role', icon: <AimOutlined />, label: '项目角色管理', roles: ['ROLE_ADMIN'] },
   { key: '/position-config', icon: <SettingOutlined />, label: '岗位配置', roles: ['ROLE_ADMIN'] },
   { key: '/kpi-config', icon: <LineChartOutlined />, label: 'KPI配置', roles: ['ROLE_ADMIN'] },
