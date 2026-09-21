@@ -65,7 +65,7 @@ function PeriodMonitorPage() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filters, setFilters] = useState({ status: '', project: '', employee: '' });
+  const [filters, setFilters] = useState({ status: '', project: '', employee: '', node: '' });
   const [detail, setDetail] = useState(null);
   const mountedRef = useRef(true);
 
@@ -98,12 +98,14 @@ function PeriodMonitorPage() {
   const employeeOptions = [...new Map(
     data.map((r) => [r.employeeId, r.employeeName || r.employeeId]),
   ).entries()].map(([value, label]) => ({ value, label }));
+  const nodeOptions = [...new Set(data.map((r) => resolveNodeLabel(r)))].map((label) => ({ value: label, label }));
 
-  // 功能：客户端筛选——状态/项目/员工
+  // 功能：客户端筛选——状态/项目/员工/当前审批节点
   const filteredData = data.filter((r) => {
     if (filters.status && r.status !== filters.status) return false;
     if (filters.project && r.projectCode !== filters.project) return false;
     if (filters.employee && r.employeeId !== filters.employee) return false;
+    if (filters.node && resolveNodeLabel(r) !== filters.node) return false;
     return true;
   });
 
@@ -234,7 +236,15 @@ function PeriodMonitorPage() {
             style={{ width: 180 }}
             options={employeeOptions}
           />
-          <Button onClick={() => setFilters({ status: '', project: '', employee: '' })}>重置</Button>
+          <Select
+            placeholder="按当前审批节点筛选"
+            value={filters.node || undefined}
+            onChange={(v) => setFilters((f) => ({ ...f, node: v || '' }))}
+            allowClear
+            style={{ width: 180 }}
+            options={nodeOptions}
+          />
+          <Button onClick={() => setFilters({ status: '', project: '', employee: '', node: '' })}>重置</Button>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/period-config')}>返回周期列表</Button>
         </Space>
       </Card>

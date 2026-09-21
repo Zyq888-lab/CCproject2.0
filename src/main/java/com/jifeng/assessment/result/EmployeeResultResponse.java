@@ -21,6 +21,8 @@ public class EmployeeResultResponse {
     private boolean adjusted;      // 是否已改分（original ≠ adjusted）
     private BigDecimal delta;      // adjusted - original（仅 adjusted=true 时有值）
     private String adjustReason;   // 最新一次改分原因
+    private String projectName;    // 项目名称（纯职能员工为 null）
+    private String adjustedBy;     // 校准人姓名（最近一次改分人；未改分为 null）
     private List<KpiDetail> kpis;
 
     // KPI 明细行——指标名/权重/得分/评估人/凭证

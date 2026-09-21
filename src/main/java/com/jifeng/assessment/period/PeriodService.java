@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -227,16 +228,22 @@ public class PeriodService {
     //   员工来源 = assessment_result（本周期已生成结果的 distinct assessee_id），
     //   项目归属 = 该员工首个 PROJECT 任务的 project_code；未分配主总裁的项目另写 NO_PRESIDENT 差异
     private void generateProjectConfirmations(String periodId) {
-        // 员工 → 项目 映射（取员工首个 PROJECT 任务的 project_code；仅项目型员工参与项目确认）
+        // 员工 → 项目 映射：取员工「id 最小」的 SUBMITTED PROJECT 任务的 project_code，
+        //   与 CalibrationService.resolveGroup 的分组口径一致（此前无 SUBMITTED 过滤且任意取首，
+        //   多项目/半提交员工可能生成与校准矩阵不一致的 project_code，导致确认状态回填落空）
         Map<String, String> projectByAssessee = taskMapper.selectList(
                         new LambdaQueryWrapper<AssessmentTask>()
                                 .eq(AssessmentTask::getPeriodId, periodId)
                                 .eq(AssessmentTask::getTaskType, "PROJECT")
+                                .eq(AssessmentTask::getStatus, "SUBMITTED")
                                 .isNotNull(AssessmentTask::getProjectCode)
                                 .ne(AssessmentTask::getProjectCode, ""))
                 .stream()
-                .collect(Collectors.toMap(AssessmentTask::getAssesseeId,
-                        AssessmentTask::getProjectCode, (a, b) -> a));
+                .collect(Collectors.groupingBy(
+                        AssessmentTask::getAssesseeId,
+                        Collectors.collectingAndThen(
+                                Collectors.minBy(Comparator.comparing(AssessmentTask::getId)),
+                                opt -> opt.map(AssessmentTask::getProjectCode).orElse(null))));
 
         // 已生成结果（全部 SUBMITTED）的员工 = 需总裁逐人确认的人员
         List<String> assesseeIds = assessmentResultMapper.selectList(

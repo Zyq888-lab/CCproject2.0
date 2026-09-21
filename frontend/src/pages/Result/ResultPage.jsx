@@ -130,6 +130,9 @@ function ResultPage() {
         <div style={{ fontSize: 56, fontWeight: 700, color: '#1890FF', lineHeight: 1.1 }}>
           {fmt(data.adjustedScore)}
         </div>
+        <div style={{ color: '#595959', fontSize: 13, marginTop: 4 }}>
+          项目 {data.projectName || '—'} · 考核周期 {data.periodName || periodId} · 校准人 {data.adjustedBy || '—'}
+        </div>
         {data.adjusted ? (
           <Space size={8} wrap style={{ justifyContent: 'center', marginTop: 12 }}>
             <span style={{ color: '#8C8C8C', textDecoration: 'line-through' }}>原始分 {fmt(data.originalScore)}</span>

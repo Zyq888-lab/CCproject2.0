@@ -22,6 +22,8 @@ import com.jifeng.assessment.period.AssessmentPeriod;
 import com.jifeng.assessment.period.PeriodMapper;
 import com.jifeng.assessment.position.PositionAssessmentConfig;
 import com.jifeng.assessment.position.PositionConfigMapper;
+import com.jifeng.assessment.project.Project;
+import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.score.AssessmentScore;
 import com.jifeng.assessment.score.ScoreMapper;
 import com.jifeng.assessment.task.AssessmentTask;
@@ -54,6 +56,7 @@ public class ResultService {
     private final AssessmentResultMapper resultMapper;
     private final ScoreAdjustmentMapper adjustmentMapper;
     private final PeriodMapper periodMapper;
+    private final ProjectMapper projectMapper;
 
     private static final String STATUS_SUBMITTED = "SUBMITTED";
     private static final BigDecimal DEFAULT_PROJECT_WEIGHT = new BigDecimal("0.7000");
@@ -180,6 +183,21 @@ public class ResultService {
                 .last("LIMIT 1"));
         if (latest != null) {
             resp.setAdjustReason(latest.getReason());
+            resp.setAdjustedBy(resolveEmployeeName(latest.getAdjustedBy()));
+        }
+
+        // 项目名——取该员工「id 最小」的 SUBMITTED 项目任务反查项目名（纯职能员工为 null）
+        AssessmentTask projectTask = taskMapper.selectList(new LambdaQueryWrapper<AssessmentTask>()
+                        .eq(AssessmentTask::getPeriodId, periodId)
+                        .eq(AssessmentTask::getAssesseeId, assesseeId)
+                        .eq(AssessmentTask::getTaskType, "PROJECT")
+                        .eq(AssessmentTask::getStatus, STATUS_SUBMITTED)
+                        .orderByAsc(AssessmentTask::getId))
+                .stream().findFirst().orElse(null);
+        if (projectTask != null && projectTask.getProjectCode() != null
+                && !projectTask.getProjectCode().isEmpty()) {
+            Project project = projectMapper.selectById(projectTask.getProjectCode());
+            resp.setProjectName(project != null ? project.getProjectName() : projectTask.getProjectCode());
         }
 
         resp.setKpis(buildKpiDetails(periodId, assesseeId));
@@ -354,5 +372,14 @@ public class ResultService {
     // 功能：拼接 (项目,阶段) 分组键——用于项目任务分组与参与比重匹配
     private String key(String projectCode, String projectStage) {
         return (projectCode == null ? "" : projectCode) + "|" + (projectStage == null ? "" : projectStage);
+    }
+
+    // 功能：员工工号 → 姓名（找不到回退原值）——用于校准人 adjustedBy 显示
+    private String resolveEmployeeName(String employeeId) {
+        if (employeeId == null) {
+            return null;
+        }
+        Employee emp = employeeMapper.selectById(employeeId);
+        return emp != null ? emp.getName() : employeeId;
     }
 }
