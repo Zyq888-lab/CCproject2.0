@@ -347,4 +347,42 @@ class KpiConfigServiceTest {
                         List.of(new BigDecimal("4.0")),
                         List.of(new BigDecimal("0.3000"), new BigDecimal("0.7000"))));
     }
+
+    // ========================================
+    // 编辑权重：同 scope 权重和必须=1（防止写脏数据导致分数越界/低估）
+    // ========================================
+
+    // 功能：编辑权重破坏同 scope 权重和（单KPI 1.0 → 0.7，和=0.7≠1）→ 拒绝
+    @Test
+    void shouldRejectUpdateWeightWhenScopeSumNotOne() {
+        createTestRole("PDL", "项目总监");
+        ProjectKpiConfig config = createTestProjectKpi("PDL", "P2", "技术方案质量", "1.0000");
+
+        ProjectKpiConfig update = new ProjectKpiConfig();
+        update.setWeight(new BigDecimal("0.7000"));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> kpiConfigService.updateProjectKpi(config.getId(), update));
+        assertTrue(ex.getMessage().contains("100%"));
+    }
+
+    // 功能：编辑权重破坏同 scope 权重和（0.4+0.6 → 改 0.5，和=1.1≠1）→ 拒绝；权重不变（和=1）→ 放行
+    @Test
+    void shouldAllowUpdateWeightOnlyWhenScopeSumEqualsOne() {
+        createTestRole("PDL", "项目总监");
+        ProjectKpiConfig a = createTestProjectKpi("PDL", "P2", "指标A", "0.4000");
+        createTestProjectKpi("PDL", "P2", "指标B", "0.6000");
+
+        // 改 A 权重为 0.5 → 0.5+0.6=1.1≠1 → 拒绝
+        ProjectKpiConfig update = new ProjectKpiConfig();
+        update.setWeight(new BigDecimal("0.5000"));
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> kpiConfigService.updateProjectKpi(a.getId(), update));
+        assertTrue(ex.getMessage().contains("100%"));
+
+        // 改 A 权重不变 0.4 → 0.4+0.6=1.0 → 放行
+        ProjectKpiConfig keep = new ProjectKpiConfig();
+        keep.setWeight(new BigDecimal("0.4000"));
+        assertNotNull(kpiConfigService.updateProjectKpi(a.getId(), keep));
+    }
 }

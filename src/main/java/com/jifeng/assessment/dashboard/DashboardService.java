@@ -4,6 +4,8 @@
 package com.jifeng.assessment.dashboard;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jifeng.assessment.calibration.CalibrationSubmission;
+import com.jifeng.assessment.calibration.CalibrationSubmissionMapper;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.confirmation.ProjectConfirmation;
 import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
@@ -37,6 +39,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -55,6 +59,7 @@ public class DashboardService {
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
     private final PeriodMapper periodMapper;
     private final ProjectConfirmationMapper projectConfirmationMapper;
+    private final CalibrationSubmissionMapper calibrationSubmissionMapper;
 
     public static final String STATUS_CONFIGURED = "已配置";
     public static final String STATUS_PENDING = "待配置";
@@ -137,27 +142,85 @@ public class DashboardService {
         }
     }
 
-    // 功能：PD 待处理——CALIBRATING 且尚未提交校准(calibration_submitted_at 为空)的周期中，我为主 PD 的周期数
+    // 功能：PD 待处理——CALIBRATING 周期中，我为主 PD 且仍有未提交项目（项目级粒度）的周期数。
+    //   不再读周期级 calibration_submitted_at（那是「全部 PD 提交后」才非空的派生标记），
+    //   改为逐周期判断「我名下涉及的项目是否全部在 calibration_submission 有 submitted_at」
     private long countUnsubmittedCalibrationPeriodsForPd(String employeeId) {
-        List<String> projectCodes = primaryProjectCodes(employeeId, "PD");
-        if (projectCodes.isEmpty()) {
+        Set<String> owned = ownedPdProjectKeys(employeeId);
+        if (owned.isEmpty()) {
             return 0;
         }
-        // 我为主 PD 的项目在本周期内有 PROJECT 任务的周期集合
-        List<String> periodIds = taskMapper.selectList(new LambdaQueryWrapper<AssessmentTask>()
-                        .in(AssessmentTask::getProjectCode, projectCodes)
-                        .eq(AssessmentTask::getTaskType, "PROJECT"))
+        Set<String> calibratingPeriodIds = periodMapper.selectList(
+                        new LambdaQueryWrapper<AssessmentPeriod>()
+                                .eq(AssessmentPeriod::getStatus, "CALIBRATING"))
                 .stream()
-                .map(AssessmentTask::getPeriodId)
-                .distinct()
-                .toList();
-        if (periodIds.isEmpty()) {
+                .map(AssessmentPeriod::getPeriodId)
+                .collect(Collectors.toSet());
+        if (calibratingPeriodIds.isEmpty()) {
             return 0;
         }
-        return periodMapper.selectCount(new LambdaQueryWrapper<AssessmentPeriod>()
-                .in(AssessmentPeriod::getPeriodId, periodIds)
-                .eq(AssessmentPeriod::getStatus, "CALIBRATING")
-                .isNull(AssessmentPeriod::getCalibrationSubmittedAt));
+        // 各 CALIBRATING 周期涉及的 (code|stage) 项目键——来自 SUBMITTED PROJECT 任务（与校准矩阵同源）
+        Map<String, Set<String>> involvedByPeriod = taskMapper.selectList(
+                        new LambdaQueryWrapper<AssessmentTask>()
+                                .in(AssessmentTask::getPeriodId, calibratingPeriodIds)
+                                .eq(AssessmentTask::getTaskType, "PROJECT")
+                                .eq(AssessmentTask::getStatus, "SUBMITTED")
+                                .isNotNull(AssessmentTask::getProjectCode)
+                                .ne(AssessmentTask::getProjectCode, ""))
+                .stream()
+                .collect(Collectors.groupingBy(
+                        AssessmentTask::getPeriodId,
+                        Collectors.mapping(t -> submissionKey(t.getProjectCode(), t.getProjectStage()),
+                                Collectors.toSet())));
+        // 我为主 PD 且本周期确有涉及项目的周期集合
+        Set<String> minePeriodIds = involvedByPeriod.entrySet().stream()
+                .filter(e -> e.getValue().stream().anyMatch(owned::contains))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
+        if (minePeriodIds.isEmpty()) {
+            return 0;
+        }
+        // 这些周期内已提交的 (code|stage) 项目键
+        Set<String> submitted = calibrationSubmissionMapper.selectList(
+                        new LambdaQueryWrapper<CalibrationSubmission>()
+                                .in(CalibrationSubmission::getPeriodId, minePeriodIds)
+                                .isNotNull(CalibrationSubmission::getSubmittedAt))
+                .stream()
+                .map(s -> submissionKey(s.getProjectCode(), s.getProjectStage()))
+                .collect(Collectors.toSet());
+        long count = 0;
+        for (String periodId : minePeriodIds) {
+            Set<String> mine = involvedByPeriod.getOrDefault(periodId, Set.of()).stream()
+                    .filter(owned::contains)
+                    .collect(Collectors.toSet());
+            if (mine.isEmpty()) {
+                continue;
+            }
+            if (!submitted.containsAll(mine)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    // 功能：反查当前员工主 PD 负责的 (code|stage) 项目键集合——project_role_assignment（PD 且 is_primary 且未删除）
+    private Set<String> ownedPdProjectKeys(String employeeId) {
+        if (employeeId == null) {
+            return Set.of();
+        }
+        return roleAssignmentMapper.selectList(new LambdaQueryWrapper<ProjectRoleAssignment>()
+                        .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
+                        .eq(ProjectRoleAssignment::getProjectRoleCode, "PD")
+                        .eq(ProjectRoleAssignment::getIsPrimary, true)
+                        .eq(ProjectRoleAssignment::getDeleted, 0))
+                .stream()
+                .map(a -> submissionKey(a.getProjectCode(), a.getProjectStage()))
+                .collect(Collectors.toSet());
+    }
+
+    // 功能：拼接 (code|stage) 复合键——与 PeriodService/CalibrationService 的校准分组口径一致
+    private String submissionKey(String code, String stage) {
+        return (code == null ? "" : code) + "|" + (stage == null ? "" : stage);
     }
 
     // 功能：总裁待处理——CALIBRATING 且已提交校准、我为主总裁的项目中，PENDING/RETURNED 确认人数

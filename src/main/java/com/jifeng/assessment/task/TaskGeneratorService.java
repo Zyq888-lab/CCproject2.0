@@ -83,6 +83,16 @@ public class TaskGeneratorService {
             throw new BusinessException(400, "仅未开始周期可发起");
         }
 
+        // 发起考核强管控：差异报告存在该周期未处理（resolved=false）记录时拒绝发起，
+        // 必须先处理完差异再发起，避免带着已知缺配置/缺考核人进入 ONGOING
+        Long unresolvedCount = discrepancyLogMapper.selectCount(
+                new LambdaQueryWrapper<DiscrepancyLog>()
+                        .eq(DiscrepancyLog::getPeriodId, periodId)
+                        .eq(DiscrepancyLog::getResolved, false));
+        if (unresolvedCount != null && unresolvedCount > 0) {
+            throw new BusinessException(400, "存在未处理的差异记录，请先处理完差异再发起考核");
+        }
+
         // 数据完整性由参与记录/角色分配 + 差异报告保证（缺配置/缺考核人跳过并记录差异），
         // 不再要求项目维度手动确认阶段（stage_confirmed）——项目可跨多个考核周期，阶段确认是项目维度操作，不应阻塞发起考核
 
@@ -101,7 +111,7 @@ public class TaskGeneratorService {
 
         // 逐员工生成任务——每个员工独立容错，缺配置/缺考核人跳过并写入差异
         for (Employee emp : activeEmployees) {
-            GenerationResult result = generateTasksForEmployee(periodId, emp, notifiedNoPrimaryKeys);
+            GenerationResult result = generateTasksForEmployee(periodId, emp, notifiedNoPrimaryKeys, false);
             taskCount += result.taskCount();
             allAssessors.addAll(result.assessorIds());
             for (Discrepancy d : result.discrepancies()) {
@@ -125,8 +135,37 @@ public class TaskGeneratorService {
         periodMapper.updateStatus(periodId, "INIT", "ONGOING");
     }
 
+    // 功能：发起考核预检——复用 launch 的差异检测逻辑（dry-run），不生成任务、不改周期状态，
+    //   返回将生成的差异清单，供前端「发起考核」两步确认：先预检展示差异，处理完再正式发起
+    public LaunchPreview previewLaunch(String periodId) {
+        AssessmentPeriod period = periodMapper.selectById(periodId);
+        if (period == null) {
+            throw new BusinessException(404, "考核周期不存在: " + periodId);
+        }
+        if (!"INIT".equals(period.getStatus())) {
+            throw new BusinessException(400, "仅未开始周期可预检");
+        }
+
+        List<Employee> activeEmployees = employeeMapper.selectList(
+                new LambdaQueryWrapper<Employee>().eq(Employee::getStatus, "ACTIVE"));
+
+        int taskCount = 0;
+        List<LaunchPreview.DiscrepancyItem> items = new ArrayList<>();
+        Set<String> notifiedNoPrimaryKeys = new HashSet<>();
+        for (Employee emp : activeEmployees) {
+            GenerationResult result = generateTasksForEmployee(periodId, emp, notifiedNoPrimaryKeys, true);
+            taskCount += result.taskCount();
+            for (Discrepancy d : result.discrepancies()) {
+                items.add(new LaunchPreview.DiscrepancyItem(
+                        d.employeeId(), emp.getName(), d.type(),
+                        d.projectCode(), d.projectStage(), d.detail()));
+            }
+        }
+        return new LaunchPreview(taskCount, items);
+    }
+
     // 功能：为单个员工生成考核任务——返回任务数、差异列表、被分配的评估人集合
-    private GenerationResult generateTasksForEmployee(String periodId, Employee emp, Set<String> notifiedNoPrimaryKeys) {
+    private GenerationResult generateTasksForEmployee(String periodId, Employee emp, Set<String> notifiedNoPrimaryKeys, boolean dryRun) {
         List<Discrepancy> discrepancies = new ArrayList<>();
         int taskCount = 0;
         Set<String> assessorIds = new LinkedHashSet<>();
@@ -138,7 +177,7 @@ public class TaskGeneratorService {
                         .eq(PositionAssessmentConfig::getPosition, emp.getPosition())
                         .last("LIMIT 1"));
         if (posConfig == null) {
-            discrepancies.add(new Discrepancy(DISCREPANCY_NO_POSITION_CONFIG, null, null, "缺岗位配置"));
+            discrepancies.add(new Discrepancy(emp.getEmployeeId(), DISCREPANCY_NO_POSITION_CONFIG, null, null, "缺岗位配置"));
             return new GenerationResult(0, discrepancies, assessorIds);
         }
 
@@ -166,12 +205,14 @@ public class TaskGeneratorService {
                 if (assignedPersons.isEmpty()) {
                     // 降级策略：使用直属上级代考；上级也为空则记录差异
                     if (emp.getDirectLeaderId() != null) {
-                        insertIgnore(periodId, emp.getDirectLeaderId(), emp.getEmployeeId(),
-                                p.getProjectCode(), p.getProjectStage(), TASK_TYPE_PROJECT);
+                        if (!dryRun) {
+                            insertIgnore(periodId, emp.getDirectLeaderId(), emp.getEmployeeId(),
+                                    p.getProjectCode(), p.getProjectStage(), TASK_TYPE_PROJECT);
+                        }
                         assessorIds.add(emp.getDirectLeaderId());
                         taskCount++;
                     } else {
-                        discrepancies.add(new Discrepancy(DISCREPANCY_NO_ASSESSOR,
+                        discrepancies.add(new Discrepancy(emp.getEmployeeId(), DISCREPANCY_NO_ASSESSOR,
                                 p.getProjectCode(), p.getProjectStage(),
                                 "项目" + p.getProjectCode() + "角色" + role.getRoleCode() + "无考核人"));
                     }
@@ -180,20 +221,22 @@ public class TaskGeneratorService {
                 // 收敛：同角色多人时只发标主者；多人无主则跳过该角色 + 记差异 + 通知 admin
                 List<ProjectRoleAssignment> primaries = resolvePrimaryAssessors(assignedPersons);
                 if (primaries.isEmpty()) {
-                    discrepancies.add(new Discrepancy(DISCREPANCY_NO_PRIMARY_ASSESSOR,
+                    discrepancies.add(new Discrepancy(emp.getEmployeeId(), DISCREPANCY_NO_PRIMARY_ASSESSOR,
                             p.getProjectCode(), p.getProjectStage(),
                             "项目" + p.getProjectCode() + "阶段" + p.getProjectStage()
                                     + "角色" + role.getRoleCode() + "有" + assignedPersons.size() + "人未标主，任务未生成"));
                     // 通知按 (项目,阶段,角色) 去重——launch 逐员工生成，同一无主角色只通知 admin 一次
                     String noPrimaryKey = p.getProjectCode() + "|" + p.getProjectStage() + "|" + role.getRoleCode();
-                    if (notifiedNoPrimaryKeys.add(noPrimaryKey)) {
+                    if (notifiedNoPrimaryKeys.add(noPrimaryKey) && !dryRun) {
                         notifyAdminsNoPrimary(p.getProjectCode(), p.getProjectStage(), role.getRoleCode(), assignedPersons.size());
                     }
                     continue;
                 }
                 for (ProjectRoleAssignment assign : primaries) {
-                    insertIgnore(periodId, assign.getEmployeeId(), emp.getEmployeeId(),
-                            p.getProjectCode(), p.getProjectStage(), TASK_TYPE_PROJECT);
+                    if (!dryRun) {
+                        insertIgnore(periodId, assign.getEmployeeId(), emp.getEmployeeId(),
+                                p.getProjectCode(), p.getProjectStage(), TASK_TYPE_PROJECT);
+                    }
                     assessorIds.add(assign.getEmployeeId());
                     taskCount++;
                 }
@@ -205,10 +248,12 @@ public class TaskGeneratorService {
         if (participations.isEmpty()) {
             // 无参与记录 → 跳过 FUNCTIONAL 任务
         } else if (emp.getDirectLeaderId() == null) {
-            discrepancies.add(new Discrepancy(DISCREPANCY_NO_LEADER, null, null, "直属上级为空"));
+            discrepancies.add(new Discrepancy(emp.getEmployeeId(), DISCREPANCY_NO_LEADER, null, null, "直属上级为空"));
         } else if (hasFunctionalKpi(emp)) {
-            insertIgnore(periodId, emp.getDirectLeaderId(), emp.getEmployeeId(),
-                    null, null, TASK_TYPE_FUNCTIONAL);
+            if (!dryRun) {
+                insertIgnore(periodId, emp.getDirectLeaderId(), emp.getEmployeeId(),
+                        null, null, TASK_TYPE_FUNCTIONAL);
+            }
             assessorIds.add(emp.getDirectLeaderId());
             taskCount++;
         }
@@ -407,8 +452,15 @@ public class TaskGeneratorService {
     public record LaunchResult(int taskCount, int discrepancyCount) {
     }
 
-    // 功能：员工任务生成差异项——type + 关联项目/阶段 + 详情（NO_POSITION_CONFIG/NO_LEADER 项目阶段为 null）
-    private record Discrepancy(String type, String projectCode, String projectStage, String detail) {
+    // 功能：发起考核预检结果——将生成的任务数 + 将产生的差异清单（不生成任务、不改周期状态）
+    public record LaunchPreview(int taskCount, List<DiscrepancyItem> discrepancies) {
+        public record DiscrepancyItem(String employeeId, String employeeName,
+                                      String type, String projectCode, String projectStage, String detail) {
+        }
+    }
+
+    // 功能：员工任务生成差异项——员工 + type + 关联项目/阶段 + 详情（NO_POSITION_CONFIG/NO_LEADER 项目阶段为 null）
+    private record Discrepancy(String employeeId, String type, String projectCode, String projectStage, String detail) {
     }
 
     // 功能：单员工任务生成结果——生成的任务数 + 差异列表 + 被分配的评估人集合

@@ -118,7 +118,7 @@ public class MyAssessmentService {
 
         // 5. FUNCTIONAL 指标：按员工本人岗位反查（无论是否分配项目角色均展示），同样按周期展开
         List<AssessmentTask> funcTasks = findTasks(tasks, null, null, "FUNCTIONAL");
-        items.addAll(buildFunctionalItems(employeeId, funcTasks));
+        items.addAll(buildFunctionalItems(employeeId, funcTasks, participations));
 
         return items;
     }
@@ -149,7 +149,9 @@ public class MyAssessmentService {
     }
 
     // 功能：组装 FUNCTIONAL 指标项——按员工 category+position 反查职能 KPI；无配置时返回空列表
-    private List<MyAssessmentItem> buildFunctionalItems(String employeeId, List<AssessmentTask> matchingTasks) {
+    //   传入已审批参与记录，使职能 KPI 与项目 KPI 同口径：已审批参与但周期未发起时补「待发起」行
+    private List<MyAssessmentItem> buildFunctionalItems(String employeeId, List<AssessmentTask> matchingTasks,
+                                                        List<EmployeeProjectParticipation> participations) {
         Employee assessee = employeeMapper.selectById(employeeId);
         if (assessee == null) {
             return List.of();
@@ -166,8 +168,8 @@ public class MyAssessmentService {
         }
 
         List<MyAssessmentItem.KpiItem> kpis = kpiConfigs.stream().map(this::toKpiItem).toList();
-        // 职能考核无项目/阶段，项目名固定「职能考核」
-        return expandByPeriod("FUNCTIONAL", null, null, "职能考核", kpis, matchingTasks, List.of());
+        // 职能考核无项目/阶段，项目名固定「职能考核」；按已审批参与周期补「待发起」行（与项目 KPI 同逻辑）
+        return expandByPeriod("FUNCTIONAL", null, null, "职能考核", kpis, matchingTasks, participations);
     }
 
     // 功能：按任务周期 + 已审批参与记录展开指标项——公共部分(类型/项目/阶段/名称/KPI)各周期共用：

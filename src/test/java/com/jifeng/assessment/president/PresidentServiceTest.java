@@ -3,6 +3,9 @@
 // 修改注意：@SpringBootTest + @Transactional；周期级翻转依赖 PeriodService.tryConfirmPeriod 原子 UPDATE
 package com.jifeng.assessment.president;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jifeng.assessment.calibration.CalibrationSubmission;
+import com.jifeng.assessment.calibration.CalibrationSubmissionMapper;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.confirmation.ProjectConfirmation;
 import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
@@ -16,6 +19,8 @@ import com.jifeng.assessment.projectrole.ProjectRole;
 import com.jifeng.assessment.projectrole.ProjectRoleMapper;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
+import com.jifeng.assessment.task.AssessmentTask;
+import com.jifeng.assessment.task.TaskMapper;
 import com.jifeng.assessment.user.SysUser;
 import com.jifeng.assessment.user.SysUserMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -62,6 +67,12 @@ class PresidentServiceTest {
 
     @Autowired
     private ProjectRoleMapper projectRoleMapper;
+
+    @Autowired
+    private CalibrationSubmissionMapper calibrationSubmissionMapper;
+
+    @Autowired
+    private TaskMapper taskMapper;
 
     @AfterEach
     void clearSecurityContext() {
@@ -133,6 +144,47 @@ class PresidentServiceTest {
 
         assertNull(periodMapper.selectById("PERIOD_R12").getCalibrationSubmittedAt(),
                 "退回后 calibration_submitted_at 应被清空");
+    }
+
+    // 功能：总裁退回某项目只清该项目的校准提交记录，其它 PD 的已提交项目不受影响（项目级粒度）
+    @Test
+    void returnProjectShouldOnlyClearThatProjectsSubmission() {
+        seedEmployee("EMP_PRES_RX");
+        seedEmployee("EMP_A");
+        seedEmployee("EMP_B");
+        seedUser("U_PRES_RX", "pres_rx", "EMP_PRES_RX");
+        seedProject("PRJ_RX_A", "P2");
+        seedProject("PRJ_RX_B", "P2");
+        seedPeriod("PERIOD_RX", "CALIBRATING");
+        seedAssignment("PRJ_RX_A", "P2", "PRESIDENT", "EMP_PRES_RX", true);
+        // 两个项目各自已提交（calibration_submission submitted_at 非空）
+        seedSubmission("PERIOD_RX", "PRJ_RX_A", "P2", "EMP_PD_RX_A");
+        seedSubmission("PERIOD_RX", "PRJ_RX_B", "P2", "EMP_PD_RX_B");
+        // 涉及项目任务，使 refreshCalibrationSubmittedAt 的 involved 集合非空
+        seedTask("PERIOD_RX", "EMP_A", "PRJ_RX_A", "P2");
+        seedTask("PERIOD_RX", "EMP_B", "PRJ_RX_B", "P2");
+        // 周期级时间戳置非空（模拟「全部提交」）
+        AssessmentPeriod p = periodMapper.selectById("PERIOD_RX");
+        p.setCalibrationSubmittedAt(LocalDateTime.now());
+        periodMapper.updateById(p);
+
+        Long id = seedConfirmation("PERIOD_RX", "PRJ_RX_A", "EMP_A", "PENDING", 0);
+
+        auth("pres_rx", "总裁");
+        presidentService.returnProject(id, "结果有误");
+
+        CalibrationSubmission subA = calibrationSubmissionMapper.selectOne(
+                new LambdaQueryWrapper<CalibrationSubmission>()
+                        .eq(CalibrationSubmission::getPeriodId, "PERIOD_RX")
+                        .eq(CalibrationSubmission::getProjectCode, "PRJ_RX_A"));
+        CalibrationSubmission subB = calibrationSubmissionMapper.selectOne(
+                new LambdaQueryWrapper<CalibrationSubmission>()
+                        .eq(CalibrationSubmission::getPeriodId, "PERIOD_RX")
+                        .eq(CalibrationSubmission::getProjectCode, "PRJ_RX_B"));
+        assertNull(subA.getSubmittedAt(), "被退回项目的提交记录应被清空");
+        assertNotNull(subB.getSubmittedAt(), "其它项目的提交记录不应受影响");
+        assertNull(periodMapper.selectById("PERIOD_RX").getCalibrationSubmittedAt(),
+                "仍有项目未提交，周期级时间戳应清空");
     }
 
     // 功能：全部项目确认通过后周期原子翻 CONFIRMED——最后一项通过前仍 CALIBRATING
@@ -413,6 +465,32 @@ class PresidentServiceTest {
         c.setUpdatedAt(LocalDateTime.now());
         projectConfirmationMapper.insert(c);
         return c.getId();
+    }
+
+    // 辅助：插入项目级校准提交记录（submitted_at 非空）
+    private void seedSubmission(String periodId, String code, String stage, String employeeId) {
+        CalibrationSubmission s = new CalibrationSubmission();
+        s.setPeriodId(periodId);
+        s.setProjectCode(code);
+        s.setProjectStage(stage);
+        s.setSubmittedByEmployeeId(employeeId);
+        s.setSubmittedAt(LocalDateTime.now());
+        s.setCreatedAt(LocalDateTime.now());
+        s.setUpdatedAt(LocalDateTime.now());
+        calibrationSubmissionMapper.insert(s);
+    }
+
+    // 辅助：插入 SUBMITTED 项目任务（评估人=被考核人，满足 fk_task_assessor/fk_task_assessee）
+    private void seedTask(String periodId, String assesseeId, String projectCode, String projectStage) {
+        AssessmentTask task = new AssessmentTask();
+        task.setPeriodId(periodId);
+        task.setAssessorId(assesseeId);
+        task.setAssesseeId(assesseeId);
+        task.setProjectCode(projectCode);
+        task.setProjectStage(projectStage);
+        task.setTaskType("PROJECT");
+        task.setStatus("SUBMITTED");
+        taskMapper.insert(task);
     }
 
     // 辅助：设置当前登录用户及其角色

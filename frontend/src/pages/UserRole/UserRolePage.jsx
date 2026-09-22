@@ -1,12 +1,12 @@
-{/* 模块用途：UserRolePage——用户管理页，用户分页表格+新增用户弹窗+角色分配弹窗 */}
+{/* 模块用途：UserRolePage——用户管理页，以员工为行展示账号激活状态，支持勾选批量一键激活 + 单员工激活 + 角色分配 */}
 {/* 依赖组件：PageHeader, EmptyState, ConfirmModal, client.js, Ant Design Table/Modal/Form/Select/Tag/Checkbox */}
-{/* 修改注意：角色选项与后端RoleType枚举同步，分配角色时覆盖式更新 */}
+{/* 修改注意：表格数据源为 GET /users/overview（employee 分页 + 左连接 sys_user），已激活行禁用勾选、未激活可批量激活 */}
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Table, Button, Tag, Space, Modal, Form, Select, Checkbox, message, Card,
 } from 'antd';
 import {
-  UserOutlined, PlusOutlined, ReloadOutlined,
+  UserOutlined, PlusOutlined, UsergroupAddOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
@@ -45,14 +45,18 @@ function UserRolePage() {
   const [employees, setEmployees] = useState([]);
   const [form] = Form.useForm();
   const [roleForm] = Form.useForm();
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const [batchModalVisible, setBatchModalVisible] = useState(false);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
+  const [batchForm] = Form.useForm();
   const mountedRef = useRef(true);
 
-  // 功能：分页获取系统用户列表——GET /api/v1/users?page=&size=
+  // 功能：分页获取员工账号总览——GET /api/v1/users/overview?page=&size=（employee 分页 + 左连接激活状态）
   const fetchUsers = useCallback(async (page, size) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await client.get('/users', { params: { page, size } });
+      const res = await client.get('/users/overview', { params: { page, size } });
       if (mountedRef.current) {
         const pageData = res.data || {};
         setData(pageData.list || []);
@@ -155,14 +159,64 @@ function UserRolePage() {
     }
   };
 
-  // 功能：表格列定义——用户名/关联员工/工号/角色标签/操作
+  // 功能：打开批量激活弹窗——勾选未激活员工后统一选择角色
+  const handleBatchActivate = () => {
+    if (selectedRowKeys.length === 0) return;
+    batchForm.resetFields();
+    setBatchModalVisible(true);
+  };
+
+  // 功能：提交批量激活——POST /api/v1/users/activate-batch，返回逐员工成败
+  const handleBatchSubmit = async () => {
+    try {
+      const values = await batchForm.validateFields();
+      setBatchSubmitting(true);
+      const res = await client.post('/users/activate-batch', {
+        employeeIds: selectedRowKeys,
+        roleTypes: values.roleTypes,
+      });
+      const result = res.data || {};
+      const successCount = result.successCount || 0;
+      const skippedCount = result.skippedCount || 0;
+      const failedCount = result.failedCount || 0;
+      const parts = [];
+      if (successCount > 0) parts.push(`成功 ${successCount} 人`);
+      if (skippedCount > 0) parts.push(`跳过 ${skippedCount} 人`);
+      if (failedCount > 0) parts.push(`失败 ${failedCount} 人`);
+      if (failedCount > 0) {
+        message.warning({ content: `批量激活完成：${parts.join('，')}`, duration: 4 });
+      } else {
+        message.success({ content: `批量激活完成：${parts.join('，')}`, duration: 3 });
+      }
+      setBatchModalVisible(false);
+      setSelectedRowKeys([]);
+      fetchUsers(pagination.current, pagination.pageSize);
+    } catch (err) {
+      message.error({ content: err?.message || '批量激活失败' });
+    } finally {
+      setBatchSubmitting(false);
+    }
+  };
+
+  // 功能：勾选配置——已激活行禁用勾选，未激活行可批量激活
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: setSelectedRowKeys,
+    getCheckboxProps: (record) => ({ disabled: record.activated }),
+  };
+
+  // 功能：表格列定义——工号/姓名/部门/账号状态/角色标签/操作
   const columns = [
-    { title: '用户名', dataIndex: 'username', key: 'username', width: 120 },
-    { title: '关联员工', dataIndex: 'employeeName', key: 'employeeName', width: 120 },
-    { title: '员工工号', dataIndex: 'employeeId', key: 'employeeId', width: 120 },
+    { title: '工号', dataIndex: 'employeeId', key: 'employeeId', width: 120 },
+    { title: '姓名', dataIndex: 'name', key: 'name', width: 100 },
+    { title: '部门', dataIndex: 'orgName', key: 'orgName', width: 140, ellipsis: true },
+    {
+      title: '账号状态', dataIndex: 'activated', key: 'activated', width: 100,
+      render: (v) => (v ? <Tag color="green">已激活</Tag> : <Tag color="default">未激活</Tag>),
+    },
     {
       title: '角色', dataIndex: 'roles', key: 'roles', width: 280,
-      render: (roles) => (
+      render: (roles, r) => (r.activated ? (
         <Space size={4} wrap>
           {(roles || []).map((role) => (
             <Tag key={role} color={ROLE_COLOR_MAP[role] || 'default'}>
@@ -170,15 +224,15 @@ function UserRolePage() {
             </Tag>
           ))}
         </Space>
-      ),
+      ) : '-'),
     },
     {
       title: '操作', key: 'action', width: 120,
-      render: (_, record) => (
+      render: (_, record) => (record.activated ? (
         <Button type="link" size="small" onClick={() => handleRoleAssign(record)}>
           分配角色
         </Button>
-      ),
+      ) : null),
     },
   ];
 
@@ -189,7 +243,15 @@ function UserRolePage() {
       <PageHeader
         title="用户管理"
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
-        actions={[{ label: '激活账号', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate }]}
+        actions={[
+          {
+            label: selectedRowKeys.length ? `批量激活 (${selectedRowKeys.length})` : '批量激活',
+            icon: <UsergroupAddOutlined />,
+            onClick: handleBatchActivate,
+            disabled: selectedRowKeys.length === 0,
+          },
+          { label: '激活账号', icon: <PlusOutlined />, type: 'primary', onClick: handleCreate },
+        ]}
       />
 
       {/* 功能：错误提示——加载失败时显示重试 */}
@@ -200,23 +262,24 @@ function UserRolePage() {
         </div>
       )}
 
-      {/* 功能：空状态——无用户数据时显示引导 */}
+      {/* 功能：空状态——无员工数据时显示引导 */}
       {isEmpty && (
         <EmptyState
           image={<UserOutlined style={{ fontSize: 72, color: '#1890FF' }} />}
-          title="还没有任何系统用户"
-          description="为需要使用系统的人激活登录账号"
+          title="还没有任何员工数据"
+          description="请先在员工管理中导入或新增员工，再为员工激活登录账号"
           primaryAction={{ label: '激活账号', onClick: handleCreate }}
         />
       )}
 
-      {/* 功能：用户数据表格——分页展示，每行有分配角色按钮 */}
+      {/* 功能：员工账号总览表格——勾选未激活员工后批量激活，已激活行展示角色与分配角色按钮 */}
       {!isEmpty && (
         <Card id="user-table-card" style={{ borderRadius: 8 }}>
           <Table
+            rowSelection={rowSelection}
             columns={columns}
             dataSource={data}
-            rowKey="userId"
+            rowKey="employeeId"
             loading={loading}
             size="middle"
             rowClassName={(_, index) => index % 2 === 1 ? 'table-row-striped' : ''}
@@ -229,7 +292,7 @@ function UserRolePage() {
               pageSizeOptions: [10, 20, 50],
               showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
             }}
-            scroll={{ x: 800 }}
+            scroll={{ x: 900 }}
           />
         </Card>
       )}
@@ -268,6 +331,33 @@ function UserRolePage() {
             <Select
               mode="multiple"
               placeholder="选择角色"
+              options={ROLE_OPTIONS}
+              allowClear
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 功能：批量激活弹窗——统一选择角色后批量激活勾选的未激活员工 */}
+      <Modal
+        title={`批量激活 — 已选 ${selectedRowKeys.length} 人`}
+        open={batchModalVisible}
+        onOk={handleBatchSubmit}
+        onCancel={() => setBatchModalVisible(false)}
+        confirmLoading={batchSubmitting}
+        okText="激活"
+        cancelText="取消"
+        width={480}
+      >
+        <Form form={batchForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item
+            name="roleTypes"
+            label="分配角色"
+            rules={[{ required: true, message: '请至少选择一个角色' }]}
+          >
+            <Select
+              mode="multiple"
+              placeholder="选择角色（对所有勾选员工生效）"
               options={ROLE_OPTIONS}
               allowClear
             />

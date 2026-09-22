@@ -27,6 +27,10 @@ public class AssessmentScore {
 
     private BigDecimal score;
 
+    // PD 校准单项覆盖分：NULL=未校准；有效分取 COALESCE(calibrated_score, score)，不覆盖评估人原始分 score
+    @TableField("calibrated_score")
+    private BigDecimal calibratedScore;
+
     @TableField("evidence_url")
     private String evidenceUrl;
 

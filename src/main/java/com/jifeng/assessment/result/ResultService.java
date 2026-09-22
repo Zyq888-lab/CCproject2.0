@@ -196,7 +196,8 @@ public class ResultService {
                 .stream().findFirst().orElse(null);
         if (projectTask != null && projectTask.getProjectCode() != null
                 && !projectTask.getProjectCode().isEmpty()) {
-            Project project = projectMapper.selectById(projectTask.getProjectCode());
+            Project project = projectMapper.selectByCodeAndStage(
+                    projectTask.getProjectCode(), projectTask.getProjectStage());
             resp.setProjectName(project != null ? project.getProjectName() : projectTask.getProjectCode());
         }
 
@@ -339,21 +340,31 @@ public class ResultService {
             List<BigDecimal> scoreVals = scores.stream().map(AssessmentScore::getScore).toList();
             List<BigDecimal> weightVals = scores.stream()
                     .map(s -> weightById.get(s.getKpiConfigId())).toList();
-            total = total.add(ScoreCalculator.weightedSum(scoreVals, weightVals));
+            // 归一化 KPI 权重到和=1（与参与比重归一化口径一致）——避免权重和≠1 导致单任务得分越界
+            // （如两个 KPI 各 1.0 求和 2.0 → 归一化后各 0.5；单 KPI 0.7 → 归一化为 1.0，得分不被低估）
+            total = total.add(ScoreCalculator.weightedSum(scoreVals, normalizeWeights(weightVals)));
             count++;
         }
         return total.divide(BigDecimal.valueOf(count), 4, RoundingMode.HALF_UP);
     }
 
-    // 功能：比重归一化——将参与比重缩放到和为 1（防御不一致数据）；空列表返回空（调用方保证非空）
+    // 功能：比重归一化——将权重列表缩放到和为 1（防御不一致数据）；空列表/和为 0 时原样返回（调用方保证非空）
+    // 说明：null 权重（如已停用 KPI 无权重）跳过不计入求和，并原样保留 null（weightedSum 会跳过 null 对）
     private List<BigDecimal> normalizeWeights(List<BigDecimal> weights) {
-        BigDecimal sum = weights.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal sum = BigDecimal.ZERO;
+        for (BigDecimal w : weights) {
+            if (w != null) {
+                sum = sum.add(w);
+            }
+        }
         if (sum.compareTo(BigDecimal.ZERO) == 0) {
             return weights;
         }
-        return weights.stream()
-                .map(w -> w.divide(sum, 4, RoundingMode.HALF_UP))
-                .toList();
+        List<BigDecimal> result = new ArrayList<>(weights.size());
+        for (BigDecimal w : weights) {
+            result.add(w == null ? null : w.divide(sum, 4, RoundingMode.HALF_UP));
+        }
+        return result;
     }
 
     // 功能：按员工岗位（category+position）反查岗位考核配置——与 TaskGeneratorService 同口径

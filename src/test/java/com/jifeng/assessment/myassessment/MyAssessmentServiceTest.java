@@ -383,4 +383,38 @@ class MyAssessmentServiceTest {
         assertNull(pendingItem.getPeriodId());
         assertEquals("-", pendingItem.getAssessorName());
     }
+
+    // ========================================
+    // 9. 有职能 KPI 配置 + 已审批参与但周期未发起 → 补职能「待发起」行（与项目 KPI 同逻辑）
+    // ========================================
+    @Test
+    void shouldShowFunctionalNotLaunchedRowWhenApprovedParticipationWithoutTask() {
+        setAuth("zhugong", "E004");
+        // 无项目角色分配 → 无 PROJECT 项
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of());
+        // 无任务
+        when(taskMapper.selectList(any())).thenReturn(List.of());
+        // 有一条已审批参与（周期 ceshizhouqi2）
+        when(participationMapper.selectList(any())).thenReturn(List.of(
+                participation("E004", "P007", "P2", "ceshizhouqi2")));
+        // 有职能 KPI 配置
+        when(employeeMapper.selectById("E004")).thenReturn(employee("E004", "AI技术类", "AI产品岗", "祝工"));
+        FuncKpiConfig fk = new FuncKpiConfig();
+        fk.setKpiName("职能KPI1");
+        fk.setWeight(new BigDecimal("0.5"));
+        fk.setEvaluationCriteria("评价标准");
+        fk.setSortOrder(1);
+        fk.setIsActive(true);
+        when(funcKpiMapper.selectList(any())).thenReturn(List.of(fk));
+
+        List<MyAssessmentItem> items = service.getMyAssessment();
+
+        assertEquals(1, items.size(), "已审批参与未发起周期应补职能「待发起」行");
+        MyAssessmentItem it = items.get(0);
+        assertEquals("FUNCTIONAL", it.getTaskType());
+        assertEquals("待发起", it.getStatus());
+        assertEquals("-", it.getAssessorName());
+        assertEquals(1, it.getKpis().size());
+        assertEquals("职能KPI1", it.getKpis().get(0).getKpiName());
+    }
 }

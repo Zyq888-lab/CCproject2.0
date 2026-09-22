@@ -4,8 +4,11 @@
 package com.jifeng.assessment.period;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.jifeng.assessment.calibration.AssessmentResult;
 import com.jifeng.assessment.calibration.AssessmentResultMapper;
+import com.jifeng.assessment.calibration.CalibrationSubmission;
+import com.jifeng.assessment.calibration.CalibrationSubmissionMapper;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.confirmation.ProjectConfirmation;
 import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
@@ -16,13 +19,16 @@ import com.jifeng.assessment.task.AssessmentTask;
 import com.jifeng.assessment.task.DiscrepancyLog;
 import com.jifeng.assessment.task.DiscrepancyLogMapper;
 import com.jifeng.assessment.task.TaskMapper;
+import com.jifeng.assessment.user.SysUser;
+import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +47,8 @@ public class PeriodService {
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
     private final DiscrepancyLogMapper discrepancyLogMapper;
     private final AssessmentResultMapper assessmentResultMapper;
+    private final CalibrationSubmissionMapper calibrationSubmissionMapper;
+    private final SysUserMapper sysUserMapper;
 
     private static final String COMPLETED = "COMPLETED";
     private static final String CONFIRMED = "CONFIRMED";
@@ -49,6 +57,7 @@ public class PeriodService {
     private static final String ONGOING = "ONGOING";
     private static final String INIT = "INIT";
     private static final String ROLE_PRESIDENT = "PRESIDENT";
+    private static final String ROLE_PD = "PD";
     private static final String DISCREPANCY_NO_PRESIDENT = "NO_PRESIDENT";
 
     // 功能：查询考核周期列表，支持按status筛选
@@ -174,29 +183,116 @@ public class PeriodService {
         return periodMapper.selectById(periodId);
     }
 
-    // 功能：PD 提交校准——仅 CALIBRATING 周期可提交；写入当前时间，幂等（已提交则保持首次时间戳不变）。
-    //   重新提交时（总裁退回后）同时将本周期所有 RETURNED 确认行重置为 PENDING，总裁可再次逐人确认
+    // 功能：PD 项目级提交校准——仅 CALIBRATING 周期可提交；只写当前 PD 主 PD 负责的项目
+    //   （ADMIN 提交全部涉及项目），逐项目 upsert calibration_submission，重复提交更新 submitted_at（幂等）。
+    //   提交后重置本 PD 名下项目的 RETURNED 确认行为 PENDING，并派生刷新周期级 calibration_submitted_at
     @Transactional
     public AssessmentPeriod submitCalibration(String periodId) {
         AssessmentPeriod period = requirePeriod(periodId);
         if (!CALIBRATING.equals(period.getStatus())) {
             throw new BusinessException(400, "仅校准中的周期可提交校准");
         }
-        if (period.getCalibrationSubmittedAt() == null) {
-            period.setCalibrationSubmittedAt(LocalDateTime.now());
-            period.setUpdatedAt(LocalDateTime.now());
-            periodMapper.updateById(period);
+        Set<String> targetKeys = targetProjectKeys(periodId);
+        String operatorId = currentEmployeeId();
+        LocalDateTime now = LocalDateTime.now();
+        for (String key : targetKeys) {
+            upsertSubmission(periodId, key, operatorId, now);
         }
-        resetReturnedToPending(periodId);
+        // 重新提交时 RETURNED→PENDING：仅作用于本 PD 名下项目（跨 PD 互不影响）
+        resetReturnedToPending(periodId, targetKeys);
+        refreshCalibrationSubmittedAt(periodId);
         return periodMapper.selectById(periodId);
     }
 
+    // 功能：总裁退回某项目后清空该项目的校准提交记录（unsubmit），并派生刷新周期级提交时间戳——
+    //   只影响被退回项目，其它 PD 的已提交记录不受影响（项目级粒度）
+    @Transactional
+    public void clearProjectSubmission(String periodId, String projectCode) {
+        calibrationSubmissionMapper.update(null, new LambdaUpdateWrapper<CalibrationSubmission>()
+                .eq(CalibrationSubmission::getPeriodId, periodId)
+                .eq(CalibrationSubmission::getProjectCode, projectCode)
+                .set(CalibrationSubmission::getSubmittedAt, null)
+                .set(CalibrationSubmission::getSubmittedByEmployeeId, null));
+        refreshCalibrationSubmittedAt(periodId);
+    }
+
+    // 功能：确定本次提交的目标 (code|stage) 项目键——PD 只提交自己主 PD 负责且本周期涉及的项目；
+    //   ADMIN 提交全部涉及项目；未登录/未绑定员工时提交空集（无可提交项目）
+    private Set<String> targetProjectKeys(String periodId) {
+        if (hasRole("ADMIN")) {
+            return involvedProjectKeys(periodId);
+        }
+        String employeeId = currentEmployeeId();
+        if (employeeId == null) {
+            return Set.of();
+        }
+        Set<String> involved = involvedProjectKeys(periodId);
+        return ownedPdProjectKeys(employeeId).stream()
+                .filter(involved::contains)
+                .collect(Collectors.toSet());
+    }
+
+    // 功能：逐项目 upsert 校准提交记录——已存在则更新 submitted_at（幂等重复提交），不存在则插入
+    private void upsertSubmission(String periodId, String key, String operatorId, LocalDateTime now) {
+        int sep = key.indexOf('|');
+        String code = sep >= 0 ? key.substring(0, sep) : key;
+        String stage = sep >= 0 ? key.substring(sep + 1) : "";
+        CalibrationSubmission existing = calibrationSubmissionMapper.selectOne(
+                new LambdaQueryWrapper<CalibrationSubmission>()
+                        .eq(CalibrationSubmission::getPeriodId, periodId)
+                        .eq(CalibrationSubmission::getProjectCode, code)
+                        .eq(CalibrationSubmission::getProjectStage, stage));
+        if (existing != null) {
+            existing.setSubmittedByEmployeeId(operatorId);
+            existing.setSubmittedAt(now);
+            existing.setUpdatedAt(now);
+            calibrationSubmissionMapper.updateById(existing);
+        } else {
+            CalibrationSubmission submission = new CalibrationSubmission();
+            submission.setPeriodId(periodId);
+            submission.setProjectCode(code);
+            submission.setProjectStage(stage);
+            submission.setSubmittedByEmployeeId(operatorId);
+            submission.setSubmittedAt(now);
+            submission.setCreatedAt(now);
+            submission.setUpdatedAt(now);
+            calibrationSubmissionMapper.insert(submission);
+        }
+    }
+
+    // 功能：派生刷新周期级校准提交时间戳——本周期所有涉及项目均已提交时置非空，否则置 NULL
+    private void refreshCalibrationSubmittedAt(String periodId) {
+        Set<String> involved = involvedProjectKeys(periodId);
+        boolean allSubmitted = !involved.isEmpty()
+                && submittedProjectKeys(periodId).containsAll(involved);
+        AssessmentPeriod period = periodMapper.selectById(periodId);
+        boolean flagSet = period.getCalibrationSubmittedAt() != null;
+        if (allSubmitted && !flagSet) {
+            periodMapper.update(null, new LambdaUpdateWrapper<AssessmentPeriod>()
+                    .eq(AssessmentPeriod::getPeriodId, periodId)
+                    .set(AssessmentPeriod::getCalibrationSubmittedAt, LocalDateTime.now()));
+        } else if (!allSubmitted && flagSet) {
+            periodMapper.update(null, new LambdaUpdateWrapper<AssessmentPeriod>()
+                    .eq(AssessmentPeriod::getPeriodId, periodId)
+                    .set(AssessmentPeriod::getCalibrationSubmittedAt, null));
+        }
+    }
+
     // 功能：重新提交时 RETURNED→PENDING——清除退回原因，保留退回计数（与 PresidentService.resubmit 同语义，
-    //   但作用于周期内全部退回行，配合周期级「提交校准」按钮完成「退回→重校准→再提交→再确认」闭环）
-    private void resetReturnedToPending(String periodId) {
+    //   但仅作用于本次提交的目标项目，跨 PD 互不影响）
+    private void resetReturnedToPending(String periodId, Set<String> targetKeys) {
+        if (targetKeys.isEmpty()) {
+            return;
+        }
+        List<String> codes = targetKeys.stream()
+                .map(this::codeFromKey)
+                .filter(StringUtils::hasText)
+                .distinct()
+                .toList();
         List<ProjectConfirmation> returned = projectConfirmationMapper.selectList(
                 new LambdaQueryWrapper<ProjectConfirmation>()
                         .eq(ProjectConfirmation::getPeriodId, periodId)
+                        .in(ProjectConfirmation::getProjectCode, codes)
                         .eq(ProjectConfirmation::getStatus, "RETURNED"));
         for (ProjectConfirmation c : returned) {
             c.setStatus("PENDING");
@@ -204,6 +300,84 @@ public class PeriodService {
             c.setUpdatedAt(LocalDateTime.now());
             projectConfirmationMapper.updateById(c);
         }
+    }
+
+    // 功能：本周期涉及的 (code|stage) 项目键——来自 SUBMITTED PROJECT 任务（与校准矩阵分组同源）
+    private Set<String> involvedProjectKeys(String periodId) {
+        return taskMapper.selectList(new LambdaQueryWrapper<AssessmentTask>()
+                        .eq(AssessmentTask::getPeriodId, periodId)
+                        .eq(AssessmentTask::getTaskType, "PROJECT")
+                        .eq(AssessmentTask::getStatus, "SUBMITTED")
+                        .isNotNull(AssessmentTask::getProjectCode)
+                        .ne(AssessmentTask::getProjectCode, ""))
+                .stream()
+                .map(this::taskKey)
+                .collect(Collectors.toSet());
+    }
+
+    // 功能：本周期已提交的 (code|stage) 项目键——来自 calibration_submission（submitted_at 非空）
+    private Set<String> submittedProjectKeys(String periodId) {
+        return calibrationSubmissionMapper.selectList(new LambdaQueryWrapper<CalibrationSubmission>()
+                        .eq(CalibrationSubmission::getPeriodId, periodId)
+                        .isNotNull(CalibrationSubmission::getSubmittedAt))
+                .stream()
+                .map(this::submissionKey)
+                .collect(Collectors.toSet());
+    }
+
+    // 功能：任务 → (code|stage) 复合键
+    private String taskKey(AssessmentTask task) {
+        return (task.getProjectCode() == null ? "" : task.getProjectCode())
+                + "|" + (task.getProjectStage() == null ? "" : task.getProjectStage());
+    }
+
+    // 功能：校准提交记录 → (code|stage) 复合键
+    private String submissionKey(CalibrationSubmission s) {
+        return (s.getProjectCode() == null ? "" : s.getProjectCode())
+                + "|" + (s.getProjectStage() == null ? "" : s.getProjectStage());
+    }
+
+    // 功能：从 (code|stage) 复合键反解 projectCode
+    private String codeFromKey(String key) {
+        if (key == null) {
+            return null;
+        }
+        int sep = key.indexOf('|');
+        return sep >= 0 ? key.substring(0, sep) : key;
+    }
+
+    // 功能：反查当前用户主 PD 负责的 (code|stage) 项目键集合——project_role_assignment（PD 且 is_primary 且未删除）
+    private Set<String> ownedPdProjectKeys(String employeeId) {
+        return roleAssignmentMapper.selectList(new LambdaQueryWrapper<ProjectRoleAssignment>()
+                        .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
+                        .eq(ProjectRoleAssignment::getProjectRoleCode, ROLE_PD)
+                        .eq(ProjectRoleAssignment::getIsPrimary, true)
+                        .eq(ProjectRoleAssignment::getDeleted, 0))
+                .stream()
+                .map(a -> (a.getProjectCode() == null ? "" : a.getProjectCode())
+                        + "|" + (a.getProjectStage() == null ? "" : a.getProjectStage()))
+                .collect(Collectors.toSet());
+    }
+
+    // 功能：判断当前用户是否具有指定角色——检查权限列表中是否含 ROLE_<role>
+    private boolean hasRole(String role) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_" + role));
+    }
+
+    // 功能：从 SecurityContext 用户名反查当前用户 employeeId，未登录/未绑定返回 null
+    private String currentEmployeeId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return null;
+        }
+        SysUser user = sysUserMapper.selectOne(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getUsername, auth.getName()));
+        return user != null ? user.getEmployeeId() : null;
     }
 
     // 功能：结果可见性——仅 PUBLISHED（已发布）或 COMPLETED（已归档）时员工可查看最终结果；CONFIRMED 待发布不可见
@@ -226,12 +400,12 @@ public class PeriodService {
 
     // 功能：进入校准时生成项目确认行——按「项目 × 员工」逐人插 PENDING：
     //   员工来源 = assessment_result（本周期已生成结果的 distinct assessee_id），
-    //   项目归属 = 该员工首个 PROJECT 任务的 project_code；未分配主总裁的项目另写 NO_PRESIDENT 差异
+    //   项目归属 = 该员工全部 SUBMITTED PROJECT 任务的 distinct project_code（多项目员工逐项目生成确认行，
+    //   与校准矩阵「project:code|stage」分组口径一致，避免 minBy(id) 丢项目）；未分配主总裁的项目另写 NO_PRESIDENT 差异
     private void generateProjectConfirmations(String periodId) {
-        // 员工 → 项目 映射：取员工「id 最小」的 SUBMITTED PROJECT 任务的 project_code，
-        //   与 CalibrationService.resolveGroup 的分组口径一致（此前无 SUBMITTED 过滤且任意取首，
-        //   多项目/半提交员工可能生成与校准矩阵不一致的 project_code，导致确认状态回填落空）
-        Map<String, String> projectByAssessee = taskMapper.selectList(
+        // 员工 → 项目集合 映射：取员工全部 SUBMITTED PROJECT 任务的 distinct project_code，
+        //   与校准矩阵分组口径一致（此前取 minBy(id) 单一 code，多项目员工丢项目，导致确认状态回填落空）
+        Map<String, Set<String>> projectByAssessee = taskMapper.selectList(
                         new LambdaQueryWrapper<AssessmentTask>()
                                 .eq(AssessmentTask::getPeriodId, periodId)
                                 .eq(AssessmentTask::getTaskType, "PROJECT")
@@ -241,9 +415,8 @@ public class PeriodService {
                 .stream()
                 .collect(Collectors.groupingBy(
                         AssessmentTask::getAssesseeId,
-                        Collectors.collectingAndThen(
-                                Collectors.minBy(Comparator.comparing(AssessmentTask::getId)),
-                                opt -> opt.map(AssessmentTask::getProjectCode).orElse(null))));
+                        Collectors.mapping(AssessmentTask::getProjectCode,
+                                Collectors.toCollection(LinkedHashSet::new))));
 
         // 已生成结果（全部 SUBMITTED）的员工 = 需总裁逐人确认的人员
         List<String> assesseeIds = assessmentResultMapper.selectList(
@@ -254,29 +427,31 @@ public class PeriodService {
                 .distinct()
                 .toList();
 
-        // 逐人插入 PENDING 确认行（幂等：已存在 (period, project, assessee) 行则跳过）
+        // 逐人逐项目插入 PENDING 确认行（幂等：已存在 (period, project, assessee) 行则跳过）
         for (String assesseeId : assesseeIds) {
-            String projectCode = projectByAssessee.get(assesseeId);
-            if (!StringUtils.hasText(projectCode)) {
+            Set<String> projectCodes = projectByAssessee.get(assesseeId);
+            if (projectCodes == null || projectCodes.isEmpty()) {
                 continue; // 纯职能员工无项目，不参与项目确认
             }
-            Long existing = projectConfirmationMapper.selectCount(
-                    new LambdaQueryWrapper<ProjectConfirmation>()
-                            .eq(ProjectConfirmation::getPeriodId, periodId)
-                            .eq(ProjectConfirmation::getProjectCode, projectCode)
-                            .eq(ProjectConfirmation::getAssesseeId, assesseeId));
-            if (existing != null && existing > 0) {
-                continue;
+            for (String projectCode : projectCodes) {
+                Long existing = projectConfirmationMapper.selectCount(
+                        new LambdaQueryWrapper<ProjectConfirmation>()
+                                .eq(ProjectConfirmation::getPeriodId, periodId)
+                                .eq(ProjectConfirmation::getProjectCode, projectCode)
+                                .eq(ProjectConfirmation::getAssesseeId, assesseeId));
+                if (existing != null && existing > 0) {
+                    continue;
+                }
+                ProjectConfirmation confirmation = new ProjectConfirmation();
+                confirmation.setPeriodId(periodId);
+                confirmation.setProjectCode(projectCode);
+                confirmation.setAssesseeId(assesseeId);
+                confirmation.setStatus("PENDING");
+                confirmation.setReturnCount(0);
+                confirmation.setCreatedAt(LocalDateTime.now());
+                confirmation.setUpdatedAt(LocalDateTime.now());
+                projectConfirmationMapper.insert(confirmation);
             }
-            ProjectConfirmation confirmation = new ProjectConfirmation();
-            confirmation.setPeriodId(periodId);
-            confirmation.setProjectCode(projectCode);
-            confirmation.setAssesseeId(assesseeId);
-            confirmation.setStatus("PENDING");
-            confirmation.setReturnCount(0);
-            confirmation.setCreatedAt(LocalDateTime.now());
-            confirmation.setUpdatedAt(LocalDateTime.now());
-            projectConfirmationMapper.insert(confirmation);
         }
 
         // 未分配主总裁的项目写 NO_PRESIDENT 差异（按项目去重，保留配置完整性告警语义）

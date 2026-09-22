@@ -167,9 +167,14 @@ function PresidentConfirmPage() {
     }
   };
 
+  // 功能：评分明细过滤——groupKey 现为 project:<code>|<stage>，按项目编码前缀匹配，覆盖该项目所有阶段
   const detailRows = useMemo(() => {
     if (!matrix || !detail) return [];
-    return (matrix.rows || []).filter((r) => r.groupKey === 'project:' + detail.projectCode);
+    return (matrix.rows || []).filter((r) => {
+      const key = r.groupKey || '';
+      return key === 'project:' + detail.projectCode
+        || key.startsWith('project:' + detail.projectCode + '|');
+    });
   }, [matrix, detail]);
 
   const detailColumns = [
@@ -179,6 +184,28 @@ function PresidentConfirmPage() {
     { title: '离群', dataIndex: 'outlier', key: 'outlier', width: 90,
       render: (o, r) => (o ? <Tag color="red">{r.direction === 'HIGH' ? '偏高' : '偏低'}</Tag> : '-') },
   ];
+
+  // 功能：逐 KPI 只读明细——与 PD 校准抽屉同一份 kpis，总裁侧只读展示（指标名称/权重/得分/评估人/证据）
+  const kpiDetailColumns = [
+    { title: '指标名称', dataIndex: 'indicatorName', key: 'indicatorName', width: 160 },
+    { title: '权重', dataIndex: 'weight', key: 'weight', width: 90, render: (v) => (v != null ? `${Math.round(v * 100)}%` : '-') },
+    { title: '得分', dataIndex: 'score', key: 'score', width: 90, align: 'center', render: (v) => (v != null ? v : '-') },
+    { title: '评估人', dataIndex: 'assessorName', key: 'assessorName', width: 110, render: (v) => v || '-' },
+    { title: '证据', dataIndex: 'evidenceUrl', key: 'evidenceUrl', width: 140, render: (v) => v || '-' },
+  ];
+
+  // 功能：明细行展开渲染——展开员工行即展示该任务的逐 KPI 只读明细
+  const expandedRowRender = (row) => (
+    <Table
+      columns={kpiDetailColumns}
+      dataSource={row.kpis || []}
+      rowKey="kpiConfigId"
+      size="small"
+      pagination={false}
+      scroll={{ x: 600 }}
+      locale={{ emptyText: '该任务无 KPI 指标' }}
+    />
+  );
 
   const columns = [
     { title: '周期', dataIndex: 'periodName', key: 'periodName', width: 150, render: (v) => v || '-' },
@@ -338,9 +365,10 @@ function PresidentConfirmPage() {
           <Table
             columns={detailColumns}
             dataSource={detailRows}
-            rowKey="assesseeId"
+            rowKey={(r) => `${r.groupKey}::${r.assesseeId}`}
             size="small"
             pagination={false}
+            expandable={{ expandedRowRender }}
             locale={{ emptyText: '该项目暂无评分明细' }}
           />
         </Spin>

@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Card, Button, Tag, Space, Modal, Form, Input, DatePicker, message, Row, Col, Spin, Result, Select,
+  Card, Button, Tag, Space, Modal, Form, Input, DatePicker, message, Row, Col, Spin, Result, Select, Table,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, CalendarOutlined, LockOutlined, PlayCircleOutlined, BarChartOutlined,
@@ -25,6 +25,13 @@ const STATUS_CONFIG = {
   COMPLETED:   { color: 'success', label: '已完成' },
 };
 
+const DISCREPANCY_TYPE_LABEL = {
+  NO_POSITION_CONFIG: '缺岗位配置',
+  NO_ASSESSOR: '缺考核人',
+  NO_LEADER: '缺直属上级',
+  NO_PRIMARY_ASSESSOR: '角色未标主',
+};
+
 function PeriodConfigPage() {
   const navigate = useNavigate();
   const [periods, setPeriods] = useState([]);
@@ -37,6 +44,8 @@ function PeriodConfigPage() {
   const [form] = Form.useForm();
   const mountedRef = useRef(true);
   const [userRoles, setUserRoles] = useState([]);
+  const [launchPreview, setLaunchPreview] = useState(null);
+  const [launching, setLaunching] = useState(false);
 
   const hasActivePeriod = periods.some((p) => p.status !== 'COMPLETED');
   const isAdmin = userRoles.includes('ROLE_ADMIN');
@@ -124,25 +133,42 @@ function PeriodConfigPage() {
     }
   };
 
-  const handleLaunch = (period) => {
-    showConfirm({
-      title: `确定要发起考核"${period.periodName}"吗？`,
-      content: '发起后将自动为所有员工生成考核任务，周期状态变为"进行中"。',
-      okText: '确认发起',
-      onOk: async () => {
-        try {
-          const res = await client.post(`/tasks/${period.periodId}/launch`);
-          const result = res.data || {};
-          const taskCount = result.taskCount ?? 0;
-          const discrepancyCount = result.discrepancyCount ?? 0;
-          const extra = discrepancyCount > 0 ? `，${discrepancyCount} 条差异待处理` : '';
-          message.success({ content: `考核已发起，共生成 ${taskCount} 个考核任务${extra}`, duration: 4 });
-          fetchPeriods();
-        } catch (err) {
-          message.error({ content: err?.message || '发起失败' });
-        }
-      },
-    });
+  // 功能：发起考核两步——先调 launch-preview 预检展示差异清单，处理完差异后点「确认发起」才真正 launch
+  const handleLaunch = async (period) => {
+    setLaunchPreview({ period, loading: true, taskCount: 0, discrepancies: [] });
+    try {
+      const res = await client.get(`/tasks/${period.periodId}/launch-preview`);
+      const data = res.data || {};
+      setLaunchPreview({
+        period,
+        loading: false,
+        taskCount: data.taskCount ?? 0,
+        discrepancies: data.discrepancies || [],
+      });
+    } catch (err) {
+      setLaunchPreview({ period, loading: false, error: err?.message || '预检失败', taskCount: 0, discrepancies: [] });
+    }
+  };
+
+  // 功能：确认发起——预检无差异后允许点击，正式调用 launch
+  const handleConfirmLaunch = async () => {
+    const period = launchPreview?.period;
+    if (!period) return;
+    setLaunching(true);
+    try {
+      const res = await client.post(`/tasks/${period.periodId}/launch`);
+      const result = res.data || {};
+      const taskCount = result.taskCount ?? 0;
+      const discrepancyCount = result.discrepancyCount ?? 0;
+      const extra = discrepancyCount > 0 ? `，${discrepancyCount} 条差异待处理` : '';
+      message.success({ content: `考核已发起，共生成 ${taskCount} 个考核任务${extra}`, duration: 4 });
+      setLaunchPreview(null);
+      fetchPeriods();
+    } catch (err) {
+      message.error({ content: err?.message || '发起失败' });
+    } finally {
+      setLaunching(false);
+    }
   };
 
   const handleClose = (period) => {
@@ -437,6 +463,57 @@ function PeriodConfigPage() {
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 功能：发起考核预检弹窗——展示将生成的差异清单，有差异时禁用「确认发起」 */}
+      <Modal
+        title={launchPreview?.loading ? '发起考核预检中…' : `发起考核预检 — ${launchPreview?.period?.periodName || ''}`}
+        open={!!launchPreview}
+        onCancel={() => setLaunchPreview(null)}
+        footer={[
+          <Button key="cancel" onClick={() => setLaunchPreview(null)}>取消</Button>,
+          <Button
+            key="confirm"
+            type="primary"
+            loading={launching}
+            disabled={launchPreview?.loading || !!launchPreview?.error || (launchPreview?.discrepancies?.length || 0) > 0}
+            onClick={handleConfirmLaunch}
+          >
+            确认发起
+          </Button>,
+        ]}
+        width={640}
+      >
+        {launchPreview?.loading ? (
+          <div style={{ textAlign: 'center', padding: 24 }}>正在检测差异…</div>
+        ) : launchPreview?.error ? (
+          <div style={{ color: '#FF4D4F' }}>{launchPreview.error}</div>
+        ) : (
+          <div>
+            <p style={{ marginBottom: 12 }}>预检完成：将生成 <strong>{launchPreview?.taskCount ?? 0}</strong> 个考核任务。</p>
+            {(launchPreview?.discrepancies?.length || 0) > 0 ? (
+              <>
+                <p style={{ color: '#FAAD14', marginBottom: 8 }}>
+                  检测到 {launchPreview.discrepancies.length} 条差异，请先到「差异报告」处理完后再发起。
+                </p>
+                <Table
+                  size="small"
+                  rowKey={(_, i) => i}
+                  dataSource={launchPreview.discrepancies}
+                  pagination={false}
+                  columns={[
+                    { title: '员工', dataIndex: 'employeeName', width: 90 },
+                    { title: '类型', dataIndex: 'type', width: 130, render: (v) => DISCREPANCY_TYPE_LABEL[v] || v },
+                    { title: '项目/阶段', width: 120, render: (_, r) => `${r.projectCode || '-'} / ${r.projectStage || '-'}` },
+                    { title: '详情', dataIndex: 'detail' },
+                  ]}
+                />
+              </>
+            ) : (
+              <p style={{ color: '#52C41A' }}>未检测到差异，可发起考核。</p>
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );

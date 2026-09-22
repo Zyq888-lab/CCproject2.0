@@ -1,11 +1,11 @@
-{/* 模块用途：CalibrationMatrixPage——PD 校准矩阵页，分布汇总带 + 离群优先排序 + 行内改分（D11） */}
-{/* 依赖组件：PageHeader, EmptyState, client.js, Ant Design Table/InputNumber/Select/Switch/Tag/Alert */}
-{/* 修改注意：离群按原始分偏离组均值 ±1σ；改分对象为 composite 总分（0-5，两位小数），
-    每次行内保存写 adjusted_score + 审计；409 冲突 toast 后刷新 */}
+{/* 模块用途：CalibrationMatrixPage——PD 校准矩阵页，分布汇总带 + 离群优先排序 + 逐 KPI 明细改分 */}
+{/* 依赖组件：PageHeader, EmptyState, client.js, Ant Design Table/InputNumber/Select/Switch/Tag/Alert/Drawer */}
+{/* 修改注意：每行原始/调整后总分取「项目任务小计」（后端按归一化权重重算）；改分入口改为打开
+    逐 KPI 明细抽屉，PD 改单项后重算该项目任务小计；409 冲突 toast 后刷新 */}
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Table, Tag, Switch, Space, Button, InputNumber, Select, Spin, Result, Alert, message, Modal,
+  Card, Table, Tag, Switch, Space, Button, InputNumber, Select, Spin, Result, Alert, message, Modal, Drawer,
 } from 'antd';
 import {
   ArrowLeftOutlined, EditOutlined, FundViewOutlined, RiseOutlined, FallOutlined, SendOutlined, CheckCircleOutlined,
@@ -26,6 +26,9 @@ const REASON_OPTIONS = [
 // 功能：分数格式化——0-5 分制两位小数
 const fmt = (v) => (v != null ? Number(v).toFixed(2) : '-');
 
+// 功能：行唯一标识——多项目员工同一 assesseeId 有多行，用 groupKey 区分
+const rowId = (r) => `${r.groupKey}::${r.assesseeId}`;
+
 function CalibrationMatrixPage() {
   const { periodId } = useParams();
   const navigate = useNavigate();
@@ -33,18 +36,19 @@ function CalibrationMatrixPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [onlyOutliers, setOnlyOutliers] = useState(false);
-  const [editingKey, setEditingKey] = useState(null);
-  const [editScore, setEditScore] = useState(null);
-  const [editReason, setEditReason] = useState(null);
-  const [saving, setSaving] = useState(false);
   const [userRoles, setUserRoles] = useState([]);
   const [submitVisible, setSubmitVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const mountedRef = useRef(true);
 
+  // 逐 KPI 明细抽屉状态
+  const [detailRow, setDetailRow] = useState(null);
+  const [kpiEdits, setKpiEdits] = useState({});   // { [kpiConfigId]: { score, reason } }
+  const [kpiSaving, setKpiSaving] = useState(null); // 正在保存的 kpiConfigId
+
   const isPd = userRoles.includes('ROLE_PD');
-  // 是否已提交校准——由周期 calibrationSubmittedAt 推导（NULL=尚未提交）
-  const submitted = !!data?.calibrationSubmittedAt;
+  // 是否已提交校准——项目级粒度：后端返回「当前 PD 名下项目是否全部已提交」布尔值
+  const submitted = !!data?.submitted;
   // 总裁是否退回过（存在 RETURNED 确认行）——退回后需 PD 重新提交，按钮据此放开（问题2）
   const hasReturned = !!data?.hasReturned;
   // 提交按钮可见：尚未提交，或已提交但总裁退回需重新提交
@@ -93,43 +97,71 @@ function CalibrationMatrixPage() {
     }
   };
 
-  // 功能：进入行内编辑——预填当前调整分
-  const startEdit = (row) => {
-    setEditingKey(row.assesseeId);
-    setEditScore(row.adjustedScore != null ? Number(row.adjustedScore) : null);
-    setEditReason(null);
+  // 功能：打开逐 KPI 明细抽屉——初始化各指标编辑态（得分取有效分、原因置空）
+  const openDetail = (row) => {
+    setDetailRow(row);
+    const edits = {};
+    (row.kpis || []).forEach((k) => {
+      edits[k.kpiConfigId] = { score: k.score != null ? Number(k.score) : null, reason: null };
+    });
+    setKpiEdits(edits);
   };
 
-  // 功能：保存改分——PUT adjust，409 冲突 toast 后刷新
-  const saveEdit = async (row) => {
-    if (editScore == null || editScore < 0 || editScore > 5) {
+  const closeDetail = () => {
+    setDetailRow(null);
+    setKpiEdits({});
+    setKpiSaving(null);
+  };
+
+  const updateKpiEdit = (kpiConfigId, patch) => {
+    setKpiEdits((prev) => ({ ...prev, [kpiConfigId]: { ...(prev[kpiConfigId] || {}), ...patch } }));
+  };
+
+  // 功能：保存单项改分——PUT adjust-kpi，返回重算后的项目任务小计，本地更新该行调整后总分
+  const saveKpi = async (kpi) => {
+    const edit = kpiEdits[kpi.kpiConfigId];
+    if (edit == null || edit.score == null || edit.score < 0 || edit.score > 5) {
       message.warning({ content: '请输入 0-5 之间的分数' });
       return;
     }
-    if (!editReason) {
+    if (!edit.reason) {
       message.warning({ content: '请选择改分原因' });
       return;
     }
-    setSaving(true);
+    setKpiSaving(kpi.kpiConfigId);
     try {
-      await client.put(`/periods/${periodId}/calibration/adjust`, {
-        assesseeId: row.assesseeId,
-        newScore: editScore,
-        reason: editReason,
+      const res = await client.put(`/periods/${periodId}/calibration/adjust-kpi`, {
+        taskId: detailRow.taskId,
+        kpiConfigId: kpi.kpiConfigId,
+        newScore: edit.score,
+        reason: edit.reason,
       });
-      message.success({ content: '改分已保存', duration: 2 });
-      setEditingKey(null);
-      fetchData();
+      message.success({ content: '单项改分已保存', duration: 2 });
+      const adjustedSubtotal = res?.data?.adjustedSubtotal;
+      const newScoreVal = edit.score;
+      // 同步更新矩阵行与抽屉行的调整后小计 + 该指标有效分
+      const patchRow = (r) => (rowId(r) === rowId(detailRow)
+        ? {
+            ...r,
+            adjustedScore: adjustedSubtotal ?? r.adjustedScore,
+            adjusted: true,
+            kpis: (r.kpis || []).map((k) => (k.kpiConfigId === kpi.kpiConfigId
+              ? { ...k, score: newScoreVal, calibratedScore: newScoreVal }
+              : k)),
+          }
+        : r);
+      setData((prev) => (prev ? { ...prev, rows: (prev.rows || []).map(patchRow) } : prev));
+      setDetailRow((prev) => (prev ? patchRow(prev) : prev));
     } catch (err) {
       if (err?.code === 409) {
-        message.error({ content: '该行已被他人修改，已刷新', duration: 3 });
-        setEditingKey(null);
+        message.error({ content: '该指标已被他人修改，已刷新', duration: 3 });
         fetchData();
+        closeDetail();
       } else {
         message.error({ content: err?.message || '保存失败' });
       }
     } finally {
-      setSaving(false);
+      setKpiSaving(null);
     }
   };
 
@@ -159,31 +191,8 @@ function CalibrationMatrixPage() {
     );
   };
 
-  // 功能：调整后总分单元格——编辑态显示 InputNumber + 原因下拉，否则显示分值 + 原分 ghost 差额
+  // 功能：调整后总分单元格——只读展示（改分已移至逐 KPI 明细抽屉），附原分 ghost 差额
   const renderAdjusted = (_, row) => {
-    if (editingKey === row.assesseeId) {
-      return (
-        <Space direction="vertical" size={4} style={{ width: '100%' }}>
-          <InputNumber
-            min={0}
-            max={5}
-            step={0.01}
-            precision={2}
-            value={editScore}
-            onChange={setEditScore}
-            style={{ width: 100 }}
-            placeholder="0-5"
-          />
-          <Select
-            placeholder="选择改分原因"
-            value={editReason || undefined}
-            onChange={setEditReason}
-            style={{ width: 200 }}
-            options={REASON_OPTIONS.map((r) => ({ value: r, label: r }))}
-          />
-        </Space>
-      );
-    }
     const delta = row.adjusted
       ? Number(row.adjustedScore) - Number(row.originalScore)
       : 0;
@@ -204,6 +213,57 @@ function CalibrationMatrixPage() {
     );
   };
 
+  // 功能：逐 KPI 明细列——指标名称/权重/原始分/校准后得分/评估人/证据/原因/保存
+  const kpiColumns = [
+    { title: '指标名称', dataIndex: 'indicatorName', key: 'indicatorName', width: 150 },
+    { title: '权重', dataIndex: 'weight', key: 'weight', width: 80,
+      render: (v) => (v != null ? `${Math.round(v * 100)}%` : '-') },
+    { title: '原始分', dataIndex: 'originalScore', key: 'originalScore', width: 80, align: 'center',
+      render: (v) => (v != null ? v : '-') },
+    { title: '校准后得分', dataIndex: 'score', key: 'score', width: 130,
+      render: (v, kpi) => {
+        const edit = kpiEdits[kpi.kpiConfigId];
+        return (
+          <InputNumber
+            min={0}
+            max={5}
+            step={0.1}
+            precision={1}
+            value={edit?.score != null ? edit.score : (v != null ? Number(v) : null)}
+            onChange={(val) => updateKpiEdit(kpi.kpiConfigId, { score: val })}
+            style={{ width: 90 }}
+            placeholder="0-5"
+          />
+        );
+      } },
+    { title: '评估人', dataIndex: 'assessorName', key: 'assessorName', width: 90, render: (v) => v || '-' },
+    { title: '证据', dataIndex: 'evidenceUrl', key: 'evidenceUrl', width: 120, render: (v) => v || '-' },
+    { title: '原因', key: 'reason', width: 170,
+      render: (_, kpi) => {
+        const edit = kpiEdits[kpi.kpiConfigId];
+        return (
+          <Select
+            placeholder="选择改分原因"
+            value={edit?.reason || undefined}
+            onChange={(val) => updateKpiEdit(kpi.kpiConfigId, { reason: val })}
+            style={{ width: 150 }}
+            options={REASON_OPTIONS.map((r) => ({ value: r, label: r }))}
+          />
+        );
+      } },
+    { title: '操作', key: 'action', width: 90, align: 'center',
+      render: (_, kpi) => (
+        <Button
+          type="primary"
+          size="small"
+          loading={kpiSaving === kpi.kpiConfigId}
+          onClick={() => saveKpi(kpi)}
+        >
+          保存
+        </Button>
+      ) },
+  ];
+
   const columns = [
     { title: '员工', dataIndex: 'employeeName', key: 'employeeName', width: 130, fixed: 'left',
       render: (v, row) => (
@@ -216,7 +276,7 @@ function CalibrationMatrixPage() {
       render: (v) => v || '-' },
     { title: '原始总分', dataIndex: 'originalScore', key: 'originalScore', width: 100, align: 'center',
       render: (v) => fmt(v) },
-    { title: '调整后总分', dataIndex: 'adjustedScore', key: 'adjustedScore', width: 250,
+    { title: '调整后总分', dataIndex: 'adjustedScore', key: 'adjustedScore', width: 160,
       render: renderAdjusted },
     { title: '离群标记', dataIndex: 'outlier', key: 'outlier', width: 130, align: 'center',
       render: renderOutlier },
@@ -241,20 +301,12 @@ function CalibrationMatrixPage() {
         if (row.unsubmitted) {
           return <Tag color="default">未提交</Tag>;
         }
-        if (editingKey === row.assesseeId) {
-          return (
-            <Space size={4}>
-              <Button type="primary" size="small" loading={saving} onClick={() => saveEdit(row)}>保存</Button>
-              <Button size="small" onClick={() => setEditingKey(null)}>取消</Button>
-            </Space>
-          );
-        }
         // 总裁退回后仅被退回人员可重新改分，其余只读；未退回（初始校准/待确认）保持全员可编辑（问题2）
         const canEdit = !hasReturned || row.confirmationStatus === 'RETURNED';
         if (!canEdit) {
           return <span style={{ color: '#BFBFBF', fontSize: 13 }}>只读</span>;
         }
-        return <Button type="link" size="small" icon={<EditOutlined />} onClick={() => startEdit(row)}>改分</Button>;
+        return <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openDetail(row)}>改分</Button>;
       } },
   ];
 
@@ -356,7 +408,7 @@ function CalibrationMatrixPage() {
           <Table
             columns={columns}
             dataSource={tableRows}
-            rowKey={(r) => (r.unsubmitted ? `unsub-${r.assesseeId}` : r.assesseeId)}
+            rowKey={(r) => (r.unsubmitted ? `unsub-${r.assesseeId}` : rowId(r))}
             loading={loading}
             size="middle"
             pagination={false}
@@ -384,6 +436,28 @@ function CalibrationMatrixPage() {
           <p style={{ color: '#595959' }}>总裁确认前仍可继续改分，是否确认已完成校准并提交？</p>
         </div>
       </Modal>
+
+      {/* 功能：逐 KPI 明细抽屉——PD 改单项分并重算该项目任务小计 */}
+      <Drawer
+        title={`${detailRow?.employeeName || detailRow?.assesseeId || ''} · ${detailRow?.groupLabel || ''} · 逐 KPI 明细`}
+        open={!!detailRow}
+        onClose={closeDetail}
+        width={860}
+      >
+        <div style={{ marginBottom: 12, display: 'flex', gap: 24 }}>
+          <span>原始小计：<b>{fmt(detailRow?.originalScore)}</b></span>
+          <span>调整后小计：<b style={{ color: '#1890FF' }}>{fmt(detailRow?.adjustedScore)}</b></span>
+        </div>
+        <Table
+          size="small"
+          pagination={false}
+          rowKey="kpiConfigId"
+          dataSource={detailRow?.kpis || []}
+          columns={kpiColumns}
+          scroll={{ x: 940 }}
+          locale={{ emptyText: '该任务无 KPI 指标' }}
+        />
+      </Drawer>
     </div>
   );
 }

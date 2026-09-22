@@ -3,6 +3,7 @@
 // 修改注意：测试用 H2 内存库，每个用例独立，不依赖执行顺序；参与记录关联 project/employee/assessment_period 外键
 package com.jifeng.assessment.participation;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.common.PageQuery;
 import com.jifeng.assessment.common.PageResult;
@@ -351,6 +352,97 @@ class ParticipationServiceTest {
                 new PageQuery(), "PERIOD_ASSESS", null, null);
 
         assertTrue(result.getList().isEmpty(), "仅评估人角色的用户不应看到他人参与记录");
+    }
+
+    // 功能：同一员工同一周期同一项目不同阶段可分别提交参与（问题2——存在性校验按阶段区分）
+    @Test
+    void createShouldAllowSameProjectDifferentStages() {
+        seedRole("PM");
+        seedEmployee("EMP_STAGE_1");
+        seedUser("U_STAGE_1", "emp_stage_1", "EMP_STAGE_1");
+        seedProject("PRJ_S", "P2");
+        seedProject("PRJ_S", "P3");
+        seedPeriodWithStatus("PERIOD_STAGE_1", "INIT");
+        seedAssignment("PRJ_S", "P2", "PM", "EMP_STAGE_1", false);
+        seedAssignment("PRJ_S", "P3", "PM", "EMP_STAGE_1", false);
+
+        auth("emp_stage_1", "员工");
+
+        ProjectParticipationItem p2 = new ProjectParticipationItem();
+        p2.setProjectCode("PRJ_S");
+        p2.setProjectStage("P2");
+        p2.setParticipationRate(new BigDecimal("100"));
+        participationService.create(null, "PERIOD_STAGE_1", List.of(p2));
+
+        ProjectParticipationItem p3 = new ProjectParticipationItem();
+        p3.setProjectCode("PRJ_S");
+        p3.setProjectStage("P3");
+        p3.setParticipationRate(new BigDecimal("100"));
+        // 第二次 create 成功（关键回归：不再被误判为「同项目重复」而 409）
+        participationService.create(null, "PERIOD_STAGE_1", List.of(p3));
+
+        // 同 (员工,周期,项目) 下两条不同阶段记录并存
+        List<EmployeeProjectParticipation> all = participationMapper.selectList(
+                new LambdaQueryWrapper<EmployeeProjectParticipation>()
+                        .eq(EmployeeProjectParticipation::getEmployeeId, "EMP_STAGE_1")
+                        .eq(EmployeeProjectParticipation::getPeriodId, "PERIOD_STAGE_1")
+                        .eq(EmployeeProjectParticipation::getProjectCode, "PRJ_S"));
+        assertEquals(2, all.size());
+        assertEquals(List.of("P2", "P3"),
+                all.stream().map(EmployeeProjectParticipation::getProjectStage).sorted().toList());
+    }
+
+    // 功能：同一员工同一周期同一项目同一阶段重复提交被拒（问题2——同阶段仍按唯一约束拦截）
+    @Test
+    void createShouldRejectSameProjectSameStage() {
+        seedRole("PM");
+        seedEmployee("EMP_STAGE_2");
+        seedUser("U_STAGE_2", "emp_stage_2", "EMP_STAGE_2");
+        seedProject("PRJ_S2", "P2");
+        seedPeriodWithStatus("PERIOD_STAGE_2", "INIT");
+        seedAssignment("PRJ_S2", "P2", "PM", "EMP_STAGE_2", false);
+
+        auth("emp_stage_2", "员工");
+
+        ProjectParticipationItem item = new ProjectParticipationItem();
+        item.setProjectCode("PRJ_S2");
+        item.setProjectStage("P2");
+        item.setParticipationRate(new BigDecimal("100"));
+        participationService.create(null, "PERIOD_STAGE_2", List.of(item));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> participationService.create(null, "PERIOD_STAGE_2", List.of(item)));
+        assertEquals(409, ex.getCode());
+        assertTrue(ex.getMessage().contains("已存在"));
+    }
+
+    // 功能：主 PM 的待审批列表只含本人主负责项目的参与记录——PM-A 主负责 PRJ_A，不应看到 PM-B 主负责 PRJ_B 的参与记录
+    @Test
+    void pendingListShouldExcludeOtherPmsProject() {
+        seedRole("PM");
+        seedEmployee("EMP_PM_A");
+        seedEmployee("EMP_PM_B");
+        seedEmployee("EMP_PART_A");
+        seedEmployee("EMP_PART_B");
+        seedUser("U_PM_A", "pm_a", "EMP_PM_A");
+        seedUser("U_PM_B", "pm_b", "EMP_PM_B");
+        seedProject("PRJ_A", "P2");
+        seedProject("PRJ_B", "P2");
+        seedPeriod("PERIOD_PM_FILTER");
+        seedAssignment("PRJ_A", "P2", "PM", "EMP_PM_A", true);
+        seedAssignment("PRJ_B", "P2", "PM", "EMP_PM_B", true);
+        seedParticipation("EMP_PART_A", "PERIOD_PM_FILTER", "PRJ_A", "P2");
+        seedParticipation("EMP_PART_B", "PERIOD_PM_FILTER", "PRJ_B", "P2");
+
+        auth("pm_a", "PM");
+
+        PageResult<EmployeeProjectParticipation> result = participationService.listParticipations(
+                new PageQuery(), "PERIOD_PM_FILTER", "PENDING", null);
+
+        List<String> codes = result.getList().stream()
+                .map(EmployeeProjectParticipation::getProjectCode).toList();
+        assertTrue(codes.contains("PRJ_A"), "PM-A 待审批列表应含自己主负责项目 PRJ_A 的参与记录");
+        assertFalse(codes.contains("PRJ_B"), "PM-A 待审批列表不应含 PM-B 主负责项目 PRJ_B 的参与记录");
     }
 
     // 辅助：插入项目角色

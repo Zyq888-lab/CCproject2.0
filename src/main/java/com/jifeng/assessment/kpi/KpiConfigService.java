@@ -86,10 +86,10 @@ public class KpiConfigService {
             existing.setEvaluationCriteria(request.getEvaluationCriteria());
         }
         if (request.getWeight() != null) {
-            // 校验：同 scope 下其他KPI权重 + 新权重 ≤ 1.0
+            // 校验：编辑权重后同 scope 下所有权重之和必须=1（防止写脏数据导致分数越界/低估）
             BigDecimal scopeSum = sumWeightsByScope(existing.getProjectRoleCode(), existing.getProjectStage());
             BigDecimal otherSum = scopeSum.subtract(existing.getWeight());
-            WeightValidator.validateNotExceed(request.getWeight(), otherSum, "项目KPI");
+            WeightValidator.validateSumEqualsOne(List.of(otherSum, request.getWeight()), "项目KPI");
             existing.setWeight(request.getWeight());
         }
         if (request.getSortOrder() != null) {
@@ -191,9 +191,10 @@ public class KpiConfigService {
             existing.setEvaluationCriteria(request.getEvaluationCriteria());
         }
         if (request.getWeight() != null) {
+            // 校验：编辑权重后同 scope 下所有权重之和必须=1（防止写脏数据导致分数越界/低估）
             BigDecimal scopeSum = sumFuncWeightsByScope(existing.getCategory(), existing.getPosition());
             BigDecimal otherSum = scopeSum.subtract(existing.getWeight());
-            WeightValidator.validateNotExceed(request.getWeight(), otherSum, "职能KPI");
+            WeightValidator.validateSumEqualsOne(List.of(otherSum, request.getWeight()), "职能KPI");
             existing.setWeight(request.getWeight());
         }
         if (request.getSortOrder() != null) {

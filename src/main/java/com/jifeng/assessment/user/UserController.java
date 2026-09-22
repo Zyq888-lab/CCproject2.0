@@ -36,6 +36,17 @@ public class UserController extends BaseController {
         return ok(userService.listUsers(query));
     }
 
+    // 功能：员工账号总览——以员工分页为底座，左连接 sys_user 返回激活状态，供用户管理页展示全部员工
+    @GetMapping("/overview")
+    public ApiResponse<PageResult<EmployeeAccountDTO>> overview(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PageQuery query = new PageQuery();
+        query.setPage(page);
+        query.setSize(size);
+        return ok(userService.listEmployeeAccounts(query));
+    }
+
     // 功能：创建系统用户——关联员工工号、设置用户名和初始密码，密码bcrypt(12)加密存储
     @PostMapping
     public ApiResponse<UserDTO> create(@Valid @RequestBody CreateUserRequest request) {
@@ -49,6 +60,13 @@ public class UserController extends BaseController {
     @PostMapping("/activate")
     public ApiResponse<UserDTO> activate(@Valid @RequestBody ActivateRequest request) {
         return ok(userService.activate(request.getEmployeeId(), request.getRoleTypes()));
+    }
+
+    // 功能：批量一键激活——勾选多个员工批量激活，已激活跳过并计入明细，返回逐员工成败
+    @PostMapping("/activate-batch")
+    public ApiResponse<UserService.BatchActivateResult> activateBatch(
+            @Valid @RequestBody BatchActivateRequest request) {
+        return ok(userService.activateBatch(request.getEmployeeIds(), request.getRoleTypes()));
     }
 
     // 功能：覆盖式更新用户角色——先删除原有角色再插入新角色，返回更新后的角色列表
@@ -79,6 +97,14 @@ public class UserController extends BaseController {
     public static class ActivateRequest {
         @NotBlank
         private String employeeId;
+        @NotEmpty
+        private List<String> roleTypes;
+    }
+
+    @Data
+    public static class BatchActivateRequest {
+        @NotEmpty
+        private List<String> employeeIds;
         @NotEmpty
         private List<String> roleTypes;
     }

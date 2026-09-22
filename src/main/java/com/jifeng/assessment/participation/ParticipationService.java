@@ -27,6 +27,7 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -71,15 +72,15 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
             }
         } else {
             boolean hasOwn = roles.contains("员工") && StringUtils.hasText(currentEmployeeId);
-            Set<String> primaryCodes = new LinkedHashSet<>();
+            List<ProjectRoleAssignment> primaryAssignments = new ArrayList<>();
             if (roles.contains("PM")) {
-                primaryCodes.addAll(listPrimaryProjectCodes(currentEmployeeId, "PM"));
+                primaryAssignments.addAll(listPrimaryAssignments(currentEmployeeId, "PM"));
             }
             if (roles.contains("PD")) {
-                primaryCodes.addAll(listPrimaryProjectCodes(currentEmployeeId, "PD"));
+                primaryAssignments.addAll(listPrimaryAssignments(currentEmployeeId, "PD"));
             }
 
-            if (!hasOwn && primaryCodes.isEmpty()) {
+            if (!hasOwn && primaryAssignments.isEmpty()) {
                 return PageResult.of(0, query.getPage(), query.getSize(), List.of());
             }
             wrapper.and(w -> {
@@ -88,10 +89,17 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
                     w.eq(EmployeeProjectParticipation::getEmployeeId, currentEmployeeId);
                     first = false;
                 }
-                if (!primaryCodes.isEmpty()) {
-                    if (!first) w.or();
-                    w.in(EmployeeProjectParticipation::getProjectCode, primaryCodes);
-                    first = false;
+                // 阶段级隔离：主 PM/主 PD 仅见自己主负责 (项目, 阶段) 组合上的参与记录，
+                //   与 approve 的阶段级权限校验对齐（避免列表展示本人无法审批的跨阶段记录）
+                for (ProjectRoleAssignment a : primaryAssignments) {
+                    if (first) {
+                        w.eq(EmployeeProjectParticipation::getProjectCode, a.getProjectCode())
+                         .eq(EmployeeProjectParticipation::getProjectStage, a.getProjectStage());
+                        first = false;
+                    } else {
+                        w.or().eq(EmployeeProjectParticipation::getProjectCode, a.getProjectCode())
+                                .eq(EmployeeProjectParticipation::getProjectStage, a.getProjectStage());
+                    }
                 }
             });
         }
@@ -102,21 +110,16 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         return page;
     }
 
-    // 功能：查询当前员工主负责的项目编码集合——project_role_code 匹配当前角色 AND is_primary=true，用于主 PM/主 PD 数据隔离
-    private List<String> listPrimaryProjectCodes(String employeeId, String roleCode) {
+    // 功能：查询当前员工主负责的项目角色分配集合——project_role_code 匹配当前角色 AND is_primary=true，用于主 PM/主 PD 数据隔离
+    private List<ProjectRoleAssignment> listPrimaryAssignments(String employeeId, String roleCode) {
         if (!StringUtils.hasText(employeeId) || !StringUtils.hasText(roleCode)) {
             return List.of();
         }
         return projectRoleAssignmentMapper.selectList(new LambdaQueryWrapper<ProjectRoleAssignment>()
-                        .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
-                        .eq(ProjectRoleAssignment::getProjectRoleCode, roleCode)
-                        .eq(ProjectRoleAssignment::getIsPrimary, true)
-                        .eq(ProjectRoleAssignment::getDeleted, 0))
-                .stream()
-                .map(ProjectRoleAssignment::getProjectCode)
-                .filter(StringUtils::hasText)
-                .distinct()
-                .toList();
+                .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
+                .eq(ProjectRoleAssignment::getProjectRoleCode, roleCode)
+                .eq(ProjectRoleAssignment::getIsPrimary, true)
+                .eq(ProjectRoleAssignment::getDeleted, 0));
     }
 
     // 功能：批量反查本页参与记录所属 (projectCode, projectStage) 的主 PM 工号，填充 currentApproverEmployeeId
@@ -250,21 +253,23 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
         LocalDateTime now = LocalDateTime.now();
         Set<String> notifiedProjectCodes = new LinkedHashSet<>();
         for (ProjectParticipationItem item : items) {
-            // 存在性检查：同一员工+周期+项目 已有待审批或已通过记录时阻止新建
+            // 存在性检查：同一员工+周期+项目+阶段 已有待审批或已通过记录时阻止新建（同项目不同阶段可分别参与）
             long pendingOrApproved = baseMapper.selectCount(new LambdaQueryWrapper<EmployeeProjectParticipation>()
                     .eq(EmployeeProjectParticipation::getEmployeeId, employeeId)
                     .eq(EmployeeProjectParticipation::getPeriodId, periodId)
                     .eq(EmployeeProjectParticipation::getProjectCode, item.getProjectCode())
+                    .eq(EmployeeProjectParticipation::getProjectStage, item.getProjectStage())
                     .in(EmployeeProjectParticipation::getStatus, "PENDING", "APPROVED"));
             if (pendingOrApproved > 0) {
                 throw new BusinessException(409,
                         "项目" + item.getProjectCode() + " 已存在待审批或已通过的参与记录，请勿重复提交");
             }
-            // 已被拒绝：引导使用重新提交，而不是新建
+            // 已被拒绝：引导使用重新提交，而不是新建（同样按阶段区分，仅同阶段拒绝记录才拦截）
             long rejected = baseMapper.selectCount(new LambdaQueryWrapper<EmployeeProjectParticipation>()
                     .eq(EmployeeProjectParticipation::getEmployeeId, employeeId)
                     .eq(EmployeeProjectParticipation::getPeriodId, periodId)
                     .eq(EmployeeProjectParticipation::getProjectCode, item.getProjectCode())
+                    .eq(EmployeeProjectParticipation::getProjectStage, item.getProjectStage())
                     .eq(EmployeeProjectParticipation::getStatus, "REJECTED"));
             if (rejected > 0) {
                 throw new BusinessException(409,

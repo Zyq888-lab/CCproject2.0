@@ -4,7 +4,6 @@
 package com.jifeng.assessment.president;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.jifeng.assessment.common.BusinessException;
 import com.jifeng.assessment.confirmation.ProjectConfirmation;
 import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
@@ -200,15 +199,9 @@ public class PresidentService {
         if (updated == 0) {
             throw new BusinessException(409, "数据已被他人修改，请刷新后重试");
         }
-        // 退回后周期回到待校准状态：清空周期级提交时间戳（问题2）
-        clearCalibrationSubmittedAt(confirmation.getPeriodId());
-    }
-
-    // 功能：清空周期校准提交时间戳——用 UpdateWrapper 显式置 NULL（MyBatis-Plus 默认跳过 null 字段）
-    private void clearCalibrationSubmittedAt(String periodId) {
-        periodMapper.update(null, new LambdaUpdateWrapper<AssessmentPeriod>()
-                .eq(AssessmentPeriod::getPeriodId, periodId)
-                .set(AssessmentPeriod::getCalibrationSubmittedAt, null));
+        // 退回后仅清空该项目的校准提交记录（unsubmit），其它 PD 的已提交项目不受影响；
+        //   周期级提交时间戳由 PeriodService 派生刷新（问题2，项目级粒度）
+        periodService.clearProjectSubmission(confirmation.getPeriodId(), confirmation.getProjectCode());
     }
 
     // 功能：整项目一键确认——将该项目下所有 PENDING 确认行一次性通过；全部通过后翻转周期
