@@ -303,6 +303,38 @@ class ResultServiceTest {
         assertEquals(0, new BigDecimal("4.0000").compareTo(result.getOriginalScore()));
     }
 
+    // 功能：结果页 KPI 明细逐行带出所属项目/阶段；职能指标不误挂到项目
+    @Test
+    void employeeResultShouldIncludeProjectAndStageForEachKpi() {
+        seedPeriod();
+        seedEmployee("EMP_DETAIL");
+        seedEmployee("ASSESSOR1");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        Long projectKpiId = seedProjectKpi(BigDecimal.ONE);
+        Long functionalKpiId = seedFuncKpi(BigDecimal.ONE);
+
+        Long projectTaskId = seedTask("EMP_DETAIL", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        Long functionalTaskId = seedTask("EMP_DETAIL", "ASSESSOR1", null, null, "FUNCTIONAL", "SUBMITTED");
+        seedScore(projectTaskId, projectKpiId, "PROJECT", new BigDecimal("4.0"));
+        seedScore(functionalTaskId, functionalKpiId, "FUNCTIONAL", new BigDecimal("3.0"));
+        seedParticipation("EMP_DETAIL", "PRJ1", "P2", new BigDecimal("100"));
+
+        resultService.generateResults("PERIOD-001");
+        EmployeeResultResponse result = resultService.getEmployeeResult("PERIOD-001", "EMP_DETAIL");
+
+        EmployeeResultResponse.KpiDetail project = result.getKpis().stream()
+                .filter(k -> "PROJECT".equals(k.getKpiType())).findFirst().orElseThrow();
+        assertEquals("PRJ1", project.getProjectCode());
+        assertEquals("项目一", project.getProjectName());
+        assertEquals("P2", project.getProjectStage());
+
+        EmployeeResultResponse.KpiDetail functional = result.getKpis().stream()
+                .filter(k -> "FUNCTIONAL".equals(k.getKpiType())).findFirst().orElseThrow();
+        assertNull(functional.getProjectCode());
+        assertNull(functional.getProjectName());
+        assertNull(functional.getProjectStage());
+    }
+
     // ================= 辅助：种子数据 =================
 
     private void seedPeriod() {

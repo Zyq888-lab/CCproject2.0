@@ -34,7 +34,7 @@ function PresidentConfirmPage() {
   const [periodFilter, setPeriodFilter] = useState('');
   const [form] = Form.useForm();
   const mountedRef = useRef(true);
-  const [detail, setDetail] = useState(null); // { projectCode, projectName, periodId }
+  const [detail, setDetail] = useState(null); // { projectCode, projectName, periodId, assesseeId, employeeName }
   const [matrix, setMatrix] = useState(null);
   const [matrixLoading, setMatrixLoading] = useState(false);
 
@@ -152,9 +152,15 @@ function PresidentConfirmPage() {
     }
   };
 
-  // 功能：打开评分明细抽屉——拉取该周期校准矩阵，按项目分组键过滤出本项目员工行
+  // 功能：打开评分明细抽屉——拉取该周期校准矩阵，按「项目 + 员工」双重过滤出仅该员工的评分行
   const openDetail = async (record) => {
-    setDetail({ projectCode: record.projectCode, projectName: record.projectName, periodId: record.periodId });
+    setDetail({
+      projectCode: record.projectCode,
+      projectName: record.projectName,
+      periodId: record.periodId,
+      assesseeId: record.assesseeId,
+      employeeName: record.employeeName,
+    });
     setMatrix(null);
     setMatrixLoading(true);
     try {
@@ -167,13 +173,14 @@ function PresidentConfirmPage() {
     }
   };
 
-  // 功能：评分明细过滤——groupKey 现为 project:<code>|<stage>，按项目编码前缀匹配，覆盖该项目所有阶段
+  // 功能：评分明细过滤——groupKey 为 project:<code>|<stage>；在项目内再按 assesseeId 收窄到当前员工
   const detailRows = useMemo(() => {
     if (!matrix || !detail) return [];
     return (matrix.rows || []).filter((r) => {
       const key = r.groupKey || '';
-      return key === 'project:' + detail.projectCode
+      const inProject = key === 'project:' + detail.projectCode
         || key.startsWith('project:' + detail.projectCode + '|');
+      return inProject && r.assesseeId === detail.assesseeId;
     });
   }, [matrix, detail]);
 
@@ -191,7 +198,12 @@ function PresidentConfirmPage() {
     { title: '权重', dataIndex: 'weight', key: 'weight', width: 90, render: (v) => (v != null ? `${Math.round(v * 100)}%` : '-') },
     { title: '得分', dataIndex: 'score', key: 'score', width: 90, align: 'center', render: (v) => (v != null ? v : '-') },
     { title: '评估人', dataIndex: 'assessorName', key: 'assessorName', width: 110, render: (v) => v || '-' },
-    { title: '证据', dataIndex: 'evidenceUrl', key: 'evidenceUrl', width: 140, render: (v) => v || '-' },
+    { title: '证据', dataIndex: 'evidenceUrl', key: 'evidenceUrl', width: 140,
+      render: (v) => (
+        v
+          ? <a href={v} target="_blank" rel="noreferrer">查看凭证</a>
+          : <span style={{ color: '#BFBFBF' }}>凭证暂不可用</span>
+      ) },
   ];
 
   // 功能：明细行展开渲染——展开员工行即展示该任务的逐 KPI 只读明细
@@ -354,9 +366,9 @@ function PresidentConfirmPage() {
         </Form>
       </Modal>
 
-      {/* 功能：评分明细抽屉——只读展示该项目下员工的校准矩阵明细（原始分/调整后分/离群） */}
+      {/* 功能：评分明细抽屉——只读展示该员工（项目 + 员工）的校准矩阵明细（原始分/调整后分/离群） */}
       <Drawer
-        title={`${detail?.projectName || detail?.projectCode || ''} · 评分明细`}
+        title={`${detail?.employeeName || ''} · ${detail?.projectName || detail?.projectCode || ''} · 评分明细`}
         open={!!detail}
         onClose={() => { setDetail(null); setMatrix(null); }}
         width={640}

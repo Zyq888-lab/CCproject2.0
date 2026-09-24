@@ -60,6 +60,10 @@ function ResultPage() {
       render: (v) => (
         <Tag color={KPI_TYPE_COLOR[v] || 'default'}>{KPI_TYPE_LABEL[v] || v || '-'}</Tag>
       ) },
+    { title: '项目', dataIndex: 'projectName', key: 'projectName', width: 140,
+      render: (v) => v || '-' },
+    { title: '阶段', dataIndex: 'projectStage', key: 'projectStage', width: 90,
+      render: (v) => v || '-' },
     { title: '指标名称', dataIndex: 'kpiName', key: 'kpiName',
       render: (v) => v || '-' },
     { title: '权重', dataIndex: 'weight', key: 'weight', width: 90, align: 'center',
@@ -161,7 +165,7 @@ function ResultPage() {
           loading={loading}
           size="middle"
           pagination={false}
-          scroll={{ x: 720 }}
+          scroll={{ x: 920 }}
           locale={{ emptyText: '暂无 KPI 明细' }}
         />
       </Card>

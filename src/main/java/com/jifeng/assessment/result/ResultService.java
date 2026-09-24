@@ -229,15 +229,37 @@ public class ResultService {
         Map<String, String> employeeNameById = employeeMapper.selectList(null).stream()
                 .collect(Collectors.toMap(Employee::getEmployeeId, Employee::getName, (a, b) -> a));
 
+        // 预载项目名（按 code|stage 复合键），供明细行回填所属项目/阶段，避免逐行 N+1
+        List<String> projectCodes = tasks.stream()
+                .map(AssessmentTask::getProjectCode)
+                .filter(code -> code != null && !code.isEmpty())
+                .distinct()
+                .toList();
+        Map<String, String> projectNameByCodeStage = projectCodes.isEmpty() ? Map.of()
+                : projectMapper.selectList(new LambdaQueryWrapper<Project>()
+                                .in(Project::getProjectCode, projectCodes))
+                        .stream().collect(Collectors.toMap(
+                                p -> p.getProjectCode() + "|" + p.getProjectStage(),
+                                Project::getProjectName, (a, b) -> a));
+
         List<EmployeeResultResponse.KpiDetail> details = new ArrayList<>();
         for (AssessmentTask task : tasks) {
             String assessorName = employeeNameById.getOrDefault(task.getAssessorId(), task.getAssessorId());
+            // 所属项目/阶段：职能任务 projectCode 为 null，三个字段均留空由前端回退展示
+            String projectCode = task.getProjectCode();
+            String projectStage = task.getProjectStage();
+            String projectName = (projectCode == null || projectCode.isEmpty()) ? null
+                    : projectNameByCodeStage.getOrDefault(
+                            projectCode + "|" + (projectStage == null ? "" : projectStage), projectCode);
             for (AssessmentScore score : scoresByTask.getOrDefault(task.getId(), List.of())) {
                 EmployeeResultResponse.KpiDetail d = new EmployeeResultResponse.KpiDetail();
                 d.setKpiType(score.getKpiType());
                 d.setScore(score.getScore());
                 d.setAssessorName(assessorName);
                 d.setEvidenceUrl(score.getEvidenceUrl());
+                d.setProjectCode(projectCode);
+                d.setProjectStage(projectStage);
+                d.setProjectName(projectName);
                 if ("PROJECT".equals(score.getKpiType())) {
                     ProjectKpiConfig kpi = projectKpiById.get(score.getKpiConfigId());
                     d.setKpiName(kpi != null ? kpi.getKpiName() : null);
