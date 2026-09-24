@@ -54,6 +54,10 @@ playwright-report/
 # Deploy binaries (keep the deploy .ps1 scripts)
 deploy/uat/*.jar
 deploy/uat/installers/*.zip
+deploy/uat/dist.zip
+
+# Local screenshots
+mintty*.png
 
 # Local-only working reports / notes (do not commit to remote)
 start-period.js
