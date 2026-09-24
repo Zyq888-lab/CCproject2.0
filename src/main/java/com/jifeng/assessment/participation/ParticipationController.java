@@ -26,7 +26,7 @@ public class ParticipationController extends BaseController {
 
     private final ParticipationService participationService;
 
-    // 功能：分页查询项目参与列表——员工看自己的，PM/PD/评估人按项目范围，ADMIN看全部
+    // 功能：分页查询项目参与列表——员工看自己的，PM/PD/评估人按项目范围，ADMIN看全部；scope=approval 仅返回当前用户可审批的记录
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
     public ApiResponse<PageResult<EmployeeProjectParticipation>> list(
@@ -34,11 +34,12 @@ public class ParticipationController extends BaseController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String periodId,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) String employeeId) {
+            @RequestParam(required = false) String employeeId,
+            @RequestParam(required = false) String scope) {
         PageQuery query = new PageQuery();
         query.setPage(page);
         query.setSize(size);
-        return ok(participationService.listParticipations(query, periodId, status, employeeId));
+        return ok(participationService.listParticipations(query, periodId, status, employeeId, scope));
     }
 
     // 功能：员工填写项目参与——投入比重总和=100%，可一次填多项目

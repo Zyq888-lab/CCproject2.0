@@ -47,30 +47,66 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final BigDecimal ONE = BigDecimal.ONE;
 
-    // 功能：分页查询项目参与列表——按当前用户角色强制数据隔离，同时支持按周期和状态筛选：
-    //   员工=只看本人(employeeId=当前工号)，主PM/主PD=仅见自己主负责项目(project_role_code匹配 AND is_primary=true)的参与记录，
-    //   ADMIN=看全部(可选传 employeeId 下钻)。非 ADMIN 忽略传入的 employeeId。
-    //   评估人不再额外授予项目可见性——评估人仅能通过「员工」角色查看本人提交的参与记录。
+    // 功能：分页查询项目参与列表（默认「查看」视角）——兼容旧调用，scope 缺省为 null
     public PageResult<EmployeeProjectParticipation> listParticipations(PageQuery query, String periodId, String status, String employeeId) {
+        return listParticipations(query, periodId, status, employeeId, null);
+    }
+
+    // 功能：分页查询项目参与列表——按当前用户角色强制数据隔离，同时支持按周期和状态筛选。
+    //   scope=approval 为「审批」视角：仅返回当前用户可审批的参与记录（主 PM 主负责的项目+阶段），
+    //     不含本人提交（本人提交由该项目主 PM 审批），与 approve 的权限范围严格一致；
+    //   默认(null)为「查看」视角：员工看本人(employeeId=当前工号)，主PM/主PD看主负责项目，ADMIN看全部。
+    //   ADMIN 在两种视角下均看全部(可选传 employeeId 下钻)。非 ADMIN 忽略传入的 employeeId。
+    //   评估人/主PD不授予审批能力——审批视角仅主PM可见；查看视角二者仅能通过「员工」角色看本人提交。
+    public PageResult<EmployeeProjectParticipation> listParticipations(PageQuery query, String periodId, String status, String employeeId, String scope) {
         LambdaQueryWrapper<EmployeeProjectParticipation> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(periodId)) {
             wrapper.eq(EmployeeProjectParticipation::getPeriodId, periodId);
         }
-        if (StringUtils.hasText(status)) {
+        boolean approvalScope = "approval".equalsIgnoreCase(scope);
+        if (approvalScope) {
+            // 待审批视角只允许待处理记录；传入其他状态也不能查询出已处理的审批历史
+            if (StringUtils.hasText(status) && !"PENDING".equalsIgnoreCase(status)) {
+                return PageResult.of(0, query.getPage(), query.getSize(), List.of());
+            }
+            wrapper.eq(EmployeeProjectParticipation::getStatus, "PENDING");
+        } else if (StringUtils.hasText(status)) {
             wrapper.eq(EmployeeProjectParticipation::getStatus, status);
         }
 
-        // 数据隔离：多角色用户取各角色可见范围的并集，而非坍缩为单一主角色——
-        //   员工看本人(employee_id=当前工号)，主PM/主PD看主负责项目，ADMIN看全部；
-        //   避免「员工+PM」这类多角色用户被主PM范围吞掉自己作为被考核人提交的参与记录
         Set<String> roles = getRoles();
         String currentEmployeeId = getCurrentEmployeeId();
+
         if (roles.contains("ADMIN")) {
             // ADMIN：看全部，可选按 employeeId 下钻
             if (StringUtils.hasText(employeeId)) {
                 wrapper.eq(EmployeeProjectParticipation::getEmployeeId, employeeId);
             }
+        } else if (approvalScope) {
+            // 审批视角：仅主 PM 主负责 (项目, 阶段) 的参与记录可审批，与 approve 的阶段级主 PM 校验对齐；
+            //   不含本人提交（hasOwn）与主 PD 可见性，避免「列表可见但审批 403」的越权展示
+            if (!roles.contains("PM")) {
+                return PageResult.of(0, query.getPage(), query.getSize(), List.of());
+            }
+            List<ProjectRoleAssignment> pmAssignments = listPrimaryAssignments(currentEmployeeId, "PM");
+            if (pmAssignments.isEmpty()) {
+                return PageResult.of(0, query.getPage(), query.getSize(), List.of());
+            }
+            wrapper.and(w -> {
+                boolean first = true;
+                for (ProjectRoleAssignment a : pmAssignments) {
+                    if (first) {
+                        w.eq(EmployeeProjectParticipation::getProjectCode, a.getProjectCode())
+                         .eq(EmployeeProjectParticipation::getProjectStage, a.getProjectStage());
+                        first = false;
+                    } else {
+                        w.or().eq(EmployeeProjectParticipation::getProjectCode, a.getProjectCode())
+                                .eq(EmployeeProjectParticipation::getProjectStage, a.getProjectStage());
+                    }
+                }
+            });
         } else {
+            // 默认（查看）视角：多角色取并集——员工看本人、主PM/主PD看主负责项目
             boolean hasOwn = roles.contains("员工") && StringUtils.hasText(currentEmployeeId);
             List<ProjectRoleAssignment> primaryAssignments = new ArrayList<>();
             if (roles.contains("PM")) {
@@ -89,8 +125,7 @@ public class ParticipationService extends BaseService<ParticipationMapper, Emplo
                     w.eq(EmployeeProjectParticipation::getEmployeeId, currentEmployeeId);
                     first = false;
                 }
-                // 阶段级隔离：主 PM/主 PD 仅见自己主负责 (项目, 阶段) 组合上的参与记录，
-                //   与 approve 的阶段级权限校验对齐（避免列表展示本人无法审批的跨阶段记录）
+                // 阶段级隔离：主 PM/主 PD 仅见自己主负责 (项目, 阶段) 组合上的参与记录
                 for (ProjectRoleAssignment a : primaryAssignments) {
                     if (first) {
                         w.eq(EmployeeProjectParticipation::getProjectCode, a.getProjectCode())

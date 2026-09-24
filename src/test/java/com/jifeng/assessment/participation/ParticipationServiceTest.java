@@ -445,6 +445,146 @@ class ParticipationServiceTest {
         assertFalse(codes.contains("PRJ_B"), "PM-A 待审批列表不应含 PM-B 主负责项目 PRJ_B 的参与记录");
     }
 
+    // 功能：审批视角(scope=approval)不含本人提交——PM+员工 用户提交的本人参与（审批权属他项目主 PM）不应出现在其待审批列表
+    //   （回归：祝工 zhu/E004 在自己待审批列表看到本人提交的 P007/P3 记录，其审批权属 E002/lizong）
+    @Test
+    void approvalScopeShouldExcludeOwnSubmission() {
+        seedRole("PM");
+        seedEmployee("EMP_PM_OWN");
+        seedEmployee("EMP_OTHER_PM");
+        seedEmployee("EMP_OTHER_SUB");
+        seedUser("U_PM_OWN", "pm_own", "EMP_PM_OWN");
+        seedUser("U_OTHER_PM", "other_pm", "EMP_OTHER_PM");
+        seedProject("PRJ_MINE", "P2");
+        seedProject("PRJ_THEIRS", "P2");
+        seedPeriod("PERIOD_OWN");
+        seedAssignment("PRJ_MINE", "P2", "PM", "EMP_PM_OWN", true);
+        seedAssignment("PRJ_THEIRS", "P2", "PM", "EMP_OTHER_PM", true);
+        Long managedId = seedParticipation("EMP_OTHER_SUB", "PERIOD_OWN", "PRJ_MINE", "P2");
+        Long ownId = seedParticipation("EMP_PM_OWN", "PERIOD_OWN", "PRJ_THEIRS", "P2");
+
+        // 同时授予「PM」与「员工」两个角色（与 zhu/E004 一致）
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("pm_own", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_PM"),
+                                new SimpleGrantedAuthority("ROLE_员工"))));
+
+        PageResult<EmployeeProjectParticipation> result = participationService.listParticipations(
+                new PageQuery(), "PERIOD_OWN", "PENDING", null, "approval");
+
+        List<Long> ids = result.getList().stream().map(EmployeeProjectParticipation::getId).toList();
+        assertTrue(ids.contains(managedId), "审批视角应含主 PM 负责项目 PRJ_MINE 的他人提交");
+        assertFalse(ids.contains(ownId), "审批视角不应含本人提交的 PRJ_THEIRS 记录（审批权属他人）");
+    }
+
+    // 功能：审批视角(scope=approval)不含主 PD 可见性——PM+PD 多角色用户仅见主 PM 负责项目，仅主 PD 负责项目不泄露进审批列表
+    @Test
+    void approvalScopeShouldExcludePdOnlyScopedForPmUser() {
+        seedRole("PM");
+        seedRole("PD");
+        seedEmployee("EMP_PM_PD");
+        seedEmployee("EMP_OTHER_A");
+        seedEmployee("EMP_OTHER_B");
+        seedUser("U_PM_PD", "pm_pd_user", "EMP_PM_PD");
+        seedProject("PRJ_PM", "P2");
+        seedProject("PRJ_PD", "P2");
+        seedPeriod("PERIOD_PM_PD");
+        seedAssignment("PRJ_PM", "P2", "PM", "EMP_PM_PD", true);
+        seedAssignment("PRJ_PD", "P2", "PD", "EMP_PM_PD", true);
+        Long pmScoped = seedParticipation("EMP_OTHER_A", "PERIOD_PM_PD", "PRJ_PM", "P2");
+        Long pdScoped = seedParticipation("EMP_OTHER_B", "PERIOD_PM_PD", "PRJ_PD", "P2");
+
+        // 同时授予「PM」与「PD」两个角色（与 E002/lizong 一致）
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("pm_pd_user", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_PM"),
+                                new SimpleGrantedAuthority("ROLE_PD"))));
+
+        PageResult<EmployeeProjectParticipation> result = participationService.listParticipations(
+                new PageQuery(), "PERIOD_PM_PD", "PENDING", null, "approval");
+
+        List<Long> ids = result.getList().stream().map(EmployeeProjectParticipation::getId).toList();
+        assertTrue(ids.contains(pmScoped), "审批视角应含主 PM 负责项目 PRJ_PM 的参与记录");
+        assertFalse(ids.contains(pdScoped), "审批视角不应含仅主 PD 负责项目 PRJ_PD 的参与记录");
+    }
+
+    // 同一员工同时申请两个项目时，各主 PM 只能在待审批列表看到自己负责的项目；
+    // 即使两名 PM 同时是对方项目的主 PD，也不能把「可查看」记录混入「可审批」列表。
+    @Test
+    void approvalScopeShouldSplitTwoProjectApplicationsBetweenTheirPrimaryPms() {
+        seedRole("PM");
+        seedRole("PD");
+        seedEmployee("EMP_APPLICANT_MULTI");
+        seedEmployee("EMP_PM_001");
+        seedEmployee("EMP_PM_002");
+        seedUser("U_PM_001", "pm_001", "EMP_PM_001");
+        seedUser("U_PM_002", "pm_002", "EMP_PM_002");
+        seedProject("PRJ_001", "P1");
+        seedProject("PRJ_002", "P2");
+        seedPeriod("PERIOD_TWO_PROJECTS");
+        seedAssignment("PRJ_001", "P1", "PM", "EMP_PM_001", true);
+        seedAssignment("PRJ_002", "P2", "PM", "EMP_PM_002", true);
+        seedAssignment("PRJ_001", "P1", "PD", "EMP_PM_002", true);
+        seedAssignment("PRJ_002", "P2", "PD", "EMP_PM_001", true);
+        Long id001 = seedParticipation("EMP_APPLICANT_MULTI", "PERIOD_TWO_PROJECTS", "PRJ_001", "P1");
+        Long id002 = seedParticipation("EMP_APPLICANT_MULTI", "PERIOD_TWO_PROJECTS", "PRJ_002", "P2");
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("pm_001", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_PM"), new SimpleGrantedAuthority("ROLE_PD"))));
+        PageResult<EmployeeProjectParticipation> pm001 = participationService.listParticipations(
+                new PageQuery(), "PERIOD_TWO_PROJECTS", "PENDING", null, "approval");
+        assertEquals(List.of(id001), pm001.getList().stream().map(EmployeeProjectParticipation::getId).toList());
+        assertEquals(1, pm001.getTotal());
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("pm_002", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_PM"), new SimpleGrantedAuthority("ROLE_PD"))));
+        PageResult<EmployeeProjectParticipation> pm002 = participationService.listParticipations(
+                new PageQuery(), "PERIOD_TWO_PROJECTS", "PENDING", null, "approval");
+        assertEquals(List.of(id002), pm002.getList().stream().map(EmployeeProjectParticipation::getId).toList());
+        assertEquals(1, pm002.getTotal());
+    }
+
+    @Test
+    void approvalScopeShouldRequirePmRoleEvenWhenAssignmentExists() {
+        seedRole("PM");
+        seedEmployee("EMP_ASSIGNMENT_ONLY");
+        seedEmployee("EMP_APPLICANT_ROLE");
+        seedUser("U_ASSIGNMENT_ONLY", "assignment_only", "EMP_ASSIGNMENT_ONLY");
+        seedProject("PRJ_ROLE", "P1");
+        seedPeriod("PERIOD_ROLE");
+        seedAssignment("PRJ_ROLE", "P1", "PM", "EMP_ASSIGNMENT_ONLY", true);
+        seedParticipation("EMP_APPLICANT_ROLE", "PERIOD_ROLE", "PRJ_ROLE", "P1");
+
+        auth("assignment_only", "员工");
+        PageResult<EmployeeProjectParticipation> result = participationService.listParticipations(
+                new PageQuery(), "PERIOD_ROLE", "PENDING", null, "approval");
+        assertEquals(0, result.getTotal());
+        assertTrue(result.getList().isEmpty());
+    }
+
+    @Test
+    void approvalScopeShouldOnlyIncludePendingRecords() {
+        seedRole("PM");
+        seedEmployee("EMP_PM_STATUS");
+        seedEmployee("EMP_APPLICANT_STATUS");
+        seedUser("U_PM_STATUS", "pm_status", "EMP_PM_STATUS");
+        seedProject("PRJ_STATUS", "P1");
+        seedPeriod("PERIOD_STATUS");
+        seedAssignment("PRJ_STATUS", "P1", "PM", "EMP_PM_STATUS", true);
+        Long id = seedParticipation("EMP_APPLICANT_STATUS", "PERIOD_STATUS", "PRJ_STATUS", "P1");
+        EmployeeProjectParticipation processed = participationMapper.selectById(id);
+        processed.setStatus("APPROVED");
+        participationMapper.updateById(processed);
+
+        auth("pm_status", "PM");
+        PageResult<EmployeeProjectParticipation> result = participationService.listParticipations(
+                new PageQuery(), "PERIOD_STATUS", null, null, "approval");
+        assertEquals(0, result.getTotal());
+        assertTrue(result.getList().isEmpty());
+    }
+
     // 辅助：插入项目角色
     private void seedRole(String roleCode) {
         ProjectRole role = new ProjectRole();
