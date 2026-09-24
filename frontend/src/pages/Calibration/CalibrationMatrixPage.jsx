@@ -36,6 +36,7 @@ function CalibrationMatrixPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [onlyOutliers, setOnlyOutliers] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null); // { periodId, groupKey }
   const [userRoles, setUserRoles] = useState([]);
   const [submitVisible, setSubmitVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -166,15 +167,25 @@ function CalibrationMatrixPage() {
   };
 
   const rows = data?.rows || [];
-  const filteredRows = onlyOutliers ? rows.filter((r) => r.outlier) : rows;
-  const outlierCount = rows.filter((r) => r.outlier).length;
+  // 项目选项来自已授权的矩阵分组；同项目不同阶段使用不同 groupKey，避免混在一起
+  const projectOptions = (data?.summary || [])
+    .filter((group) => group.key?.startsWith('project:'))
+    .map((group) => ({ value: group.key, label: group.label }));
+  const activeGroupKey = selectedProject?.periodId === periodId
+    && projectOptions.some((option) => option.value === selectedProject.groupKey)
+    ? selectedProject.groupKey : null;
+  const scopedRows = activeGroupKey ? rows.filter((r) => r.groupKey === activeGroupKey) : rows;
+  const filteredRows = onlyOutliers ? scopedRows.filter((r) => r.outlier) : scopedRows;
+  const outlierCount = scopedRows.filter((r) => r.outlier).length;
   // 未提交员工 → 暗行（沉底，无成绩无改分入口）
   const unsubmittedRows = (data?.unsubmitted || []).map((u) => ({
     assesseeId: u.assesseeId,
     employeeName: u.employeeName,
     unsubmitted: true,
   }));
-  const tableRows = [...filteredRows, ...unsubmittedRows];
+  // 未提交行没有项目键，只有查看全部项目时才能准确展示
+  const visibleUnsubmittedRows = activeGroupKey ? [] : unsubmittedRows;
+  const tableRows = [...filteredRows, ...visibleUnsubmittedRows];
 
   // 功能：离群标记——红↑偏高 / 蓝↓偏低，附 σ 偏离度
   const renderOutlier = (_, row) => {
@@ -237,7 +248,12 @@ function CalibrationMatrixPage() {
         );
       } },
     { title: '评估人', dataIndex: 'assessorName', key: 'assessorName', width: 90, render: (v) => v || '-' },
-    { title: '证据', dataIndex: 'evidenceUrl', key: 'evidenceUrl', width: 120, render: (v) => v || '-' },
+    { title: '证据', dataIndex: 'evidenceUrl', key: 'evidenceUrl', width: 120,
+      render: (v) => (
+        v
+          ? <a href={v} target="_blank" rel="noreferrer">查看凭证</a>
+          : <span style={{ color: '#BFBFBF' }}>凭证暂不可用</span>
+      ) },
     { title: '原因', key: 'reason', width: 170,
       render: (_, kpi) => {
         const edit = kpiEdits[kpi.kpiConfigId];
@@ -398,11 +414,19 @@ function CalibrationMatrixPage() {
         <Card id="calibration-table-card" style={{ borderRadius: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <span style={{ color: '#595959' }}>
-              共 {rows.length} 人 · 离群 {outlierCount} 人 · 未提交 {unsubmittedRows.length} 人
+              共 {scopedRows.length} 行 · 离群 {outlierCount} 人 · 未提交 {visibleUnsubmittedRows.length} 人
             </span>
             <Space>
+              <span style={{ color: '#595959' }}>项目筛选</span>
+              <Select
+                aria-label="项目筛选"
+                value={activeGroupKey || ''}
+                onChange={(groupKey) => setSelectedProject({ periodId, groupKey })}
+                options={[{ value: '', label: '全部项目' }, ...projectOptions]}
+                style={{ width: 200 }}
+              />
               <span style={{ color: '#595959' }}>只看离群</span>
-              <Switch checked={onlyOutliers} onChange={setOnlyOutliers} />
+              <Switch aria-label="只看离群" checked={onlyOutliers} onChange={setOnlyOutliers} />
             </Space>
           </div>
           <Table
