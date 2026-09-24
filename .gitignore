@@ -18,6 +18,7 @@ vendor/
 # Build
 dist/
 build/
+uploads/
 *.exe
 *.dll
 *.so

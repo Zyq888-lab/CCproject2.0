@@ -327,6 +327,12 @@ function PeriodMonitorPage() {
                   render: (v) => formatWeight(v) },
                 { title: '得分', dataIndex: 'score', key: 'score', width: 80,
                   render: (v) => (v != null ? v : '-') },
+                { title: '证据', dataIndex: 'evidenceUrl', key: 'evidenceUrl', width: 100,
+                  render: (v) => (
+                    v
+                      ? <a href={v} target="_blank" rel="noreferrer">查看凭证</a>
+                      : <span style={{ color: '#BFBFBF' }}>凭证暂不可用</span>
+                  ) },
               ]}
             />
           </>
