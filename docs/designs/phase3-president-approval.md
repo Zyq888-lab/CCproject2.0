@@ -1,6 +1,6 @@
 # Phase 3 — 按项目「总裁审批」设计
 
-> 状态：**设计草案，已推迟到 phase 3，本次不实现。** 记录已敲定的口径，phase 3 开工前先解决文末的「纯职能员工」开放问题。
+> 状态：**历史草案，已由 [Phase 2.2 总裁确认设计](phase2.2-president-confirm-and-user-activation.md) 取代。** 下文的 `PRESIDENT_REVIEW` 状态、`president_project_review` 表和端点并未采用；现行流程使用 `project_confirmation`、`CONFIRMED`（待发布）和 `PUBLISHED`（已发布）。
 
 ## 背景与目标
 
