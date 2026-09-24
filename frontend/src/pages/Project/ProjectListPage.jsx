@@ -59,6 +59,8 @@ function ProjectListPage() {
   }, []);
   const isAdmin = userRoles.includes('ROLE_ADMIN');
   const isPM = userRoles.includes('ROLE_PM');
+  const isPD = userRoles.includes('ROLE_PD');
+  const isPresident = userRoles.includes('ROLE_总裁');
 
   // 功能：分页获取项目列表——支持 stage 和 status 筛选
   const fetchProjects = useCallback(async (page, size, filterParams) => {
@@ -325,9 +327,11 @@ function ProjectListPage() {
       title: '操作', key: 'action', width: 260,
       render: (_, record) => (
         <Space size="small">
-          <Button type="link" size="small" icon={<LinkOutlined />} onClick={() => navigate(`/project/${record.projectCode}/${record.projectStage}/roles`)}>
-            角色分配
-          </Button>
+          {(isAdmin || isPM || isPD || isPresident) && (
+            <Button type="link" size="small" icon={<LinkOutlined />} onClick={() => navigate(`/project/${record.projectCode}/${record.projectStage}/roles`)}>
+              角色分配
+            </Button>
+          )}
           {record.managedByCurrentUser && !record.stageConfirmed && (
             <Button type="link" size="small" icon={<CheckCircleOutlined />} onClick={() => handleConfirmStage(record)}>
               确认阶段

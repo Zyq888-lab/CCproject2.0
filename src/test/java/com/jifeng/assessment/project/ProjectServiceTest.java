@@ -291,6 +291,35 @@ class ProjectServiceTest {
         assertFalse(codes.contains("PRJ_E"));
     }
 
+    // 功能：总裁数据隔离——仅见自己作为主总裁（PRESIDENT AND is_primary=true）的项目，只读入口
+    @Test
+    void presidentShouldOnlySeeOwnPrimaryPresidentProjects() {
+        seedEmployee("PRES_EMP_1");
+        seedUser("U_PRES_1", "pres_list_test", "PRES_EMP_1");
+
+        projectService.createProject(newProject("PRJ_A", "P2"));
+        projectService.createProject(newProject("PRJ_B", "P3"));
+        projectService.createProject(newProject("PRJ_C", "P2"));
+
+        // 总裁主负责 PRJ_A(P2)、PRJ_B(P3)；PRJ_C 非主总裁，不应可见
+        seedAssignment("PRJ_A", "P2", "PRESIDENT", "PRES_EMP_1", true);
+        seedAssignment("PRJ_B", "P3", "PRESIDENT", "PRES_EMP_1", true);
+        seedAssignment("PRJ_C", "P2", "PRESIDENT", "PRES_EMP_1", false);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("pres_list_test", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_总裁"))));
+
+        PageResult<ProjectDTO> result = projectService.listProjects(
+                new PageQuery(), null, null, false, null, null);
+
+        List<String> codes = result.getList().stream().map(ProjectDTO::getProjectCode).toList();
+        assertEquals(2, result.getTotal());
+        assertTrue(codes.contains("PRJ_A"));
+        assertTrue(codes.contains("PRJ_B"));
+        assertFalse(codes.contains("PRJ_C"));
+    }
+
     // 功能：可见性+字段级门控——主 PM 项目可见且 managedByCurrentUser=true；纯参与者(AIM)项目完全不可见（李总场景）
     @Test
     void managedByCurrentUserShouldReflectProjectLevelPmRole() {

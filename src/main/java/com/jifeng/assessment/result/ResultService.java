@@ -22,6 +22,8 @@ import com.jifeng.assessment.period.AssessmentPeriod;
 import com.jifeng.assessment.period.PeriodMapper;
 import com.jifeng.assessment.position.PositionAssessmentConfig;
 import com.jifeng.assessment.position.PositionConfigMapper;
+import com.jifeng.assessment.project.Project;
+import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.score.AssessmentScore;
 import com.jifeng.assessment.score.ScoreMapper;
 import com.jifeng.assessment.task.AssessmentTask;
@@ -54,6 +56,7 @@ public class ResultService {
     private final AssessmentResultMapper resultMapper;
     private final ScoreAdjustmentMapper adjustmentMapper;
     private final PeriodMapper periodMapper;
+    private final ProjectMapper projectMapper;
 
     private static final String STATUS_SUBMITTED = "SUBMITTED";
     private static final BigDecimal DEFAULT_PROJECT_WEIGHT = new BigDecimal("0.7000");
@@ -180,6 +183,22 @@ public class ResultService {
                 .last("LIMIT 1"));
         if (latest != null) {
             resp.setAdjustReason(latest.getReason());
+            resp.setAdjustedBy(resolveEmployeeName(latest.getAdjustedBy()));
+        }
+
+        // 项目名——取该员工「id 最小」的 SUBMITTED 项目任务反查项目名（纯职能员工为 null）
+        AssessmentTask projectTask = taskMapper.selectList(new LambdaQueryWrapper<AssessmentTask>()
+                        .eq(AssessmentTask::getPeriodId, periodId)
+                        .eq(AssessmentTask::getAssesseeId, assesseeId)
+                        .eq(AssessmentTask::getTaskType, "PROJECT")
+                        .eq(AssessmentTask::getStatus, STATUS_SUBMITTED)
+                        .orderByAsc(AssessmentTask::getId))
+                .stream().findFirst().orElse(null);
+        if (projectTask != null && projectTask.getProjectCode() != null
+                && !projectTask.getProjectCode().isEmpty()) {
+            Project project = projectMapper.selectByCodeAndStage(
+                    projectTask.getProjectCode(), projectTask.getProjectStage());
+            resp.setProjectName(project != null ? project.getProjectName() : projectTask.getProjectCode());
         }
 
         resp.setKpis(buildKpiDetails(periodId, assesseeId));
@@ -210,15 +229,37 @@ public class ResultService {
         Map<String, String> employeeNameById = employeeMapper.selectList(null).stream()
                 .collect(Collectors.toMap(Employee::getEmployeeId, Employee::getName, (a, b) -> a));
 
+        // 预载项目名（按 code|stage 复合键），供明细行回填所属项目/阶段，避免逐行 N+1
+        List<String> projectCodes = tasks.stream()
+                .map(AssessmentTask::getProjectCode)
+                .filter(code -> code != null && !code.isEmpty())
+                .distinct()
+                .toList();
+        Map<String, String> projectNameByCodeStage = projectCodes.isEmpty() ? Map.of()
+                : projectMapper.selectList(new LambdaQueryWrapper<Project>()
+                                .in(Project::getProjectCode, projectCodes))
+                        .stream().collect(Collectors.toMap(
+                                p -> p.getProjectCode() + "|" + p.getProjectStage(),
+                                Project::getProjectName, (a, b) -> a));
+
         List<EmployeeResultResponse.KpiDetail> details = new ArrayList<>();
         for (AssessmentTask task : tasks) {
             String assessorName = employeeNameById.getOrDefault(task.getAssessorId(), task.getAssessorId());
+            // 所属项目/阶段：职能任务 projectCode 为 null，三个字段均留空由前端回退展示
+            String projectCode = task.getProjectCode();
+            String projectStage = task.getProjectStage();
+            String projectName = (projectCode == null || projectCode.isEmpty()) ? null
+                    : projectNameByCodeStage.getOrDefault(
+                            projectCode + "|" + (projectStage == null ? "" : projectStage), projectCode);
             for (AssessmentScore score : scoresByTask.getOrDefault(task.getId(), List.of())) {
                 EmployeeResultResponse.KpiDetail d = new EmployeeResultResponse.KpiDetail();
                 d.setKpiType(score.getKpiType());
                 d.setScore(score.getScore());
                 d.setAssessorName(assessorName);
                 d.setEvidenceUrl(score.getEvidenceUrl());
+                d.setProjectCode(projectCode);
+                d.setProjectStage(projectStage);
+                d.setProjectName(projectName);
                 if ("PROJECT".equals(score.getKpiType())) {
                     ProjectKpiConfig kpi = projectKpiById.get(score.getKpiConfigId());
                     d.setKpiName(kpi != null ? kpi.getKpiName() : null);
@@ -321,21 +362,31 @@ public class ResultService {
             List<BigDecimal> scoreVals = scores.stream().map(AssessmentScore::getScore).toList();
             List<BigDecimal> weightVals = scores.stream()
                     .map(s -> weightById.get(s.getKpiConfigId())).toList();
-            total = total.add(ScoreCalculator.weightedSum(scoreVals, weightVals));
+            // 归一化 KPI 权重到和=1（与参与比重归一化口径一致）——避免权重和≠1 导致单任务得分越界
+            // （如两个 KPI 各 1.0 求和 2.0 → 归一化后各 0.5；单 KPI 0.7 → 归一化为 1.0，得分不被低估）
+            total = total.add(ScoreCalculator.weightedSum(scoreVals, normalizeWeights(weightVals)));
             count++;
         }
         return total.divide(BigDecimal.valueOf(count), 4, RoundingMode.HALF_UP);
     }
 
-    // 功能：比重归一化——将参与比重缩放到和为 1（防御不一致数据）；空列表返回空（调用方保证非空）
+    // 功能：比重归一化——将权重列表缩放到和为 1（防御不一致数据）；空列表/和为 0 时原样返回（调用方保证非空）
+    // 说明：null 权重（如已停用 KPI 无权重）跳过不计入求和，并原样保留 null（weightedSum 会跳过 null 对）
     private List<BigDecimal> normalizeWeights(List<BigDecimal> weights) {
-        BigDecimal sum = weights.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal sum = BigDecimal.ZERO;
+        for (BigDecimal w : weights) {
+            if (w != null) {
+                sum = sum.add(w);
+            }
+        }
         if (sum.compareTo(BigDecimal.ZERO) == 0) {
             return weights;
         }
-        return weights.stream()
-                .map(w -> w.divide(sum, 4, RoundingMode.HALF_UP))
-                .toList();
+        List<BigDecimal> result = new ArrayList<>(weights.size());
+        for (BigDecimal w : weights) {
+            result.add(w == null ? null : w.divide(sum, 4, RoundingMode.HALF_UP));
+        }
+        return result;
     }
 
     // 功能：按员工岗位（category+position）反查岗位考核配置——与 TaskGeneratorService 同口径
@@ -354,5 +405,14 @@ public class ResultService {
     // 功能：拼接 (项目,阶段) 分组键——用于项目任务分组与参与比重匹配
     private String key(String projectCode, String projectStage) {
         return (projectCode == null ? "" : projectCode) + "|" + (projectStage == null ? "" : projectStage);
+    }
+
+    // 功能：员工工号 → 姓名（找不到回退原值）——用于校准人 adjustedBy 显示
+    private String resolveEmployeeName(String employeeId) {
+        if (employeeId == null) {
+            return null;
+        }
+        Employee emp = employeeMapper.selectById(employeeId);
+        return emp != null ? emp.getName() : employeeId;
     }
 }

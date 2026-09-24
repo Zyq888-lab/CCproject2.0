@@ -10,6 +10,8 @@ import com.jifeng.assessment.kpi.FuncKpiConfig;
 import com.jifeng.assessment.kpi.FuncKpiMapper;
 import com.jifeng.assessment.kpi.ProjectKpiConfig;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
+import com.jifeng.assessment.participation.EmployeeProjectParticipation;
+import com.jifeng.assessment.participation.ParticipationMapper;
 import com.jifeng.assessment.period.AssessmentPeriod;
 import com.jifeng.assessment.period.PeriodMapper;
 import com.jifeng.assessment.project.Project;
@@ -47,6 +49,7 @@ class MyAssessmentServiceTest {
     @Mock private EmployeeMapper employeeMapper;
     @Mock private SysUserMapper sysUserMapper;
     @Mock private PeriodMapper periodMapper;
+    @Mock private ParticipationMapper participationMapper;
 
     @InjectMocks
     private MyAssessmentService service;
@@ -93,6 +96,17 @@ class MyAssessmentServiceTest {
         a.setEmployeeId(empId);
         a.setDeleted(0);
         return a;
+    }
+
+    private EmployeeProjectParticipation participation(String empId, String code, String stage, String periodId) {
+        EmployeeProjectParticipation p = new EmployeeProjectParticipation();
+        p.setEmployeeId(empId);
+        p.setProjectCode(code);
+        p.setProjectStage(stage);
+        p.setPeriodId(periodId);
+        p.setStatus("APPROVED");
+        p.setDeleted(0);
+        return p;
     }
 
     private ProjectKpiConfig pkpi(String roleCode, String stage, String name) {
@@ -260,5 +274,147 @@ class MyAssessmentServiceTest {
         assertEquals("2026001", items.get(1).getPeriodId());
         assertEquals("CONFIRMED", items.get(0).getStatus());
         assertEquals("PENDING", items.get(1).getStatus());
+    }
+
+    // ========================================
+    // 6. 员工有 APPROVED 参与但对应周期无任务 → 显示一条「待发起」行
+    // ========================================
+    @Test
+    void shouldShowNotLaunchedRowWhenApprovedParticipationHasNoTask() {
+        setAuth("zhugong", "E004");
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of(
+                assignment("P007", "P2", "AIM", "E004")));
+        when(taskMapper.selectList(any())).thenReturn(List.of());
+        when(participationMapper.selectList(any())).thenReturn(List.of(
+                participation("E004", "P007", "P2", "ceshizhouqi2")));
+        when(projectMapper.selectByCodeAndStage("P007", "P2")).thenReturn(project("P007", "P007项目", "P2"));
+        when(projectKpiMapper.selectList(any())).thenReturn(List.of(pkpi("AIM", "P2", "ceshi22")));
+        when(employeeMapper.selectById("E004")).thenReturn(employee("E004", "研发技术类", "整椅研发岗", "祝工"));
+        when(funcKpiMapper.selectList(any())).thenReturn(List.of());
+
+        List<MyAssessmentItem> items = service.getMyAssessment();
+
+        assertEquals(1, items.size());
+        MyAssessmentItem it = items.get(0);
+        assertEquals("待发起", it.getStatus());
+        assertEquals("-", it.getAssessorName());
+        assertNull(it.getPeriodId());
+        assertEquals(1, it.getKpis().size());
+        assertEquals("ceshi22", it.getKpis().get(0).getKpiName());
+    }
+
+    // ========================================
+    // 7. 该周期发起后(生成任务) → 待发起行消失、变为带周期的行
+    // ========================================
+    @Test
+    void shouldNotDuplicateNotLaunchedWhenPeriodHasTask() {
+        setAuth("zhugong", "E004");
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of(
+                assignment("P007", "P2", "AIM", "E004")));
+
+        AssessmentTask task = new AssessmentTask();
+        task.setId(30L);
+        task.setAssesseeId("E004");
+        task.setAssessorId("ASSESSOR1");
+        task.setTaskType("PROJECT");
+        task.setProjectCode("P007");
+        task.setProjectStage("P2");
+        task.setStatus("PENDING");
+        task.setPeriodId("ceshizhouqi2");
+        when(taskMapper.selectList(any())).thenReturn(List.of(task));
+
+        when(participationMapper.selectList(any())).thenReturn(List.of(
+                participation("E004", "P007", "P2", "ceshizhouqi2")));
+
+        when(projectMapper.selectByCodeAndStage("P007", "P2")).thenReturn(project("P007", "P007项目", "P2"));
+        when(projectKpiMapper.selectList(any())).thenReturn(List.of(pkpi("AIM", "P2", "ceshi22")));
+        when(employeeMapper.selectById("ASSESSOR1")).thenReturn(employee("ASSESSOR1", null, null, "评估人甲"));
+        when(employeeMapper.selectById("E004")).thenReturn(employee("E004", "研发技术类", "整椅研发岗", "祝工"));
+        when(funcKpiMapper.selectList(any())).thenReturn(List.of());
+        when(periodMapper.selectById("ceshizhouqi2")).thenReturn(period("ceshizhouqi2", "测试周期2"));
+
+        List<MyAssessmentItem> items = service.getMyAssessment();
+
+        assertEquals(1, items.size(), "周期已发起后不应再补待发起行");
+        MyAssessmentItem it = items.get(0);
+        assertEquals("ceshizhouqi2", it.getPeriodId());
+        assertEquals("PENDING", it.getStatus());
+        assertEquals("测试周期2", it.getPeriodName());
+    }
+
+    // ========================================
+    // 8. 旧周期有任务 + 新周期未发起参与 → 两者都显示、不互相吞
+    // ========================================
+    @Test
+    void shouldShowOldTaskAndNewPendingParticipation() {
+        setAuth("zhugong", "E004");
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of(
+                assignment("P007", "P2", "AIM", "E004")));
+
+        AssessmentTask oldTask = new AssessmentTask();
+        oldTask.setId(1L);
+        oldTask.setAssesseeId("E004");
+        oldTask.setAssessorId("ASSESSOR1");
+        oldTask.setTaskType("PROJECT");
+        oldTask.setProjectCode("P007");
+        oldTask.setProjectStage("P2");
+        oldTask.setStatus("CONFIRMED");
+        oldTask.setPeriodId("OLD-1");
+        when(taskMapper.selectList(any())).thenReturn(List.of(oldTask));
+
+        when(participationMapper.selectList(any())).thenReturn(List.of(
+                participation("E004", "P007", "P2", "NEW-1")));
+
+        when(projectMapper.selectByCodeAndStage("P007", "P2")).thenReturn(project("P007", "P007项目", "P2"));
+        when(projectKpiMapper.selectList(any())).thenReturn(List.of(pkpi("AIM", "P2", "ceshi22")));
+        when(employeeMapper.selectById("ASSESSOR1")).thenReturn(employee("ASSESSOR1", null, null, "评估人甲"));
+        when(employeeMapper.selectById("E004")).thenReturn(employee("E004", "研发技术类", "整椅研发岗", "祝工"));
+        when(funcKpiMapper.selectList(any())).thenReturn(List.of());
+        when(periodMapper.selectById("OLD-1")).thenReturn(period("OLD-1", "旧周期"));
+
+        List<MyAssessmentItem> items = service.getMyAssessment();
+
+        assertEquals(2, items.size(), "旧周期任务与新周期待发起应同时显示");
+        MyAssessmentItem oldItem = items.get(0);
+        assertEquals("OLD-1", oldItem.getPeriodId());
+        assertEquals("CONFIRMED", oldItem.getStatus());
+        MyAssessmentItem pendingItem = items.get(1);
+        assertEquals("待发起", pendingItem.getStatus());
+        assertNull(pendingItem.getPeriodId());
+        assertEquals("-", pendingItem.getAssessorName());
+    }
+
+    // ========================================
+    // 9. 有职能 KPI 配置 + 已审批参与但周期未发起 → 补职能「待发起」行（与项目 KPI 同逻辑）
+    // ========================================
+    @Test
+    void shouldShowFunctionalNotLaunchedRowWhenApprovedParticipationWithoutTask() {
+        setAuth("zhugong", "E004");
+        // 无项目角色分配 → 无 PROJECT 项
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of());
+        // 无任务
+        when(taskMapper.selectList(any())).thenReturn(List.of());
+        // 有一条已审批参与（周期 ceshizhouqi2）
+        when(participationMapper.selectList(any())).thenReturn(List.of(
+                participation("E004", "P007", "P2", "ceshizhouqi2")));
+        // 有职能 KPI 配置
+        when(employeeMapper.selectById("E004")).thenReturn(employee("E004", "AI技术类", "AI产品岗", "祝工"));
+        FuncKpiConfig fk = new FuncKpiConfig();
+        fk.setKpiName("职能KPI1");
+        fk.setWeight(new BigDecimal("0.5"));
+        fk.setEvaluationCriteria("评价标准");
+        fk.setSortOrder(1);
+        fk.setIsActive(true);
+        when(funcKpiMapper.selectList(any())).thenReturn(List.of(fk));
+
+        List<MyAssessmentItem> items = service.getMyAssessment();
+
+        assertEquals(1, items.size(), "已审批参与未发起周期应补职能「待发起」行");
+        MyAssessmentItem it = items.get(0);
+        assertEquals("FUNCTIONAL", it.getTaskType());
+        assertEquals("待发起", it.getStatus());
+        assertEquals("-", it.getAssessorName());
+        assertEquals(1, it.getKpis().size());
+        assertEquals("职能KPI1", it.getKpis().get(0).getKpiName());
     }
 }

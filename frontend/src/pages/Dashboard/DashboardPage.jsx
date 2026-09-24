@@ -39,6 +39,16 @@ const DISCREPANCY_TYPE_MAP = {
   NO_ASSESSOR: { label: '无考核人', color: 'red' },
   NO_LEADER: { label: '无直属上级', color: 'red' },
   NO_PRIMARY_ASSESSOR: { label: '角色未标主', color: 'volcano' },
+  NO_PRESIDENT: { label: '缺负责总裁', color: 'red' },
+};
+
+// 功能：差异类型→跳转目标映射——ADMIN 点「去处理」跳到对应配置页
+const DISCREPANCY_TYPE_LINK = {
+  NO_POSITION_CONFIG: { to: '/position-config', label: '去配置岗位' },
+  NO_LEADER: { to: '/employee-management', label: '去补上级' },
+  NO_ASSESSOR: { to: '/project/assignment-summary', label: '去分配考核人' },
+  NO_PRIMARY_ASSESSOR: { to: '/project/assignment-summary', label: '去标主' },
+  NO_PRESIDENT: { to: '/project/list', label: '去分配总裁' },
 };
 
 // 功能：从后端返回的5项数据中查找对应卡片的count，projectKpi使用kpi聚合值
@@ -51,6 +61,17 @@ function resolveCount(backendItems, cardKey) {
   return item ? item.count : 0;
 }
 
+// 功能：待处理任务跳转目标——按登录角色区分（总裁=总裁确认/PD=考核校准/评估人=考核任务/员工&PM=项目参与/ADMIN=项目列表）
+function resolvePendingLink(roles) {
+  if (roles.includes('ROLE_总裁')) return '/president-confirm';
+  if (roles.includes('ROLE_PD')) return '/period-config';
+  if (roles.includes('ROLE_评估人')) return '/tasks';
+  if (roles.includes('ROLE_员工')) return '/participation';
+  if (roles.includes('ROLE_PM')) return '/participation';
+  if (roles.includes('ROLE_ADMIN')) return '/project/list';
+  return '/tasks';
+}
+
 function DashboardPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -59,7 +80,9 @@ function DashboardPage() {
   const [rolesLoaded, setRolesLoaded] = useState(false);
   const [isConfigRole, setIsConfigRole] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [userRoles, setUserRoles] = useState([]);
   const [discrepancies, setDiscrepancies] = useState([]);
+  const [resolvingIds, setResolvingIds] = useState(new Set());
   const navigate = useNavigate();
 
   const mountedRef = useRef(true);
@@ -69,10 +92,12 @@ function DashboardPage() {
     client.get('/auth/me').then((res) => {
       const data = res.data || res;
       const roles = data.roles || [];
+      setUserRoles(roles);
       setIsConfigRole(roles.includes('ROLE_ADMIN') || roles.includes('ROLE_PM'));
       setIsAdmin(roles.includes('ROLE_ADMIN'));
       setRolesLoaded(true);
     }).catch(() => {
+      setUserRoles([]);
       setIsConfigRole(false);
       setIsAdmin(false);
       setRolesLoaded(true);
@@ -118,6 +143,21 @@ function DashboardPage() {
       }
     } catch (_) { /* 非关键 */ }
   }, []);
+
+  // 功能：标记差异已处理——调用销账端点后刷新差异列表与待处理数
+  const handleResolve = useCallback(async (id) => {
+    setResolvingIds((prev) => new Set(prev).add(id));
+    try {
+      await client.post(`/dashboard/discrepancies/${id}/resolve`);
+      await Promise.all([fetchDiscrepancies(), fetchPendingCount()]);
+    } catch (_) { /* 非关键 */ } finally {
+      setResolvingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, [fetchDiscrepancies, fetchPendingCount]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -177,17 +217,17 @@ function DashboardPage() {
         breadcrumb={[{ title: '首页' }]}
       />
 
-      {/* 功能：待处理任务卡——全员可见，显示按角色区分的待处理数 */}
+      {/* 功能：待处理任务/差异卡——全员可见；ADMIN 显示「待处理差异」且无跳转（明细在下方差异报告卡） */}
       <Card id="dashboard-pending-card" style={{ borderRadius: 8, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <Badge count={pendingCount} size="small">
             <CarryOutOutlined style={{ fontSize: 28, color: '#1890FF' }} />
           </Badge>
-          <span style={{ fontSize: 14, fontWeight: 500 }}>待处理任务</span>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>{isAdmin ? '待处理差异' : '待处理任务'}</span>
           <span style={{ fontSize: 20, fontWeight: 600, color: pendingCount > 0 ? '#FA8C16' : '#52C41A' }}>
             {pendingCount}
           </span>
-          <Button type="link" onClick={() => navigate('/tasks')}>查看任务 →</Button>
+          <Button type="link" onClick={() => navigate(resolvePendingLink(userRoles))}>查看 →</Button>
         </div>
       </Card>
 
@@ -206,10 +246,34 @@ function DashboardPage() {
               dataSource={discrepancies}
               renderItem={(d) => {
                 const meta = DISCREPANCY_TYPE_MAP[d.type] || { label: d.type || '未知类型', color: 'default' };
+                const link = DISCREPANCY_TYPE_LINK[d.type];
+                const subject = d.employeeName ? `${d.employeeName}（${d.employeeId}）` : (d.employeeId || '未知员工');
+                const project = d.projectName || d.projectCode
+                  ? `${d.projectName || '未知项目'}${d.projectCode ? `（${d.projectCode}）` : ''}`
+                  : '';
                 return (
-                  <List.Item>
+                  <List.Item style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 8 }}>
                     <Tag color={meta.color} style={{ flexShrink: 0 }}>{meta.label}</Tag>
-                    <span style={{ color: '#595959' }}>{d.detail}</span>
+                    <div style={{ flex: '1 1 auto', minWidth: 220 }}>
+                      <div>
+                        <span style={{ fontWeight: 500 }}>{subject}</span>
+                        {project && <span style={{ color: '#595959', marginLeft: 8 }}>{project}</span>}
+                      </div>
+                      <div style={{ color: '#8C8C8C', marginTop: 2 }}>{d.detail}</div>
+                    </div>
+                    {link && (
+                      <Button type="link" size="small" onClick={() => navigate(link.to)}>
+                        {link.label}
+                      </Button>
+                    )}
+                    <Button
+                      type="link"
+                      size="small"
+                      loading={resolvingIds.has(d.id)}
+                      onClick={() => handleResolve(d.id)}
+                    >
+                      已处理
+                    </Button>
                   </List.Item>
                 );
               }}

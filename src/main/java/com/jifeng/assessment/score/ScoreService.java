@@ -21,6 +21,8 @@ import com.jifeng.assessment.task.TaskStatus;
 import com.jifeng.assessment.user.SysUser;
 import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -28,13 +30,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
@@ -46,6 +53,10 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
     private final FuncKpiMapper funcKpiMapper;
     private final SysUserMapper sysUserMapper;
     private final PeriodService periodService;
+
+    // 凭证上传目录，与 EvidenceController 同源（可被 app.upload-dir 覆盖）
+    @Value("${app.upload-dir:./uploads/evidence}")
+    private String uploadDir;
 
     private static final BigDecimal MIN_SCORE = new BigDecimal("1.0");
     private static final BigDecimal MAX_SCORE = new BigDecimal("5.0");
@@ -195,7 +206,8 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         // 不改变 task 状态
     }
 
-    // 功能：凭证上传——校验文件大小≤10MB，返回访问 URL
+    // 功能：凭证上传——校验文件大小≤10MB，先把文件落盘，成功后才更新 DB 并返回访问 URL；
+    //   落盘失败直接抛 500，绝不返回 URL 造成「误报成功」
     @Transactional
     public String uploadEvidence(Long scoreId, MultipartFile file) {
         AssessmentScore score = baseMapper.selectById(scoreId);
@@ -217,14 +229,26 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
             throw new BusinessException(400, "文件大小超过10MB限制");
         }
 
-        // 生成访问 URL（Phase 2.0 简化为占位 URL，文件存储由对象存储服务承接）
+        // 生成文件名：UUID 裸名 + 原扩展名（无路径分隔符，天然防路径穿越）
         String ext = "";
         String originalName = file.getOriginalFilename();
         if (originalName != null && originalName.contains(".")) {
             ext = originalName.substring(originalName.lastIndexOf('.'));
         }
-        String url = "/uploads/evidence/" + UUID.randomUUID().toString().replace("-", "") + ext;
+        String filename = UUID.randomUUID().toString().replace("-", "") + ext;
 
+        // 实际落盘：先写文件，成功后再更新 DB 与返回 URL
+        Path dir = Paths.get(uploadDir);
+        Path target = dir.resolve(filename);
+        try {
+            Files.createDirectories(dir);
+            file.transferTo(target);
+        } catch (IOException e) {
+            log.error("凭证文件保存失败: {}", filename, e);
+            throw new BusinessException(500, "凭证文件保存失败，请稍后重试");
+        }
+
+        String url = "/api/v1/evidence/" + filename;
         score.setEvidenceUrl(url);
         score.setUpdatedAt(LocalDateTime.now());
         baseMapper.updateById(score);

@@ -64,4 +64,11 @@ public class TaskController extends BaseController {
     public ApiResponse<TaskGeneratorService.LaunchResult> launch(@PathVariable String periodId) {
         return ok(taskGeneratorService.launch(periodId));
     }
+
+    // 功能：发起考核预检——ADMIN 触发，dry-run 复用 launch 差异检测逻辑，返回将生成的差异清单（不生成任务、不改周期状态）
+    @GetMapping("/{periodId}/launch-preview")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<TaskGeneratorService.LaunchPreview> launchPreview(@PathVariable String periodId) {
+        return ok(taskGeneratorService.previewLaunch(periodId));
+    }
 }

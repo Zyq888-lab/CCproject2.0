@@ -1,13 +1,13 @@
-{/* 模块用途：ConfirmPage——总裁确认页：就绪一句话 + 关键统计 + 确认并发布(强保护二次确认) + 矩阵 drill-down */}
-{/* 依赖组件：PageHeader, client.js, Ant Design Card/Button/Modal/Input/Table/Tag/Alert/Statistic */}
-{/* 修改注意：确认动作为强保护二次确认——后果文案 + 输入周期名一致才可提交（D9）；确认后周期 CONFIRMED，结果对员工可见 */}
+{/* 模块用途：ConfirmPage——总裁确认页（已废弃）：保留校准矩阵只读视图，确认动作已迁移至「总裁确认」逐项目流程 */}
+{/* 依赖组件：PageHeader, client.js, Ant Design Card/Button/Table/Tag/Alert/Spin/Result/Row/Col */}
+{/* 修改注意：原 PUT /periods/{periodId}/confirm 已废弃（后端已移除）；逐项目确认由总裁在「总裁确认」页操作，发布由 ADMIN 在周期页触发 */}
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Button, Table, Tag, Modal, Input, Spin, Result, Alert, message, Row, Col,
+  Card, Button, Table, Tag, Spin, Result, Alert, Row, Col,
 } from 'antd';
 import {
-  ArrowLeftOutlined, CheckCircleOutlined, RiseOutlined, FallOutlined, EditOutlined,
+  ArrowLeftOutlined, ArrowRightOutlined, RiseOutlined, FallOutlined, EditOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import client from '../../api/client';
@@ -21,12 +21,9 @@ function ConfirmPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [confirmVisible, setConfirmVisible] = useState(false);
-  const [confirmName, setConfirmName] = useState('');
-  const [confirming, setConfirming] = useState(false);
   const mountedRef = useRef(true);
 
-  // 功能：加载校准矩阵——汇总 + 离群 + 改分统计，供总裁确认页派生就绪度与统计
+  // 功能：加载校准矩阵——汇总 + 离群 + 改分统计，供只读查看
   const fetchData = async () => {
     setLoading(true);
     setError(null);
@@ -53,22 +50,6 @@ function ConfirmPage() {
   const avgScore = submittedCount
     ? rows.reduce((s, r) => s + Number(r.adjustedScore ?? 0), 0) / submittedCount
     : null;
-
-  // 功能：确认发布——PUT confirm；400/409 表示状态已变更，提示并刷新
-  const doConfirm = async () => {
-    setConfirming(true);
-    try {
-      await client.put(`/periods/${periodId}/confirm`);
-      message.success({ content: '已确认发布，员工现可查看考核结果', duration: 4 });
-      navigate('/period-config');
-    } catch (err) {
-      message.error({ content: err?.message || '确认发布失败' });
-      setConfirmVisible(false);
-      fetchData();
-    } finally {
-      setConfirming(false);
-    }
-  };
 
   // 功能：离群标记——红↑偏高 / 蓝↓偏低（只读展示，与校准矩阵一致）
   const renderOutlier = (_, row) => {
@@ -135,18 +116,20 @@ function ConfirmPage() {
   return (
     <div id="confirm-page-area">
       <PageHeader
-        title={`总裁确认 — ${data?.periodName || periodId}`}
+        title={`总裁确认（只读） — ${data?.periodName || periodId}`}
         breadcrumb={[{ title: '首页', path: '/dashboard' }, { title: '考核周期', path: '/period-config' }]}
         actions={[
           { label: '返回周期列表', icon: <ArrowLeftOutlined />, onClick: () => navigate('/period-config') },
-          {
-            label: '确认并发布',
-            icon: <CheckCircleOutlined />,
-            type: 'primary',
-            danger: true,
-            onClick: () => { setConfirmName(''); setConfirmVisible(true); },
-          },
+          { label: '前往总裁确认', icon: <ArrowRightOutlined />, type: 'primary', onClick: () => navigate('/president-confirm') },
         ]}
+      />
+
+      {/* 功能：废弃提示——逐项目确认已迁移到「总裁确认」页，发布由 ADMIN 在周期页操作 */}
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="本页已废弃：总裁逐项目确认请前往「总裁确认」页面；全部项目确认通过后由 ADMIN 在考核周期页点击「发布」。"
       />
 
       {error && data && (
@@ -207,36 +190,6 @@ function ConfirmPage() {
           locale={{ emptyText: '暂无校准结果' }}
         />
       </Card>
-
-      {/* 功能：强保护二次确认——后果文案 + 输入周期名一致才可提交（D9） */}
-      <Modal
-        title="确认发布考核结果"
-        open={confirmVisible}
-        onOk={doConfirm}
-        onCancel={() => setConfirmVisible(false)}
-        okText="确认发布"
-        okButtonProps={{ danger: true, disabled: confirmName.trim() !== data?.periodName }}
-        cancelText="取消"
-        confirmLoading={confirming}
-        width={480}
-        centered
-      >
-        <div style={{ marginBottom: 16, lineHeight: 1.7 }}>
-          <p style={{ fontWeight: 500, marginBottom: 8 }}>发布后：</p>
-          <ul style={{ paddingLeft: 20, color: '#595959', marginBottom: 8 }}>
-            <li>所有员工将立即看到各自的最终考核结果；</li>
-            <li>校准数据将锁定，<b>不可再改分</b>；</li>
-            <li>此操作<b>不可撤销</b>，请确认校准已完成。</li>
-          </ul>
-          <p style={{ color: '#FF4D4F' }}>请输入周期名称「{data?.periodName}」以确认发布：</p>
-        </div>
-        <Input
-          placeholder="请输入周期名称"
-          value={confirmName}
-          onChange={(e) => setConfirmName(e.target.value)}
-          onPressEnter={() => { if (confirmName.trim() === data?.periodName) doConfirm(); }}
-        />
-      </Modal>
     </div>
   );
 }

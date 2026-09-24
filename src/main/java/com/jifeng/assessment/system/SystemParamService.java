@@ -3,10 +3,12 @@
 // 修改注意：param_key 不可修改（业务主键），批量更新任一失败则整体回滚
 package com.jifeng.assessment.system;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jifeng.assessment.common.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -20,6 +22,14 @@ public class SystemParamService {
     // 功能：查询所有系统参数
     public List<SystemParam> listAll() {
         return systemParamMapper.selectList(null);
+    }
+
+    // 功能：按 key 查询参数值——不存在或为空时回退默认值
+    public String getValueOrDefault(String key, String defaultValue) {
+        SystemParam param = systemParamMapper.selectOne(
+                new LambdaQueryWrapper<SystemParam>().eq(SystemParam::getParamKey, key));
+        return (param != null && StringUtils.hasText(param.getParamValue()))
+                ? param.getParamValue() : defaultValue;
     }
 
     // 功能：批量更新系统参数——乐观锁防并发，任一冲突则整体回滚

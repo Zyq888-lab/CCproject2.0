@@ -84,7 +84,7 @@ class ScoreServiceTest {
     // 辅助方法：stub 任务指标集解析为单个指标 100/PROJECT（匹配 validItem）
     private void stubIndicators() {
         when(taskService.resolveIndicators(any()))
-                .thenReturn(List.of(new KpiIndicatorDTO(100L, "PROJECT", "项目KPI", BigDecimal.ONE, null, null)));
+                .thenReturn(List.of(new KpiIndicatorDTO(100L, "PROJECT", "项目KPI", BigDecimal.ONE, null, null, null)));
     }
 
     // ========================================
@@ -164,8 +164,8 @@ class ScoreServiceTest {
         when(taskMapper.selectById(1L)).thenReturn(inProgressTask);
         // 任务实际需要两个指标，只提交一个 → 指标集不完整
         when(taskService.resolveIndicators(any())).thenReturn(List.of(
-                new KpiIndicatorDTO(100L, "PROJECT", "指标A", BigDecimal.ONE, null, null),
-                new KpiIndicatorDTO(200L, "PROJECT", "指标B", BigDecimal.ONE, null, null)));
+                new KpiIndicatorDTO(100L, "PROJECT", "指标A", BigDecimal.ONE, null, null, null),
+                new KpiIndicatorDTO(200L, "PROJECT", "指标B", BigDecimal.ONE, null, null, null)));
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> scoreService.submit(1L, List.of(validItem())));

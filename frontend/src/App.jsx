@@ -4,6 +4,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import LoginPage from './pages/Login/LoginPage';
+import ChangePasswordPage from './pages/Login/ChangePasswordPage';
 import DashboardPage from './pages/Dashboard/DashboardPage';
 import EmployeeListPage from './pages/Employee/EmployeeListPage';
 import UserRolePage from './pages/UserRole/UserRolePage';
@@ -24,6 +25,7 @@ import NotificationListPage from './pages/Notification/NotificationListPage';
 import PeriodMonitorPage from './pages/PeriodMonitor/PeriodMonitorPage';
 import CalibrationMatrixPage from './pages/Calibration/CalibrationMatrixPage';
 import ConfirmPage from './pages/Confirm/ConfirmPage';
+import PresidentConfirmPage from './pages/PresidentConfirm/PresidentConfirmPage';
 import ResultPage from './pages/Result/ResultPage';
 import MyResultPage from './pages/Result/MyResultPage';
 
@@ -33,6 +35,9 @@ function App() {
       <Routes>
         {/* 功能：登录页——公开访问，不走AppLayout包裹 */}
         <Route path="/login" element={<LoginPage />} />
+
+        {/* 功能：强制改密页——公开访问（首登改密时仍在会话内，但不走AppLayout以免触发业务接口403） */}
+        <Route path="/change-password" element={<ChangePasswordPage />} />
 
         {/* 功能：所有需登录页面——由AppLayout包裹，通过<Outlet />渲染子路由 */}
         <Route element={<AppLayout />}>
@@ -60,6 +65,7 @@ function App() {
           <Route path="/period-monitor/:periodId" element={<PeriodMonitorPage />} />
           <Route path="/period-calibration/:periodId" element={<CalibrationMatrixPage />} />
           <Route path="/period-confirm/:periodId" element={<ConfirmPage />} />
+          <Route path="/president-confirm" element={<PresidentConfirmPage />} />
           <Route path="/period-result/:periodId" element={<ResultPage />} />
           <Route path="/my-result" element={<MyResultPage />} />
         </Route>

@@ -26,7 +26,7 @@ public class RoleAssignmentController extends BaseController {
 
     // 功能：查询项目下所有角色分配，返回含员工姓名的分配列表
     @GetMapping("/api/v1/projects/{projectCode}/{projectStage}/assignments")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '总裁')")
     public ApiResponse<List<ProjectRoleAssignmentDTO>> list(
             @PathVariable String projectCode, @PathVariable String projectStage) {
         return ok(roleAssignmentService.listAssignments(projectCode, projectStage));
@@ -34,7 +34,7 @@ public class RoleAssignmentController extends BaseController {
 
     // 功能：跨项目角色分配汇总查询——四表JOIN，支持多条件筛选和分页
     @GetMapping("/api/v1/projects/assignments/summary")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '总裁')")
     public ApiResponse<PageResult<ProjectRoleAssignmentSummaryDTO>> listSummary(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -87,6 +87,15 @@ public class RoleAssignmentController extends BaseController {
             @PathVariable Long assignmentId) {
         roleAssignmentService.removeAssignment(assignmentId);
         return ok("已移除", null);
+    }
+
+    // 功能：跨阶段同步主总裁——将当前阶段主总裁分配到同项目其它阶段（PRESIDENT 角色专用）
+    @PostMapping("/api/v1/projects/{projectCode}/president/sync-stages")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM') and !hasRole('PD')")
+    public ApiResponse<Map<String, Object>> syncPresident(
+            @PathVariable String projectCode,
+            @RequestParam String sourceStage) {
+        return ok(roleAssignmentService.syncPresidentAcrossStages(projectCode, sourceStage));
     }
 
     // 功能：批量导入角色分配——逐行处理，跳过已存在的分配

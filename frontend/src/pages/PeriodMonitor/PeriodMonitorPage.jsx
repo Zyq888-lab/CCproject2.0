@@ -14,43 +14,58 @@ import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import client from '../../api/client';
 
-const STATUS_LABEL_MAP = {
-  PENDING: '待评分',
-  IN_PROGRESS: '评分中',
-  SUBMITTED: '已提交',
-  CONFIRMED: '已确认',
-  CANCELED: '已取消',
+// 状态文案与审批节点文案由后端按任务真实状态映射返回（r.status / r.nodeLabel 已是中文），前端只负责颜色与覆盖
+const STATUS_COLOR_MAP = {
+  待评分: 'orange',
+  评分中: 'blue',
+  已提交: 'green',
+  已确认: 'cyan',
+  已取消: 'default',
+  待校准: 'warning',
+  已校准: 'success',
 };
 
-const STATUS_COLOR_MAP = {
-  PENDING: 'orange',
-  IN_PROGRESS: 'blue',
-  SUBMITTED: 'green',
-  CONFIRMED: 'cyan',
-  CANCELED: 'default',
-};
+const STATUS_OPTIONS = ['待评分', '评分中', '已提交', '已确认', '已取消', '待校准', '已校准']
+  .map((label) => ({ value: label, label }));
 
 const TASK_TYPE_LABEL = { PROJECT: '项目考核', FUNCTIONAL: '职能考核' };
 
 // 功能：权重格式化——DECIMAL 小数转百分比，如 0.5 → 50%
 const formatWeight = (w) => (w != null ? `${Math.round(Number(w) * 100)}%` : '-');
 
-// 功能：当前审批节点——由任务状态推导当前流转到哪一步
-const NODE_LABEL_MAP = {
-  PENDING: '待评估人评分',
-  IN_PROGRESS: '评估人评分中',
-  SUBMITTED: '待确认',
-  CONFIRMED: '已完成',
-  CANCELED: '已取消',
-};
-
-// 功能：当前审批节点文案——CALIBRATING 期按校准提交状态映射（未提交=待校准；已提交=待总裁确认），
-//   其余状态沿用任务状态映射 NODE_LABEL_MAP
+// 功能：当前审批节点文案——CALIBRATING 期按项目级总裁确认状态优先（APPROVED=总裁已确认/RETURNED=退回待重提），
+//   再回落校准提交状态（该项目未提交=待校准；已提交=总裁确认中）；PUBLISHED 期显示已发布，其余沿用后端映射的 nodeLabel
 const resolveNodeLabel = (r) => {
   if (r?.periodStatus === 'CALIBRATING') {
-    return r.calibrationSubmittedAt ? '待总裁确认' : '待校准';
+    if (r.confirmationStatus === 'APPROVED') return '总裁已确认';
+    if (r.confirmationStatus === 'RETURNED') return '退回待重提';
+    return r.nodeLabel || '-';
   }
-  return NODE_LABEL_MAP[r.status] || '-';
+  if (r?.periodStatus === 'CONFIRMED') {
+    return '待发布';
+  }
+  if (r?.periodStatus === 'PUBLISHED') {
+    return '已发布';
+  }
+  return r.nodeLabel || '-';
+};
+
+// 功能：状态列文案——CALIBRATING 期按总裁确认状态覆盖任务级状态（APPROVED=已确认 / RETURNED=已退回）
+const resolveStatusLabel = (r) => {
+  if (r?.periodStatus === 'CALIBRATING') {
+    if (r.confirmationStatus === 'APPROVED') return '已确认';
+    if (r.confirmationStatus === 'RETURNED') return '已退回';
+  }
+  return r.status || '-';
+};
+
+// 功能：状态列颜色——与 resolveStatusLabel 同口径
+const resolveStatusColor = (r) => {
+  if (r?.periodStatus === 'CALIBRATING') {
+    if (r.confirmationStatus === 'APPROVED') return 'cyan';
+    if (r.confirmationStatus === 'RETURNED') return 'red';
+  }
+  return STATUS_COLOR_MAP[r.status] || 'default';
 };
 
 function PeriodMonitorPage() {
@@ -59,7 +74,7 @@ function PeriodMonitorPage() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filters, setFilters] = useState({ status: '', project: '', employee: '' });
+  const [filters, setFilters] = useState({ status: '', project: '', employee: '', node: '' });
   const [detail, setDetail] = useState(null);
   const mountedRef = useRef(true);
 
@@ -92,12 +107,14 @@ function PeriodMonitorPage() {
   const employeeOptions = [...new Map(
     data.map((r) => [r.employeeId, r.employeeName || r.employeeId]),
   ).entries()].map(([value, label]) => ({ value, label }));
+  const nodeOptions = [...new Set(data.map((r) => resolveNodeLabel(r)))].map((label) => ({ value: label, label }));
 
-  // 功能：客户端筛选——状态/项目/员工
+  // 功能：客户端筛选——状态/项目/员工/当前审批节点
   const filteredData = data.filter((r) => {
     if (filters.status && r.status !== filters.status) return false;
     if (filters.project && r.projectCode !== filters.project) return false;
     if (filters.employee && r.employeeId !== filters.employee) return false;
+    if (filters.node && resolveNodeLabel(r) !== filters.node) return false;
     return true;
   });
 
@@ -107,7 +124,7 @@ function PeriodMonitorPage() {
       员工: r.employeeName || r.employeeId || '-',
       项目: r.projectName || r.projectCode || '-',
       任务类型: TASK_TYPE_LABEL[r.taskType] || r.taskType || '-',
-      状态: STATUS_LABEL_MAP[r.status] || r.status || '-',
+      状态: resolveStatusLabel(r),
       当前审批节点: resolveNodeLabel(r),
       当前审批人: r.currentApproverName || r.currentApproverId || '-',
       评分进度: r.kpiCount ? `${r.scoredCount ?? 0}/${r.kpiCount}` : '-',
@@ -132,7 +149,7 @@ function PeriodMonitorPage() {
     { title: '任务类型', dataIndex: 'taskType', key: 'taskType', width: 100,
       render: (t) => TASK_TYPE_LABEL[t] || t || '-' },
     { title: '状态', dataIndex: 'status', key: 'status', width: 100,
-      render: (s) => <Tag color={STATUS_COLOR_MAP[s] || 'default'}>{STATUS_LABEL_MAP[s] || s || '-'}</Tag> },
+      render: (_, r) => <Tag color={resolveStatusColor(r)}>{resolveStatusLabel(r)}</Tag> },
     { title: '当前审批节点', dataIndex: 'currentNode', key: 'currentNode', width: 160,
       render: (_, r) => resolveNodeLabel(r) },
     { title: '当前审批人', dataIndex: 'currentApproverName', key: 'currentApproverName', width: 120,
@@ -187,13 +204,18 @@ function PeriodMonitorPage() {
         </div>
       )}
 
-      {/* 功能：PD 提交状态提示——仅 CALIBRATING 阶段展示（calibrationSubmittedAt 有值=已提交） */}
+      {/* 功能：项目级确认汇总提示——仅 CALIBRATING 阶段展示，按已确认项目数/需确认项目数计算 */}
       {data[0]?.periodStatus === 'CALIBRATING' && (
         <Alert
-          type={data[0]?.calibrationSubmittedAt ? 'success' : 'warning'}
+          type={
+            (data[0]?.confirmationProjectCount ?? 0) > 0
+            && (data[0]?.confirmedProjectCount ?? 0) >= data[0]?.confirmationProjectCount
+              ? 'success'
+              : 'warning'
+          }
           showIcon
           style={{ marginBottom: 16 }}
-          message={data[0]?.calibrationSubmittedAt ? 'PD 已提交校准，待总裁确认' : 'PD 尚未提交校准'}
+          message={`${data[0]?.confirmedProjectCount ?? 0}/${data[0]?.confirmationProjectCount ?? 0} 个项目已确认`}
         />
       )}
 
@@ -206,7 +228,7 @@ function PeriodMonitorPage() {
             onChange={(v) => setFilters((f) => ({ ...f, status: v || '' }))}
             allowClear
             style={{ width: 140 }}
-            options={Object.entries(STATUS_LABEL_MAP).map(([value, label]) => ({ value, label }))}
+            options={STATUS_OPTIONS}
           />
           <Select
             placeholder="按项目筛选"
@@ -228,7 +250,15 @@ function PeriodMonitorPage() {
             style={{ width: 180 }}
             options={employeeOptions}
           />
-          <Button onClick={() => setFilters({ status: '', project: '', employee: '' })}>重置</Button>
+          <Select
+            placeholder="按当前审批节点筛选"
+            value={filters.node || undefined}
+            onChange={(v) => setFilters((f) => ({ ...f, node: v || '' }))}
+            allowClear
+            style={{ width: 180 }}
+            options={nodeOptions}
+          />
+          <Button onClick={() => setFilters({ status: '', project: '', employee: '', node: '' })}>重置</Button>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/period-config')}>返回周期列表</Button>
         </Space>
       </Card>
@@ -275,9 +305,9 @@ function PeriodMonitorPage() {
               </Descriptions.Item>
               <Descriptions.Item label="任务类型">{TASK_TYPE_LABEL[detail.taskType] || detail.taskType || '-'}</Descriptions.Item>
               <Descriptions.Item label="状态">
-                <Tag color={STATUS_COLOR_MAP[detail.status] || 'default'}>{STATUS_LABEL_MAP[detail.status] || detail.status || '-'}</Tag>
+                <Tag color={resolveStatusColor(detail)}>{resolveStatusLabel(detail)}</Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="当前审批节点">{NODE_LABEL_MAP[detail.status] || '-'}</Descriptions.Item>
+              <Descriptions.Item label="当前审批节点">{resolveNodeLabel(detail)}</Descriptions.Item>
               <Descriptions.Item label="当前审批人">{detail.currentApproverName || detail.currentApproverId || '-'}</Descriptions.Item>
               <Descriptions.Item label="评分进度">{detail.kpiCount ? `${detail.scoredCount ?? 0}/${detail.kpiCount}` : '-'}</Descriptions.Item>
               <Descriptions.Item label="加权总分">{detail.totalScore != null ? Number(detail.totalScore).toFixed(2) : '-'}</Descriptions.Item>
@@ -297,6 +327,12 @@ function PeriodMonitorPage() {
                   render: (v) => formatWeight(v) },
                 { title: '得分', dataIndex: 'score', key: 'score', width: 80,
                   render: (v) => (v != null ? v : '-') },
+                { title: '证据', dataIndex: 'evidenceUrl', key: 'evidenceUrl', width: 100,
+                  render: (v) => (
+                    v
+                      ? <a href={v} target="_blank" rel="noreferrer">查看凭证</a>
+                      : <span style={{ color: '#BFBFBF' }}>凭证暂不可用</span>
+                  ) },
               ]}
             />
           </>

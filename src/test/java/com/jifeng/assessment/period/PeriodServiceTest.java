@@ -1,16 +1,39 @@
-// 模块用途：PeriodService 单元测试——覆盖CRUD、活跃周期唯一约束、状态机（INIT→ONGOING→CALIBRATING→CONFIRMED→COMPLETED + abort）
+// 模块用途：PeriodService 单元测试——覆盖CRUD、活跃周期唯一约束、状态机（INIT→ONGOING→CALIBRATING→CONFIRMED→PUBLISHED→COMPLETED + abort）
 // 依赖文件：PeriodService.java, AssessmentPeriod.java, PeriodMapper.java
 // 修改注意：@SpringBootTest + @Transactional（测试库 PostgreSQL，每个用例独立回滚）
 package com.jifeng.assessment.period;
 
+import com.jifeng.assessment.calibration.CalibrationSubmission;
+import com.jifeng.assessment.calibration.CalibrationSubmissionMapper;
 import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.confirmation.ProjectConfirmation;
+import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
+import com.jifeng.assessment.employee.Employee;
+import com.jifeng.assessment.employee.EmployeeMapper;
+import com.jifeng.assessment.project.Project;
+import com.jifeng.assessment.project.ProjectMapper;
+import com.jifeng.assessment.projectrole.ProjectRole;
+import com.jifeng.assessment.projectrole.ProjectRoleMapper;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
+import com.jifeng.assessment.task.AssessmentTask;
+import com.jifeng.assessment.task.DiscrepancyLog;
+import com.jifeng.assessment.task.DiscrepancyLogMapper;
+import com.jifeng.assessment.task.TaskMapper;
+import com.jifeng.assessment.user.SysUser;
+import com.jifeng.assessment.user.SysUserMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -24,6 +47,24 @@ class PeriodServiceTest {
     private PeriodService periodService;
     @Autowired
     private PeriodMapper periodMapper;
+    @Autowired
+    private TaskMapper taskMapper;
+    @Autowired
+    private EmployeeMapper employeeMapper;
+    @Autowired
+    private ProjectConfirmationMapper projectConfirmationMapper;
+    @Autowired
+    private DiscrepancyLogMapper discrepancyLogMapper;
+    @Autowired
+    private ProjectRoleAssignmentMapper roleAssignmentMapper;
+    @Autowired
+    private ProjectRoleMapper projectRoleMapper;
+    @Autowired
+    private SysUserMapper sysUserMapper;
+    @Autowired
+    private CalibrationSubmissionMapper calibrationSubmissionMapper;
+    @Autowired
+    private ProjectMapper projectMapper;
 
     // 辅助方法：创建测试周期
     private AssessmentPeriod createTestPeriod(String name) {
@@ -44,7 +85,13 @@ class PeriodServiceTest {
     private void walkToConfirmed(String periodId) {
         startPeriod(periodId);
         periodService.enterCalibration(periodId);
-        periodService.confirmPeriod(periodId);
+        periodService.tryConfirmPeriod(periodId);
+    }
+
+    // 辅助方法：走完整状态链到 PUBLISHED（CONFIRMED 后再发布）
+    private void walkToPublished(String periodId) {
+        walkToConfirmed(periodId);
+        periodService.publishPeriod(periodId);
     }
 
     // 功能：创建考核周期——自动生成periodId，返回完整实体
@@ -101,13 +148,13 @@ class PeriodServiceTest {
         assertEquals("INIT", init.get(0).getStatus());
     }
 
-    // 功能：完整状态链后关闭——INIT→ONGOING→CALIBRATING→CONFIRMED→COMPLETED
+    // 功能：完整状态链后关闭——INIT→ONGOING→CALIBRATING→CONFIRMED→PUBLISHED→COMPLETED
     @Test
     void shouldClosePeriod() {
         AssessmentPeriod period = createTestPeriod("2026年上半年考核");
         assertEquals("INIT", period.getStatus());
 
-        walkToConfirmed(period.getPeriodId());
+        walkToPublished(period.getPeriodId());
 
         AssessmentPeriod closed = periodService.closePeriod(period.getPeriodId());
         assertEquals("COMPLETED", closed.getStatus());
@@ -126,7 +173,7 @@ class PeriodServiceTest {
     @Test
     void shouldRejectCloseAlreadyCompleted() {
         AssessmentPeriod period = createTestPeriod("2026年上半年考核");
-        walkToConfirmed(period.getPeriodId());
+        walkToPublished(period.getPeriodId());
         periodService.closePeriod(period.getPeriodId());
 
         BusinessException ex = assertThrows(BusinessException.class,
@@ -160,16 +207,16 @@ class PeriodServiceTest {
         assertTrue(ex.getMessage().contains("开始日期不能晚于结束日期"));
     }
 
-    // 功能：未完成总裁确认（非CONFIRMED）时关闭被拒绝——防旁路
+    // 功能：未发布（仅CONFIRMED）时关闭被拒绝——防旁路（需先发布再关闭）
     @Test
-    void shouldRejectCloseBeforeConfirm() {
-        AssessmentPeriod period = createTestPeriod("未确认关闭");
-        startPeriod(period.getPeriodId());
+    void shouldRejectCloseBeforePublish() {
+        AssessmentPeriod period = createTestPeriod("未发布关闭");
+        walkToConfirmed(period.getPeriodId()); // CONFIRMED
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> periodService.closePeriod(period.getPeriodId()));
         assertEquals(400, ex.getCode());
-        assertTrue(ex.getMessage().contains("仅已确认"));
+        assertTrue(ex.getMessage().contains("仅已发布"));
     }
 
     // 功能：进入校准——ONGOING→CALIBRATING
@@ -192,26 +239,85 @@ class PeriodServiceTest {
         assertEquals(400, ex.getCode());
     }
 
-    // 功能：总裁确认——CALIBRATING→CONFIRMED
+    // 功能：周期级确认——CALIBRATING→CONFIRMED 原子翻转（tryConfirmPeriod 返回 true）
     @Test
-    void shouldConfirmPeriod() {
+    void shouldConfirmPeriodAtomically() {
         AssessmentPeriod period = createTestPeriod("确认周期");
         startPeriod(period.getPeriodId());
         periodService.enterCalibration(period.getPeriodId());
 
-        AssessmentPeriod confirmed = periodService.confirmPeriod(period.getPeriodId());
-        assertEquals("CONFIRMED", confirmed.getStatus());
+        boolean confirmed = periodService.tryConfirmPeriod(period.getPeriodId());
+
+        assertTrue(confirmed);
+        assertEquals("CONFIRMED", periodMapper.selectById(period.getPeriodId()).getStatus());
     }
 
-    // 功能：非CALIBRATING（ONGOING）时确认被拒绝——原子翻转不越级
+    // 功能：非CALIBRATING（ONGOING）时确认不翻转——返回 false 且状态不变
     @Test
-    void shouldRejectConfirmWhenNotCalibrating() {
+    void shouldNotConfirmWhenNotCalibrating() {
         AssessmentPeriod period = createTestPeriod("非校准确认");
         startPeriod(period.getPeriodId());
 
+        boolean confirmed = periodService.tryConfirmPeriod(period.getPeriodId());
+
+        assertFalse(confirmed);
+        assertEquals("ONGOING", periodMapper.selectById(period.getPeriodId()).getStatus());
+    }
+
+    // 功能：发布结果——CONFIRMED→PUBLISHED 原子翻转
+    @Test
+    void shouldPublishPeriod() {
+        AssessmentPeriod period = createTestPeriod("发布周期");
+        walkToConfirmed(period.getPeriodId());
+
+        AssessmentPeriod published = periodService.publishPeriod(period.getPeriodId());
+
+        assertEquals("PUBLISHED", published.getStatus());
+    }
+
+    // 功能：非CONFIRMED（ONGOING）时发布被拒绝
+    @Test
+    void shouldRejectPublishWhenNotConfirmed() {
+        AssessmentPeriod period = createTestPeriod("非确认发布");
+        startPeriod(period.getPeriodId()); // ONGOING
+
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> periodService.confirmPeriod(period.getPeriodId()));
+                () -> periodService.publishPeriod(period.getPeriodId()));
         assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("仅已确认"));
+    }
+
+    // 功能：进入校准时生成项目确认行 + 未分配总裁项目写 NO_PRESIDENT 差异
+    @Test
+    void shouldGenerateConfirmationAndNoPresidentDiscrepancyOnEnterCalibration() {
+        AssessmentPeriod period = createTestPeriod("无总裁差异");
+        startPeriod(period.getPeriodId());
+
+        Employee emp = seedEmployee("EMP_NOPRES");
+        AssessmentTask task = new AssessmentTask();
+        task.setPeriodId(period.getPeriodId());
+        task.setAssessorId("EMP_NOPRES");
+        task.setAssesseeId("EMP_NOPRES");
+        task.setProjectCode("PRJ_NOPRES");
+        task.setProjectStage("P2");
+        task.setTaskType("PROJECT");
+        task.setStatus("SUBMITTED");
+        taskMapper.insert(task);
+
+        periodService.enterCalibration(period.getPeriodId());
+
+        Long confirmationCount = projectConfirmationMapper.selectCount(
+                new LambdaQueryWrapper<ProjectConfirmation>()
+                        .eq(ProjectConfirmation::getPeriodId, period.getPeriodId())
+                        .eq(ProjectConfirmation::getProjectCode, "PRJ_NOPRES"));
+        assertEquals(1, confirmationCount, "应为未分配总裁项目生成 PENDING 确认行");
+
+        Long discrepancyCount = discrepancyLogMapper.selectCount(
+                new LambdaQueryWrapper<DiscrepancyLog>()
+                        .eq(DiscrepancyLog::getPeriodId, period.getPeriodId())
+                        .eq(DiscrepancyLog::getProjectCode, "PRJ_NOPRES")
+                        .eq(DiscrepancyLog::getType, "NO_PRESIDENT"));
+        assertEquals(1, discrepancyCount, "未分配总裁的项目应写入 NO_PRESIDENT 差异");
     }
 
     // 功能：强制关闭（abort）——ONGOING 直接置为 COMPLETED
@@ -224,15 +330,22 @@ class PeriodServiceTest {
         assertEquals("COMPLETED", aborted.getStatus());
     }
 
-    // 功能：PD 提交校准——CALIBRATING 周期写入当前时间，返回已带提交时间的周期
+    // 功能：PD 项目级提交校准——写入 calibration_submission，全部涉及项目提交后周期时间戳非空
     @Test
     void shouldSubmitCalibration() {
         AssessmentPeriod period = createTestPeriod("提交校准");
         startPeriod(period.getPeriodId());
+        seedEmployee("EMP_SUB");
+        seedEmployee("EMP_PD_SUB");
+        seedProject("PRJ_SUB", "P2");
+        seedUser("U_SUB", "pd_sub", "EMP_PD_SUB");
+        seedPdAssignment("PRJ_SUB", "P2", "EMP_PD_SUB");
+        seedProjectTask(period.getPeriodId(), "EMP_SUB", "PRJ_SUB", "P2");
         periodService.enterCalibration(period.getPeriodId());
 
+        auth("pd_sub", "PD");
         AssessmentPeriod submitted = periodService.submitCalibration(period.getPeriodId());
-        assertNotNull(submitted.getCalibrationSubmittedAt());
+        assertNotNull(submitted.getCalibrationSubmittedAt(), "全部涉及项目提交后周期时间戳应非空");
     }
 
     // 功能：非 CALIBRATING 周期提交校准被拒绝——400 业务异常
@@ -246,19 +359,133 @@ class PeriodServiceTest {
         assertEquals(400, ex.getCode());
     }
 
-    // 功能：提交校准幂等——重复提交不报错且保留首次提交时间
+    // 功能：总裁退回后 PD 重新提交——本 PD 名下项目的 RETURNED 确认行重置为 PENDING（项目级范围）
+    @Test
+    void shouldResetReturnedToPendingOnSubmitCalibration() {
+        AssessmentPeriod period = createTestPeriod("重新提交校准");
+        startPeriod(period.getPeriodId());
+        seedEmployee("EMP_RESUBMIT");
+        seedEmployee("EMP_PD_RESUBMIT");
+        seedProject("PRJ_RESUBMIT", "P2");
+        seedUser("U_RESUBMIT", "pd_resubmit", "EMP_PD_RESUBMIT");
+        seedPdAssignment("PRJ_RESUBMIT", "P2", "EMP_PD_RESUBMIT");
+        seedProjectTask(period.getPeriodId(), "EMP_RESUBMIT", "PRJ_RESUBMIT", "P2");
+        periodService.enterCalibration(period.getPeriodId());
+
+        ProjectConfirmation returned = new ProjectConfirmation();
+        returned.setPeriodId(period.getPeriodId());
+        returned.setProjectCode("PRJ_RESUBMIT");
+        // 使用与自动生成确认行不同的 assesseeId，避免 uk_project_confirmation (period_id, project_code, assessee_id) 冲突
+        returned.setAssesseeId("EMP_RESUBMIT_OTHER");
+        returned.setStatus("RETURNED");
+        returned.setReturnCount(1);
+        returned.setReturnReason("结果有误");
+        projectConfirmationMapper.insert(returned);
+
+        auth("pd_resubmit", "PD");
+        periodService.submitCalibration(period.getPeriodId());
+
+        ProjectConfirmation after = projectConfirmationMapper.selectById(returned.getId());
+        assertEquals("PENDING", after.getStatus(), "重新提交后 RETURNED 应重置为 PENDING");
+        assertNull(after.getReturnReason(), "重新提交后应清除退回原因");
+    }
+
+    // 功能：提交校准幂等——重复提交更新同一条记录而非新增，周期时间戳保持非空
     @Test
     void shouldBeIdempotentSubmitCalibration() {
         AssessmentPeriod period = createTestPeriod("幂等提交");
         startPeriod(period.getPeriodId());
+        seedEmployee("EMP_IDEM");
+        seedEmployee("EMP_PD_IDEM");
+        seedProject("PRJ_IDEM", "P2");
+        seedUser("U_IDEM", "pd_idem", "EMP_PD_IDEM");
+        seedPdAssignment("PRJ_IDEM", "P2", "EMP_PD_IDEM");
+        seedProjectTask(period.getPeriodId(), "EMP_IDEM", "PRJ_IDEM", "P2");
         periodService.enterCalibration(period.getPeriodId());
 
-        AssessmentPeriod first = periodService.submitCalibration(period.getPeriodId());
+        auth("pd_idem", "PD");
+        periodService.submitCalibration(period.getPeriodId());
         AssessmentPeriod second = periodService.submitCalibration(period.getPeriodId());
-        assertEquals(first.getCalibrationSubmittedAt(), second.getCalibrationSubmittedAt());
+
+        Long count = calibrationSubmissionMapper.selectCount(
+                new LambdaQueryWrapper<CalibrationSubmission>()
+                        .eq(CalibrationSubmission::getPeriodId, period.getPeriodId()));
+        assertEquals(1, count, "重复提交应更新同一条记录而非新增");
+        assertNotNull(second.getCalibrationSubmittedAt());
     }
 
-    // 功能：结果可见性由周期态推导——仅 CONFIRMED/COMPLETED 可见
+    // 功能：仅当全部 PD 提交后周期级 calibration_submitted_at 才非空——PD-A 提交后仍为空，PD-B 提交后非空
+    @Test
+    void shouldOnlySetPeriodTimestampWhenAllPdsSubmit() {
+        AssessmentPeriod period = createTestPeriod("多PD提交");
+        startPeriod(period.getPeriodId());
+        seedEmployee("EMP_A");
+        seedEmployee("EMP_B");
+        seedEmployee("EMP_PD_A");
+        seedEmployee("EMP_PD_B");
+        seedProject("PRJ_A", "P2");
+        seedProject("PRJ_B", "P2");
+        seedUser("U_PDA", "pd_a", "EMP_PD_A");
+        seedUser("U_PDB", "pd_b", "EMP_PD_B");
+        seedPdAssignment("PRJ_A", "P2", "EMP_PD_A");
+        seedPdAssignment("PRJ_B", "P2", "EMP_PD_B");
+        seedProjectTask(period.getPeriodId(), "EMP_A", "PRJ_A", "P2");
+        seedProjectTask(period.getPeriodId(), "EMP_B", "PRJ_B", "P2");
+        periodService.enterCalibration(period.getPeriodId());
+
+        auth("pd_a", "PD");
+        periodService.submitCalibration(period.getPeriodId());
+        assertNull(periodMapper.selectById(period.getPeriodId()).getCalibrationSubmittedAt(),
+                "仅 PD-A 提交，周期级时间戳应仍为空");
+
+        auth("pd_b", "PD");
+        AssessmentPeriod all = periodService.submitCalibration(period.getPeriodId());
+        assertNotNull(all.getCalibrationSubmittedAt(), "全部 PD 提交后周期级时间戳应非空");
+    }
+
+    // 功能：多项目员工逐项目生成确认行——同一员工在两个项目各生成一行（修复 minBy(id) 丢项目缺陷）
+    @Test
+    void shouldGenerateConfirmationPerProjectForMultiProjectEmployee() {
+        AssessmentPeriod period = createTestPeriod("多项目确认");
+        startPeriod(period.getPeriodId());
+        seedEmployee("EMP_MULTI");
+
+        AssessmentTask t1 = new AssessmentTask();
+        t1.setPeriodId(period.getPeriodId());
+        t1.setAssessorId("EMP_MULTI");
+        t1.setAssesseeId("EMP_MULTI");
+        t1.setProjectCode("PRJ_M1");
+        t1.setProjectStage("P2");
+        t1.setTaskType("PROJECT");
+        t1.setStatus("SUBMITTED");
+        taskMapper.insert(t1);
+        AssessmentTask t2 = new AssessmentTask();
+        t2.setPeriodId(period.getPeriodId());
+        t2.setAssessorId("EMP_MULTI");
+        t2.setAssesseeId("EMP_MULTI");
+        t2.setProjectCode("PRJ_M2");
+        t2.setProjectStage("P2");
+        t2.setTaskType("PROJECT");
+        t2.setStatus("SUBMITTED");
+        taskMapper.insert(t2);
+
+        periodService.enterCalibration(period.getPeriodId());
+
+        Long m1 = projectConfirmationMapper.selectCount(
+                new LambdaQueryWrapper<ProjectConfirmation>()
+                        .eq(ProjectConfirmation::getPeriodId, period.getPeriodId())
+                        .eq(ProjectConfirmation::getProjectCode, "PRJ_M1")
+                        .eq(ProjectConfirmation::getAssesseeId, "EMP_MULTI"));
+        Long m2 = projectConfirmationMapper.selectCount(
+                new LambdaQueryWrapper<ProjectConfirmation>()
+                        .eq(ProjectConfirmation::getPeriodId, period.getPeriodId())
+                        .eq(ProjectConfirmation::getProjectCode, "PRJ_M2")
+                        .eq(ProjectConfirmation::getAssesseeId, "EMP_MULTI"));
+        assertEquals(1, m1, "PRJ_M1 应为多项目员工生成确认行");
+        assertEquals(1, m2, "PRJ_M2 应为多项目员工生成确认行");
+    }
+
+    // 功能：结果可见性由周期态推导——仅 PUBLISHED/COMPLETED 可见；CONFIRMED 待发布不可见
     @Test
     void shouldDeriveResultVisibilityFromPeriodStatus() {
         AssessmentPeriod period = createTestPeriod("可见性周期");
@@ -270,10 +497,92 @@ class PeriodServiceTest {
         periodService.enterCalibration(period.getPeriodId());
         assertFalse(periodService.isResultVisible(period.getPeriodId())); // CALIBRATING
 
-        periodService.confirmPeriod(period.getPeriodId());
-        assertTrue(periodService.isResultVisible(period.getPeriodId())); // CONFIRMED
+        periodService.tryConfirmPeriod(period.getPeriodId());
+        assertFalse(periodService.isResultVisible(period.getPeriodId())); // CONFIRMED 待发布不可见
+
+        periodService.publishPeriod(period.getPeriodId());
+        assertTrue(periodService.isResultVisible(period.getPeriodId())); // PUBLISHED 可见
 
         periodService.closePeriod(period.getPeriodId());
-        assertTrue(periodService.isResultVisible(period.getPeriodId())); // COMPLETED
+        assertTrue(periodService.isResultVisible(period.getPeriodId())); // COMPLETED 可见
+    }
+
+    // 辅助：插入员工
+    private Employee seedEmployee(String employeeId) {
+        Employee emp = new Employee();
+        emp.setEmployeeId(employeeId);
+        emp.setName("员工" + employeeId);
+        emp.setEmail(employeeId + "@test.com");
+        emp.setCategory("管理类");
+        emp.setPosition("项目经理");
+        emp.setOrgName("信息部");
+        emp.setStatus("ACTIVE");
+        employeeMapper.insert(emp);
+        return emp;
+    }
+
+    // 辅助：插入项目（project_role_assignment 外键 fk_pra_project 要求项目行存在）
+    private void seedProject(String code, String stage) {
+        Project project = new Project();
+        project.setProjectCode(code);
+        project.setProjectName("项目" + code);
+        project.setProjectStage(stage);
+        project.setStatus("ACTIVE");
+        project.setStageConfirmed(false);
+        projectMapper.insert(project);
+    }
+
+    // 辅助：按需插入项目角色（role_code 业务主键，已存在则跳过）
+    private void seedRoleIfAbsent(String roleCode) {
+        if (projectRoleMapper.selectById(roleCode) == null) {
+            ProjectRole role = new ProjectRole();
+            role.setRoleCode(roleCode);
+            role.setRoleName("角色" + roleCode);
+            projectRoleMapper.insert(role);
+        }
+    }
+
+    // 辅助：插入主 PD 角色分配（project_role_assignment 外键 fk_pra_role 要求 PD 角色存在，故先补种）
+    private void seedPdAssignment(String projectCode, String stage, String employeeId) {
+        seedRoleIfAbsent("PD");
+        ProjectRoleAssignment a = new ProjectRoleAssignment();
+        a.setProjectCode(projectCode);
+        a.setProjectStage(stage);
+        a.setProjectRoleCode("PD");
+        a.setEmployeeId(employeeId);
+        a.setIsPrimary(true);
+        a.setDeleted(0);
+        roleAssignmentMapper.insert(a);
+    }
+
+    // 辅助：插入系统用户（绑定员工）
+    private void seedUser(String userId, String username, String employeeId) {
+        SysUser user = new SysUser();
+        user.setUserId(userId);
+        user.setUsername(username);
+        user.setPasswordHash("test-hash");
+        user.setEmployeeId(employeeId);
+        user.setEnabled(true);
+        sysUserMapper.insert(user);
+    }
+
+    // 辅助：插入 SUBMITTED 项目任务（评估人=被考核人，满足 fk_task_assessor/fk_task_assessee）
+    private void seedProjectTask(String periodId, String assesseeId, String projectCode, String projectStage) {
+        AssessmentTask task = new AssessmentTask();
+        task.setPeriodId(periodId);
+        task.setAssessorId(assesseeId);
+        task.setAssesseeId(assesseeId);
+        task.setProjectCode(projectCode);
+        task.setProjectStage(projectStage);
+        task.setTaskType("PROJECT");
+        task.setStatus("SUBMITTED");
+        taskMapper.insert(task);
+    }
+
+    // 辅助：设置当前登录用户及其角色
+    private void auth(String username, String role) {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(username, null,
+                        List.of(new SimpleGrantedAuthority("ROLE_" + role))));
     }
 }

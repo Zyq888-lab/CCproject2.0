@@ -3,25 +3,41 @@
 // 修改注意：用现有Mapper写入测试数据，每个测试独立回滚
 package com.jifeng.assessment.dashboard;
 
+import com.jifeng.assessment.confirmation.ProjectConfirmation;
+import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.kpi.FuncKpiConfig;
 import com.jifeng.assessment.kpi.FuncKpiMapper;
 import com.jifeng.assessment.kpi.ProjectKpiConfig;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
+import com.jifeng.assessment.period.AssessmentPeriod;
+import com.jifeng.assessment.period.PeriodMapper;
 import com.jifeng.assessment.position.PositionAssessmentConfig;
 import com.jifeng.assessment.position.PositionConfigMapper;
 import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.projectrole.ProjectRole;
 import com.jifeng.assessment.projectrole.ProjectRoleMapper;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
+import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
+import com.jifeng.assessment.task.AssessmentTask;
+import com.jifeng.assessment.task.TaskMapper;
+import com.jifeng.assessment.user.SysUser;
+import com.jifeng.assessment.user.SysUserMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -46,17 +62,32 @@ class DashboardServiceTest {
     private ProjectKpiMapper projectKpiMapper;
     @Autowired
     private FuncKpiMapper funcKpiMapper;
+    @Autowired
+    private TaskMapper taskMapper;
+    @Autowired
+    private PeriodMapper periodMapper;
+    @Autowired
+    private ProjectRoleAssignmentMapper roleAssignmentMapper;
+    @Autowired
+    private SysUserMapper sysUserMapper;
+    @Autowired
+    private ProjectConfirmationMapper projectConfirmationMapper;
 
-    // 功能：仅种子数据时——admin员工已配置，其余模块为待配置
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
+    // 功能：仅种子数据时——admin员工 + PRESIDENT角色已配置，其余模块为待配置
     @Test
     void shouldShowOnlySeedDataWhenNoOtherData() {
-        // DataInitializer creates 1 admin employee
+        // DataInitializer 种子 1 admin 员工；V27 迁移种子 1 个 PRESIDENT 项目角色
         List<DashboardService.ConfigProgressItem> items = dashboardService.configProgress();
         assertEquals(5, items.size());
         assertEquals(1, getCount(items, "employee"), "seed admin employee");
         assertEquals(DashboardService.STATUS_CONFIGURED, getStatus(items, "employee"));
-        assertEquals(0, getCount(items, "projectRole"));
-        assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "projectRole"));
+        assertEquals(1, getCount(items, "projectRole"), "seed PRESIDENT role");
+        assertEquals(DashboardService.STATUS_CONFIGURED, getStatus(items, "projectRole"));
         assertEquals(0, getCount(items, "project"));
         assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "project"));
         assertEquals(0, getCount(items, "positionConfig"));
@@ -115,7 +146,8 @@ class DashboardServiceTest {
 
         // 1 seed admin + 1 test employee = 2
         assertEquals(2, getCount(items, "employee"));
-        assertEquals(1, getCount(items, "projectRole"));
+        // 1 seed PRESIDENT + 1 test DASH_ROLE = 2
+        assertEquals(2, getCount(items, "projectRole"));
         assertEquals(1, getCount(items, "project"));
         assertEquals(1, getCount(items, "positionConfig"));
         assertEquals(1, getCount(items, "kpi"));
@@ -143,8 +175,8 @@ class DashboardServiceTest {
         // 1 seed admin + 1 test employee = 2
         assertEquals(2, getCount(items, "employee"));
         assertEquals(DashboardService.STATUS_CONFIGURED, getStatus(items, "employee"));
-        assertEquals(0, getCount(items, "projectRole"));
-        assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "projectRole"));
+        assertEquals(1, getCount(items, "projectRole"), "seed PRESIDENT role");
+        assertEquals(DashboardService.STATUS_CONFIGURED, getStatus(items, "projectRole"));
         assertEquals(0, getCount(items, "project"));
         assertEquals(DashboardService.STATUS_PENDING, getStatus(items, "project"));
     }
@@ -189,6 +221,137 @@ class DashboardServiceTest {
 
         List<DashboardService.ConfigProgressItem> items = dashboardService.configProgress();
         assertEquals(2, getCount(items, "kpi"), "KPI count should sum project + func KPIs");
+    }
+
+    // 功能：PD 待处理——CALIBRATING 且未提交校准的周期中，我为主 PD 的周期数
+    @Test
+    void pdPendingCountShouldCountUnsubmittedCalibrationPeriods() {
+        seedEmployee("EMP_PD_DASH");
+        seedUser("U_PD_DASH", "pd_dash", "EMP_PD_DASH");
+        seedRole("PD");
+        seedProject("PRJ_PD_DASH", "P2");
+        seedPeriod("PERIOD_PD_DASH", "CALIBRATING"); // calibration_submitted_at = NULL
+        seedAssignment("PRJ_PD_DASH", "P2", "PD", "EMP_PD_DASH", true);
+        seedTask("PERIOD_PD_DASH", "PRJ_PD_DASH", "EMP_PD_DASH");
+
+        auth("pd_dash", "PD");
+
+        assertEquals(1, dashboardService.pendingCount());
+    }
+
+    // 功能：总裁待处理——CALIBRATING 且已提交校准、我为主总裁的项目中 PENDING 确认人数
+    @Test
+    void presidentPendingCountShouldCountPendingConfirmations() {
+        seedEmployee("EMP_PRES_DASH");
+        seedUser("U_PRES_DASH", "pres_dash", "EMP_PRES_DASH");
+        seedProject("PRJ_PRES_DASH", "P2");
+        AssessmentPeriod period = seedPeriod("PERIOD_PRES_DASH", "CALIBRATING");
+        period.setCalibrationSubmittedAt(LocalDateTime.now());
+        periodMapper.updateById(period); // 已提交校准
+        seedAssignment("PRJ_PRES_DASH", "P2", "PRESIDENT", "EMP_PRES_DASH", true);
+        seedConfirmation("PERIOD_PRES_DASH", "PRJ_PRES_DASH", "EMP_A", "PENDING");
+
+        auth("pres_dash", "总裁");
+
+        assertEquals(1, dashboardService.pendingCount());
+    }
+
+    // 辅助：插入员工
+    private void seedEmployee(String employeeId) {
+        Employee emp = new Employee();
+        emp.setEmployeeId(employeeId);
+        emp.setName("员工" + employeeId);
+        emp.setEmail(employeeId + "@test.com");
+        emp.setCategory("管理类");
+        emp.setPosition("项目经理");
+        emp.setOrgName("信息部");
+        emp.setStatus("ACTIVE");
+        employeeMapper.insert(emp);
+    }
+
+    // 辅助：插入系统用户（绑定员工）
+    private void seedUser(String userId, String username, String employeeId) {
+        SysUser user = new SysUser();
+        user.setUserId(userId);
+        user.setUsername(username);
+        user.setPasswordHash("test-hash");
+        user.setEmployeeId(employeeId);
+        user.setEnabled(true);
+        sysUserMapper.insert(user);
+    }
+
+    // 辅助：插入项目角色
+    private void seedRole(String roleCode) {
+        ProjectRole role = new ProjectRole();
+        role.setRoleCode(roleCode);
+        role.setRoleName("角色" + roleCode);
+        role.setIsActive(true);
+        projectRoleMapper.insert(role);
+    }
+
+    // 辅助：插入项目
+    private void seedProject(String code, String stage) {
+        Project project = new Project();
+        project.setProjectCode(code);
+        project.setProjectName("项目" + code);
+        project.setProjectStage(stage);
+        project.setStatus("ACTIVE");
+        project.setStageConfirmed(false);
+        projectMapper.insert(project);
+    }
+
+    // 辅助：插入考核周期
+    private AssessmentPeriod seedPeriod(String periodId, String status) {
+        AssessmentPeriod period = new AssessmentPeriod();
+        period.setPeriodId(periodId);
+        period.setPeriodName("周期" + periodId);
+        period.setStartDate(LocalDate.of(2026, 1, 1));
+        period.setEndDate(LocalDate.of(2026, 12, 31));
+        period.setStatus(status);
+        periodMapper.insert(period);
+        return period;
+    }
+
+    // 辅助：插入角色分配
+    private void seedAssignment(String projectCode, String stage, String roleCode, String employeeId, boolean isPrimary) {
+        ProjectRoleAssignment a = new ProjectRoleAssignment();
+        a.setProjectCode(projectCode);
+        a.setProjectStage(stage);
+        a.setProjectRoleCode(roleCode);
+        a.setEmployeeId(employeeId);
+        a.setIsPrimary(isPrimary);
+        roleAssignmentMapper.insert(a);
+    }
+
+    // 辅助：插入项目任务（PROJECT 类型）
+    private void seedTask(String periodId, String projectCode, String assesseeId) {
+        AssessmentTask task = new AssessmentTask();
+        task.setPeriodId(periodId);
+        task.setAssessorId(assesseeId);
+        task.setAssesseeId(assesseeId);
+        task.setProjectCode(projectCode);
+        task.setProjectStage("P2");
+        task.setTaskType("PROJECT");
+        task.setStatus("SUBMITTED");
+        taskMapper.insert(task);
+    }
+
+    // 辅助：插入项目确认行
+    private void seedConfirmation(String periodId, String projectCode, String assesseeId, String status) {
+        ProjectConfirmation c = new ProjectConfirmation();
+        c.setPeriodId(periodId);
+        c.setProjectCode(projectCode);
+        c.setAssesseeId(assesseeId);
+        c.setStatus(status);
+        c.setReturnCount(0);
+        projectConfirmationMapper.insert(c);
+    }
+
+    // 辅助：设置当前登录用户及其角色
+    private void auth(String username, String role) {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(username, null,
+                        List.of(new SimpleGrantedAuthority("ROLE_" + role))));
     }
 
     private long getCount(List<DashboardService.ConfigProgressItem> items, String key) {
