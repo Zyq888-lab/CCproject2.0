@@ -14,13 +14,13 @@
 **Priority:** P2
 **Depends on:** Phase 2.1 角色主标记上线
 
-### 对象存储接入 + 凭证渲染
+### 凭证迁移到对象存储
 
-**What:** 接入对象存储（MinIO/S3），让 `uploadEvidence` 真实存字节，结果页渲染凭证。
+**What:** 将当前本地磁盘保存的评分凭证迁移到对象存储（MinIO/S3），并规划已有文件迁移与备份。
 
-**Why:** 员工「看到原始分 + 明细 + 凭证」是最终目标，当前 `uploadEvidence` 只写占位 URL 从不存字节（ScoreService 第 201-233 行生成 `/uploads/evidence/{uuid}` 占位路径）。
+**Why:** 凭证现已真实落盘，PD 校准、管理员监控和结果明细可以打开；但本地磁盘不适合多实例共享，也需要明确的持久化和备份策略。
 
-**Context:** eng-review 决策 E：2.1 不渲染凭证，结果页 = 原始分 + 明细，对象存储推迟 Phase 3。接回来时把占位路径换成 `StorageService` 真实落盘/上对象存储，并把结果页的凭证列接上。
+**Context:** eng-review 决策 E 将对象存储推迟至 Phase 3；本版本先使用本地存储，后续可抽取 `StorageService` 并迁移旧文件。
 
 **Effort:** M
 **Priority:** P3
@@ -51,18 +51,6 @@
 **Depends on:** None
 
 ## Phase 2.2
-
-### 校准矩阵离群分组键与标签不一致（P3-2）
-
-**What:** `CalibrationService.resolveGroup` 的分组键只用项目 code（`"project:" + code`），但行标签带阶段（`name + "·" + stage`），同一项目不同阶段的员工被混进同一 σ 组做离群判定。
-
-**Why:** 分组键决定离群 σ 的计算边界：现在 code 相同、阶段不同的员工被放在一个组里比均值/σ，而展示却按「项目·阶段」标注，导致「同组比离群」的组边界与用户看到的组标签不一致，离群标记可能误导 PD。
-
-**Context:** 修法二选一：分组键纳入 stage（`project:<code>|<stage>`），或标签去掉阶段只显示项目名。需与汇总带 `groupLabel` 同步改，保证键与标签口径一致。
-
-**Effort:** S
-**Priority:** P3
-**Depends on:** None
 
 ### averageTaskScores 空分任务按 0 计（P3-3）
 
@@ -99,3 +87,18 @@
 **Effort:** M
 **Priority:** P3
 **Depends on:** 前端强制关闭按钮上线
+
+## Completed
+
+### 校准矩阵离群分组键与标签不一致（P3-2）
+
+**What:** `CalibrationService.resolveGroup` 的分组键只用项目 code（`"project:" + code`），但行标签带阶段（`name + "·" + stage`），同一项目不同阶段的员工被混进同一 σ 组做离群判定。
+
+**Why:** 分组键决定离群 σ 的计算边界：现在 code 相同、阶段不同的员工被放在一个组里比均值/σ，而展示却按「项目·阶段」标注，导致「同组比离群」的组边界与用户看到的组标签不一致，离群标记可能误导 PD。
+
+**Context:** 已将分组键改为 `project:<code>|<stage>`，并同步行标签与汇总带口径。
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+**Completed:** v2.14.0.0 (2026-09-24)
