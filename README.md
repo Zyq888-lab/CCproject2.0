@@ -33,4 +33,3 @@ cd frontend && npm install && npm run dev
 ## 标签
 
 - `v1.0.0-uat` — Phase 1 清理完成，锁定稳定版本
-- `v2.14.0.0` — Phase 2.2 校准、总裁确认、账号激活与结果发布
