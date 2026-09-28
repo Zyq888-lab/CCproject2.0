@@ -5,13 +5,16 @@
 ## 文档
 
 - [Phase 1 文档归档](docs/phase1/) — 设计文档 / 工程规划 / 功能清单 / 清理记录 / 修复日志
-- [Phase 2 设计文档](docs/designs/)与[工程计划](docs/phase2/) — 校准、角色主标记、总裁确认与账号激活
-- [Phase 2.2 UAT 测试清单](UAT测试清单-Phase2.2-总裁确认与激活改密版.md) — 按角色验证激活、校准、总裁确认与结果发布
-- [Phase 2.2 开发进度快照](项目进度汇报-Phase2.2完成-20260921.md)与[调查报告](docs/investigation/) — 历史记录，现行功能以版本变更为准
+- [Phase2 文档与发布入口](docs/phase2/README.md) — 统一覆盖 2.0、2.1、2.2、2.2-track，含现行资料与历史归档
+- [Phase2 发布资料](docs/phase2/release/README.md) — 发布说明、部署与回滚、数据库迁移、验证记录和已知问题
+- [Phase2 验收记录与清单](docs/phase2/release/ACCEPTANCE.md) — 已有验证证据与尚未执行的完整周期验收
+- [Phase2 历史报告](docs/phase2/README.md#历史报告与验收方案)与[调查报告](docs/investigation/) — 历史记录，现行功能以版本变更为准
 - [版本变更](CHANGELOG.md)与[待办事项](TODOS.md)
 - [正确性与安全修复说明](docs/security/phase2-hardening-20260928.md) — 权限边界、分数口径、管理员口令与 UAT 升级要求
 
 ## 当前版本（v2.14.0.0）
+
+此版本当前处于发布准备阶段；资料整理不代表已部署或完整验收通过。版本、标签和交付物状态见[发布总览](docs/phase2/release/README.md)。
 
 - 管理员可按员工工号激活账号；新账号首次登录需修改密码。
 - PD 可按项目和阶段查看校准矩阵，逐项调整 KPI，并重新提交总裁退回的人员。
