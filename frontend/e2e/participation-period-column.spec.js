@@ -1,13 +1,14 @@
 // 模块用途：验证项目参与页「考核周期」列——表头存在 + 单元格显示周期名称（而非原始 periodId）
-// 依赖：运行中的后端(8080) + 前端(3000)，admin/admin123 种子账号，周期 P2026Q3「2026年Q3考核」及参与记录
+// 依赖：运行中的后端(8080) + 前端(3000)，E2E_ADMIN_PASSWORD，周期 P2026Q3「2026年Q3考核」及参与记录
 import { test, expect } from '@playwright/test';
+import { adminPassword } from './helpers/admin-credentials.js';
 
 test.describe('项目参与页考核周期列', () => {
   test('参与列表显示考核周期列且单元格展示周期名称', async ({ page }) => {
     // 1. 登录 admin
     await page.goto('/login');
     await page.getByPlaceholder('用户名').fill('admin');
-    await page.getByPlaceholder('密码').fill('admin123');
+    await page.getByPlaceholder('密码').fill(adminPassword());
     await page.locator('#login-card button[type="submit"]').click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
 

@@ -31,7 +31,7 @@ public class CalibrationController extends BaseController {
 
     // 功能：行内改分——写 adjusted_score + 追加审计行；409 为乐观锁冲突
     @PutMapping("/api/v1/periods/{periodId}/calibration/adjust")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PD')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Void> adjust(@PathVariable String periodId,
                                     @Valid @RequestBody AdjustRequest request) {
         calibrationService.adjust(periodId, request.getAssesseeId(), request.getNewScore(), request.getReason());

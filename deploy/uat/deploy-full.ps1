@@ -13,12 +13,18 @@ $NGINX_HTML   = "C:\nginx-1.26.2\html\jifeng"
 $NGINX_EXE    = "C:\nginx-1.26.2\nginx.exe"
 $JAVA_EXE     = "C:\Program Files\jdk-17.0.14+7\bin\java.exe"
 $JAR_NAME     = "assessment-1.0.0-SNAPSHOT.jar"
+if ([string]::IsNullOrWhiteSpace($env:DATASOURCE_PASSWORD) -or
+    [string]::IsNullOrWhiteSpace($env:ADMIN_BOOTSTRAP_PASSWORD) -or
+    [string]::IsNullOrWhiteSpace($env:APP_UPLOAD_DIR)) {
+    throw "Set DATASOURCE_PASSWORD, ADMIN_BOOTSTRAP_PASSWORD and APP_UPLOAD_DIR before deploying UAT"
+}
+if (![System.IO.Path]::IsPathRooted($env:APP_UPLOAD_DIR)) { throw "APP_UPLOAD_DIR must be an absolute path" }
+$UPLOAD_DIR = $env:APP_UPLOAD_DIR
 
 # ---- DB 环境变量 ----
 $env:DATASOURCE_URL      = "jdbc:postgresql://localhost:5432/jifeng_uat"
 $env:DATASOURCE_DRIVER   = "org.postgresql.Driver"
 $env:DATASOURCE_USERNAME = "postgres"
-$env:DATASOURCE_PASSWORD = "P@ssw0rd123"
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Jifeng Assessment UAT Full Deploy" -ForegroundColor Cyan
@@ -63,7 +69,8 @@ Get-Process -Name "java" -ErrorAction SilentlyContinue | Stop-Process -Force
 Write-Host "  Java stopped"
 
 # start backend
-Start-Process $JAVA_EXE -ArgumentList "-jar", "$UAT_DIR\$JAR_NAME", "--spring.profiles.active=prod" -WindowStyle Hidden
+New-Item -ItemType Directory -Force -Path $UPLOAD_DIR | Out-Null
+Start-Process $JAVA_EXE -ArgumentList "-jar", "$UAT_DIR\$JAR_NAME", "--spring.profiles.active=prod" -WorkingDirectory $UAT_DIR -WindowStyle Hidden
 Write-Host "  Backend started on http://localhost:8080"
 
 # deploy frontend to nginx
@@ -102,7 +109,7 @@ if ($mainContent -notmatch "conf.d") {
 }
 
 # start nginx
-Start-Process $NGINX_EXE
+Start-Process $NGINX_EXE -WindowStyle Hidden
 Write-Host "  Nginx started"
 
 Write-Host "  OK: Services restarted" -ForegroundColor Green
@@ -128,5 +135,5 @@ try {
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "  UAT Deployment Complete!" -ForegroundColor Cyan
 Write-Host "  Access: http://localhost" -ForegroundColor Green
-Write-Host "  Login:  admin / admin123" -ForegroundColor White
+Write-Host "  Admin:  use configured bootstrap password, then change it" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor Cyan

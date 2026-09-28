@@ -11,6 +11,7 @@ import com.jifeng.assessment.common.PageQuery;
 import com.jifeng.assessment.common.PageResult;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
+import com.jifeng.assessment.security.ProjectAccessService;
 import com.jifeng.assessment.user.SysUser;
 import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
 
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
     private final SysUserMapper sysUserMapper;
+    private final ProjectAccessService projectAccessService;
 
     // 功能：分页查询项目列表，支持按 projectStage/status 筛选。
     //   数据隔离按项目级 project_role_assignment 记录判定（而非全局 user_role）：
@@ -166,6 +168,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         if (existing == null) {
             throw new BusinessException(404, "项目不存在: " + projectCode + " / " + projectStage);
         }
+        projectAccessService.assertPrimaryRole(projectCode, projectStage, "PM");
         if (Boolean.TRUE.equals(existing.getStageConfirmed())) {
             throw new BusinessException(400, "项目阶段已确认，无需重复确认");
         }
@@ -202,6 +205,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         if (existing == null) {
             throw new BusinessException(404, "项目不存在: " + projectCode + " / " + projectStage);
         }
+        projectAccessService.assertPrimaryRole(projectCode, projectStage, "PM");
         if (!"COMPLETED".equals(existing.getStatus())) {
             throw new BusinessException(400, "只有已完成状态的项目阶段才能归档，当前状态: " + existing.getStatus());
         }

@@ -4,6 +4,9 @@ server:
     session:
       timeout: 30m
 
+app:
+  upload-dir: ${APP_UPLOAD_DIR:./uploads/evidence}
+
 spring:
   application:
     name: jifeng-assessment

@@ -16,6 +16,7 @@ import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
 import com.jifeng.assessment.user.SysUser;
 import com.jifeng.assessment.user.SysUserMapper;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -52,9 +53,33 @@ class ProjectServiceTest {
     @Autowired
     private ProjectRoleAssignmentMapper roleAssignmentMapper;
 
+    @BeforeEach
+    void useAdmin() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("admin", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))));
+    }
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void pmCannotConfirmAnotherProjectStage() {
+        seedRole("PM");
+        seedEmployee("PM_SCOPE_PROJECT");
+        seedUser("U_PM_SCOPE_PROJECT", "pm_project_scope", "PM_SCOPE_PROJECT");
+        projectService.createProject(newProject("PJ_PM_MINE", "P2"));
+        projectService.createProject(newProject("PJ_PM_FOREIGN", "P2"));
+        seedAssignment("PJ_PM_MINE", "P2", "PM", "PM_SCOPE_PROJECT", true);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("pm_project_scope", null,
+                        List.of(new SimpleGrantedAuthority("ROLE_PM"))));
+
+        assertEquals(403, assertThrows(BusinessException.class,
+                () -> projectService.confirmStage("PJ_PM_FOREIGN", "P2")).getCode());
+        assertNotNull(projectService.confirmStage("PJ_PM_MINE", "P2"));
     }
 
     // 功能：创建项目成功，projectCode、projectStage正确返回，stageConfirmed默认为false
@@ -123,6 +148,7 @@ class ProjectServiceTest {
         project.setProjectStage("P4");
         projectService.createProject(project);
 
+        seedPrimaryPm("PJ_CONFIRM", "P4", "pm_zhang", "PM_ZHANG", "U_PM_ZHANG");
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("pm_zhang", null,
                         List.of(new SimpleGrantedAuthority("ROLE_PM"))));
@@ -142,6 +168,7 @@ class ProjectServiceTest {
         project.setProjectStage("P3");
         projectService.createProject(project);
 
+        seedPrimaryPm("PJ_CONF2", "P3", "pm_li", "PM_LI", "U_PM_LI");
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("pm_li", null,
                         List.of(new SimpleGrantedAuthority("ROLE_PM"))));
@@ -189,6 +216,7 @@ class ProjectServiceTest {
         projectService.createProject(project);
 
         // 先确认
+        seedPrimaryPm("PJ_RESET", "P2", "pm_wang", "PM_WANG", "U_PM_WANG");
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("pm_wang", null,
                         List.of(new SimpleGrantedAuthority("ROLE_PM"))));
@@ -453,6 +481,16 @@ class ProjectServiceTest {
         a.setEmployeeId(employeeId);
         a.setIsPrimary(isPrimary);
         roleAssignmentMapper.insert(a);
+    }
+
+    private void seedPrimaryPm(String projectCode, String stage, String username,
+                               String employeeId, String userId) {
+        if (projectRoleMapper.selectById("PM") == null) {
+            seedRole("PM");
+        }
+        seedEmployee(employeeId);
+        seedUser(userId, username, employeeId);
+        seedAssignment(projectCode, stage, "PM", employeeId, true);
     }
 
     // 辅助：构建项目

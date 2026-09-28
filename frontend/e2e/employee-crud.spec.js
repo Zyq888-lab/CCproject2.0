@@ -1,6 +1,7 @@
 // E2E: 员工管理 CRUD + 重复工号校验
-// 依赖：运行中的后端(8080) + 前端(3000)，admin/admin123 种子账号
+// 依赖：运行中的后端(8080) + 前端(3000)，通过 E2E_ADMIN_PASSWORD 配置管理员密码
 import { test, expect } from '@playwright/test';
+import { adminPassword } from './helpers/admin-credentials.js';
 
 const TS = Date.now();
 const EMP_ID = `EMP${TS}`;
@@ -10,7 +11,7 @@ test.describe('员工管理 CRUD', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/login');
     await page.getByPlaceholder('用户名').fill('admin');
-    await page.getByPlaceholder('密码').fill('admin123');
+    await page.getByPlaceholder('密码').fill(adminPassword());
     await page.locator('#login-card button[type="submit"]').click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
   });

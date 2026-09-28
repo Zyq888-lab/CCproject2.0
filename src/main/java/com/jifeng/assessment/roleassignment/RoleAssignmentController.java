@@ -65,6 +65,7 @@ public class RoleAssignmentController extends BaseController {
             @PathVariable String projectCode,
             @PathVariable String projectStage,
             @PathVariable Long assignmentId) {
+        roleAssignmentService.assertAssignmentPath(projectCode, projectStage, assignmentId);
         return ok(roleAssignmentService.markPrimary(assignmentId));
     }
 
@@ -75,6 +76,7 @@ public class RoleAssignmentController extends BaseController {
             @PathVariable String projectCode,
             @PathVariable String projectStage,
             @PathVariable Long assignmentId) {
+        roleAssignmentService.assertAssignmentPath(projectCode, projectStage, assignmentId);
         return ok(roleAssignmentService.unmarkPrimary(assignmentId));
     }
 
@@ -85,6 +87,7 @@ public class RoleAssignmentController extends BaseController {
             @PathVariable String projectCode,
             @PathVariable String projectStage,
             @PathVariable Long assignmentId) {
+        roleAssignmentService.assertAssignmentPath(projectCode, projectStage, assignmentId);
         roleAssignmentService.removeAssignment(assignmentId);
         return ok("已移除", null);
     }

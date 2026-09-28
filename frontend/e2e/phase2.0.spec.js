@@ -1,15 +1,16 @@
 // 模块用途：Phase 2.0 核心流程 E2E 测试
-// 依赖：运行中的后端(8080) + 前端(3000)，admin/admin123 种子账号
+// 依赖：运行中的后端(8080) + 前端(3000)，E2E_ADMIN_PASSWORD
 // 前置：测试数据已由 SQL 准备（E2E_EMP1/E2E_ASSESSOR1/E2E_ROLE/E2E_PROJ/岗位配置/KPI/角色分配）
 // 修改注意：CSRF 通过页面内 fetch 读取 XSRF-TOKEN cookie 处理
 
 import { test, expect } from '@playwright/test';
+import { adminPassword } from './helpers/admin-credentials.js';
 
 // 辅助：登录 admin
 async function loginAsAdmin(page) {
   await page.goto('/login');
   await page.getByPlaceholder('用户名').fill('admin');
-  await page.getByPlaceholder('密码').fill('admin123');
+  await page.getByPlaceholder('密码').fill(adminPassword());
   await page.locator('#login-card button[type="submit"]').click();
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
 }

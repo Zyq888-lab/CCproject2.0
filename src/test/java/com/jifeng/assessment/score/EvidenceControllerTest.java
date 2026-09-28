@@ -15,14 +15,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 class EvidenceControllerTest {
     @TempDir Path tempDir;
     private EvidenceController controller;
+    private EvidenceAccessService accessService;
 
     @BeforeEach
     void setUp() {
-        controller = new EvidenceController();
+        accessService = mock(EvidenceAccessService.class);
+        controller = new EvidenceController(accessService);
         ReflectionTestUtils.setField(controller, "uploadDir", tempDir.toString());
     }
 
@@ -54,6 +57,7 @@ class EvidenceControllerTest {
         BusinessException traversal = assertThrows(BusinessException.class,
                 () -> controller.download("../secret.txt"));
         assertEquals(400, traversal.getCode());
+        verify(accessService, never()).assertCanDownload("../secret.txt");
 
         BusinessException missing = assertThrows(BusinessException.class,
                 () -> controller.download("missing.pdf"));

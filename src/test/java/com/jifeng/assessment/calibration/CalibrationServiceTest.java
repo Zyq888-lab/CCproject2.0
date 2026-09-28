@@ -158,6 +158,7 @@ class CalibrationServiceTest {
     // 功能：改分写 adjusted_score + 追加审计行（无鉴权上下文中 adjusted_by 回退 system）
     @Test
     void adjustShouldUpdateScoreAndWriteAudit() {
+        auth("admin", "ADMIN");
         seedPeriod("CALIBRATING");
         seedResult("EMP_A", "3.7000");
 
@@ -175,12 +176,13 @@ class CalibrationServiceTest {
         assertEquals(0, new BigDecimal("3.7000").compareTo(audit.getOldScore()));
         assertEquals(0, new BigDecimal("4.5000").compareTo(audit.getNewScore()));
         assertEquals("评估人评分尺度偏差", audit.getReason());
-        assertEquals("system", audit.getAdjustedBy());
+        assertEquals("ADMIN", audit.getAdjustedBy());
     }
 
     // 功能：非 CALIBRATING 周期拒绝改分——400 业务异常
     @Test
     void adjustShouldRejectNonCalibratingPeriod() {
+        auth("admin", "ADMIN");
         seedPeriod("ONGOING");
         seedResult("EMP_A", "3.7000");
 
@@ -430,6 +432,7 @@ class CalibrationServiceTest {
     // 功能：单项改分写 calibrated_score（不覆盖原始分）+ 单项审计 old/new + 返回重算小计，周期级 composite 不动
     @Test
     void adjustKpiShouldWriteOverrideAuditAndReturnSubtotal() {
+        auth("admin", "ADMIN");
         seedPeriod("CALIBRATING");
         seedProject();
         seedEmployee("ASSESSOR1");
@@ -475,6 +478,38 @@ class CalibrationServiceTest {
                 .eq(AssessmentProjectSubtotal::getProjectStage, "P2"));
         assertNotNull(st);
         assertEquals(0, new BigDecimal("4.5000").compareTo(st.getAdjustedSubtotal()));
+    }
+
+    @Test
+    void pdCanAdjustOwnedStageButNotAnotherProjectOrStage() {
+        seedPeriod("CALIBRATING");
+        seedProject();
+        seedProject("PRJ_OTHER", "P2");
+        seedEmployee("ASSESSOR1");
+        seedEmployee("EMP_FOREIGN");
+        seedEmployee("EMP_OWN_STAGE");
+        seedEmployee("EMP_OTHER_STAGE");
+        seedEmployee("EMP_PD_SCOPE");
+        seedUser("U_PD_SCOPE", "pd_scope", "EMP_PD_SCOPE");
+        seedPdAssignment(PROJECT, "P2", "EMP_PD_SCOPE");
+        Long kpiId = seedProjectKpi("PD", "P2", "1.0000");
+        AssessmentTask task = seedProjectTaskWithScore("EMP_FOREIGN", "PRJ_OTHER", "P2", "PD", kpiId, "4.0");
+        AssessmentTask ownedTask = seedProjectTaskWithScore("EMP_OWN_STAGE", PROJECT, "P2", "PD", kpiId, "4.0");
+        seedProject(PROJECT, "P3");
+        Long otherStageKpiId = seedProjectKpi("PD", "P3", "1.0000");
+        AssessmentTask otherStageTask = seedProjectTaskWithScore("EMP_OTHER_STAGE", PROJECT, "P3", "PD", otherStageKpiId, "3.0");
+        auth("pd_scope", "PD");
+
+        assertEquals(403, assertThrows(BusinessException.class,
+                () -> calibrationService.adjustKpi(PERIOD, task.getId(), kpiId,
+                        new BigDecimal("4.5"), "跨项目改分"))
+                .getCode());
+        assertEquals(403, assertThrows(BusinessException.class,
+                () -> calibrationService.adjustKpi(PERIOD, otherStageTask.getId(), otherStageKpiId,
+                        new BigDecimal("4.5"), "跨阶段改分")).getCode());
+        AdjustKpiResult owned = calibrationService.adjustKpi(PERIOD, ownedTask.getId(), kpiId,
+                new BigDecimal("4.5"), "负责阶段正常校准");
+        assertEquals(0, new BigDecimal("4.5000").compareTo(owned.getAdjustedSubtotal()));
     }
 
     // ================= 辅助：种子数据 =================

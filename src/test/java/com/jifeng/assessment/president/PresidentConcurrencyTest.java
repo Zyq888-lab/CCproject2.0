@@ -5,6 +5,10 @@ package com.jifeng.assessment.president;
 
 import com.jifeng.assessment.confirmation.ProjectConfirmation;
 import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
+import com.jifeng.assessment.calibration.CalibrationSubmission;
+import com.jifeng.assessment.calibration.CalibrationSubmissionMapper;
+import com.jifeng.assessment.task.AssessmentTask;
+import com.jifeng.assessment.task.TaskMapper;
 import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.period.AssessmentPeriod;
@@ -61,12 +65,17 @@ class PresidentConcurrencyTest {
     private ProjectMapper projectMapper;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired private TaskMapper taskMapper;
+    @Autowired private CalibrationSubmissionMapper calibrationSubmissionMapper;
 
     @AfterEach
     void cleanup() {
         SecurityContextHolder.clearContext();
         // 物理清理（子表先删，满足外键顺序）；PRESIDENT 项目角色由 V27 种子，不在此清理
         jdbcTemplate.update("DELETE FROM project_confirmation WHERE period_id = ?", PERIOD_ID);
+        jdbcTemplate.update("DELETE FROM assessment_result WHERE period_id = ?", PERIOD_ID);
+        jdbcTemplate.update("DELETE FROM calibration_submission WHERE period_id = ?", PERIOD_ID);
+        jdbcTemplate.update("DELETE FROM assessment_task WHERE period_id = ?", PERIOD_ID);
         jdbcTemplate.update("DELETE FROM project_role_assignment WHERE project_code IN (?, ?)", PRJ1, PRJ2);
         jdbcTemplate.update("DELETE FROM project WHERE project_code IN (?, ?)", PRJ1, PRJ2);
         jdbcTemplate.update("DELETE FROM sys_user WHERE user_id IN (?, ?)", "U_CONC_1", "U_CONC_2");
@@ -86,6 +95,8 @@ class PresidentConcurrencyTest {
         seedPeriod(PERIOD_ID, "CALIBRATING");
         seedAssignment(PRJ1, "P2", "PRESIDENT", "EMP_C1", true);
         seedAssignment(PRJ2, "P2", "PRESIDENT", "EMP_C2", true);
+        seedSubmittedCalibration(PRJ1, "EMP_C1");
+        seedSubmittedCalibration(PRJ2, "EMP_C2");
         Long id1 = seedConfirmation(PERIOD_ID, PRJ1, "PENDING", 0);
         Long id2 = seedConfirmation(PERIOD_ID, PRJ2, "PENDING", 0);
 
@@ -200,5 +211,24 @@ class PresidentConcurrencyTest {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(username, null,
                         List.of(new SimpleGrantedAuthority("ROLE_" + role))));
+    }
+
+    private void seedSubmittedCalibration(String projectCode, String employeeId) {
+        AssessmentTask task = new AssessmentTask();
+        task.setPeriodId(PERIOD_ID);
+        task.setAssessorId(employeeId);
+        task.setAssesseeId(employeeId);
+        task.setProjectCode(projectCode);
+        task.setProjectStage("P2");
+        task.setTaskType("PROJECT");
+        task.setStatus("SUBMITTED");
+        taskMapper.insert(task);
+        CalibrationSubmission submission = new CalibrationSubmission();
+        submission.setPeriodId(PERIOD_ID);
+        submission.setProjectCode(projectCode);
+        submission.setProjectStage("P2");
+        submission.setSubmittedByEmployeeId(employeeId);
+        submission.setSubmittedAt(LocalDateTime.now());
+        calibrationSubmissionMapper.insert(submission);
     }
 }

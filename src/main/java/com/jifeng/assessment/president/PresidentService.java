@@ -154,7 +154,12 @@ public class PresidentService {
         // 悲观锁：串行化同周期确认，消除「selectCount→tryConfirmPeriod」并发漏判
         periodService.lockPeriod(confirmation.getPeriodId());
         assertPresidentOf(confirmation);
+        periodService.assertProjectCalibrationSubmitted(confirmation.getPeriodId(), confirmation.getProjectCode());
         if (STATUS_APPROVED.equals(confirmation.getStatus())) {
+            if (noPendingOrReturned(confirmation.getPeriodId())
+                    && periodService.allProjectCalibrationsSubmitted(confirmation.getPeriodId())) {
+                periodService.tryConfirmPeriod(confirmation.getPeriodId());
+            }
             return; // 幂等：已通过直接返回
         }
         if (!STATUS_PENDING.equals(confirmation.getStatus())) {
@@ -170,7 +175,8 @@ public class PresidentService {
             throw new BusinessException(409, "数据已被他人修改，请刷新后重试");
         }
         // 本周期无待确认/退回项目时，原子翻转周期状态
-        if (noPendingOrReturned(confirmation.getPeriodId())) {
+        if (noPendingOrReturned(confirmation.getPeriodId())
+                && periodService.allProjectCalibrationsSubmitted(confirmation.getPeriodId())) {
             periodService.tryConfirmPeriod(confirmation.getPeriodId());
         }
     }
@@ -221,6 +227,10 @@ public class PresidentService {
                         .eq(ProjectConfirmation::getPeriodId, periodId)
                         .eq(ProjectConfirmation::getProjectCode, projectCode)
                         .eq(ProjectConfirmation::getStatus, STATUS_PENDING));
+        if (pending.isEmpty()) {
+            return 0;
+        }
+        periodService.assertProjectCalibrationSubmitted(periodId, projectCode);
         for (ProjectConfirmation c : pending) {
             c.setStatus(STATUS_APPROVED);
             c.setConfirmedByEmployeeId(current);
@@ -233,7 +243,8 @@ public class PresidentService {
             }
         }
         // 本周期无待确认/退回人员时，原子翻转周期状态
-        if (noPendingOrReturned(periodId)) {
+        if (!pending.isEmpty() && noPendingOrReturned(periodId)
+                && periodService.allProjectCalibrationsSubmitted(periodId)) {
             periodService.tryConfirmPeriod(periodId);
         }
         return pending.size();
@@ -298,6 +309,11 @@ public class PresidentService {
 
     // 功能：判断本周期是否已「所有确认行均为 APPROVED」——等价于无 PENDING/RETURNED 行
     private boolean noPendingOrReturned(String periodId) {
+        Long total = projectConfirmationMapper.selectCount(new LambdaQueryWrapper<ProjectConfirmation>()
+                .eq(ProjectConfirmation::getPeriodId, periodId));
+        if (total == null || total == 0) {
+            return false;
+        }
         Long count = projectConfirmationMapper.selectCount(
                 new LambdaQueryWrapper<ProjectConfirmation>()
                         .eq(ProjectConfirmation::getPeriodId, periodId)

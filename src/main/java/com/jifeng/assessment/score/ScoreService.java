@@ -65,7 +65,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
     // 功能：提交评分——校验指标完整性、得分范围、kpiType一致性、task乐观锁，任务状态→SUBMITTED
     @Transactional
     public AssessmentTask submit(Long taskId, List<ScoreItem> items) {
-        AssessmentTask task = taskMapper.selectById(taskId);
+        AssessmentTask task = taskMapper.selectByIdForUpdate(taskId);
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
@@ -119,7 +119,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
             score.setKpiConfigId(item.getKpiConfigId());
             score.setKpiType(item.getKpiType());
             score.setScore(item.getScore());
-            score.setEvidenceUrl(item.getEvidenceUrl());
+            // 凭证 URL 只能由上传接口写入；客户端提交的 URL 不能绑定别人的文件。
             score.setStatus("SUBMITTED");
             score.setUpdatedAt(now);
             if (existing != null) {
@@ -151,7 +151,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
     // 功能：暂存草稿——可只填部分指标，不改变 task 状态
     @Transactional
     public void saveDraft(Long taskId, List<ScoreItem> items) {
-        AssessmentTask task = taskMapper.selectById(taskId);
+        AssessmentTask task = taskMapper.selectByIdForUpdate(taskId);
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
@@ -159,6 +159,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         assertAssessor(task);
         // 周期锁定：考核尚未发起或已关闭时拒绝保存草稿
         periodService.assertOngoing(task.getPeriodId(), "保存评分草稿");
+        assertTaskInProgress(task);
 
         LocalDateTime now = LocalDateTime.now();
         for (ScoreItem item : items) {
@@ -184,7 +185,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
             score.setKpiConfigId(item.getKpiConfigId());
             score.setKpiType(item.getKpiType());
             score.setScore(item.getScore());
-            score.setEvidenceUrl(item.getEvidenceUrl());
+            // 草稿同样保留服务端已登记的凭证 URL。
             score.setStatus("DRAFT");
             score.setUpdatedAt(now);
             if (existing != null) {
@@ -215,13 +216,14 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
             throw new BusinessException(404, "评分记录不存在: " + scoreId);
         }
         // 权限校验：当前登录用户必须是该评分所属任务的考核人（ADMIN 豁免），否则 403
-        AssessmentTask task = taskMapper.selectById(score.getTaskId());
+        AssessmentTask task = taskMapper.selectByIdForUpdate(score.getTaskId());
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + score.getTaskId());
         }
         assertAssessor(task);
         // 周期锁定：考核尚未发起或已关闭时拒绝上传凭证
         periodService.assertOngoing(task.getPeriodId(), "上传凭证");
+        assertTaskInProgress(task);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "请选择要上传的凭证文件");
         }
@@ -234,6 +236,9 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         String originalName = file.getOriginalFilename();
         if (originalName != null && originalName.contains(".")) {
             ext = originalName.substring(originalName.lastIndexOf('.'));
+        }
+        if (!ext.isEmpty() && !ext.matches("\\.[A-Za-z0-9]{1,10}")) {
+            throw new BusinessException(400, "凭证文件扩展名不合法");
         }
         String filename = UUID.randomUUID().toString().replace("-", "") + ext;
 
@@ -251,14 +256,25 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         String url = "/api/v1/evidence/" + filename;
         score.setEvidenceUrl(url);
         score.setUpdatedAt(LocalDateTime.now());
-        baseMapper.updateById(score);
+        try {
+            if (baseMapper.updateById(score) == 0) {
+                throw new BusinessException(409, "评分数据已被他人修改，请刷新后重试");
+            }
+        } catch (RuntimeException e) {
+            try {
+                Files.deleteIfExists(target);
+            } catch (IOException cleanupError) {
+                log.warn("无法清理上传失败的凭证: {}", target, cleanupError);
+            }
+            throw e;
+        }
         return url;
     }
 
     // 功能：确保评分草稿行存在（凭证上传前需要 scoreId）——已存在则返回其 id，否则插入空 DRAFT 行
     @Transactional
     public Long ensureScore(Long taskId, Long kpiConfigId, String kpiType) {
-        AssessmentTask task = taskMapper.selectById(taskId);
+        AssessmentTask task = taskMapper.selectByIdForUpdate(taskId);
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
@@ -266,6 +282,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         assertAssessor(task);
         // 周期锁定：考核尚未发起或已关闭时拒绝评分操作
         periodService.assertOngoing(task.getPeriodId(), "评分操作");
+        assertTaskInProgress(task);
         if (!expectedKpiType(task).equals(kpiType)) {
             throw new BusinessException(400, "指标类型 " + kpiType + " 与任务类型 " + task.getTaskType() + " 不一致");
         }
@@ -297,6 +314,12 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         int rows = taskMapper.updateById(task);
         if (rows == 0) {
             throw new BusinessException(409, "数据已被他人修改，请刷新后重试");
+        }
+    }
+
+    private void assertTaskInProgress(AssessmentTask task) {
+        if (!"IN_PROGRESS".equals(task.getStatus())) {
+            throw new BusinessException(400, "仅评分中的任务可修改凭证或草稿");
         }
     }
 

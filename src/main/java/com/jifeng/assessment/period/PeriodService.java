@@ -216,6 +216,21 @@ public class PeriodService {
         refreshCalibrationSubmittedAt(periodId);
     }
 
+    // 总裁确认以项目编码为单位；同一编码下本周期涉及的每个阶段都必须由 PD 提交。
+    public void assertProjectCalibrationSubmitted(String periodId, String projectCode) {
+        Set<String> involved = involvedProjectKeys(periodId).stream()
+                .filter(key -> projectCode.equals(codeFromKey(key)))
+                .collect(Collectors.toSet());
+        if (involved.isEmpty() || !submittedProjectKeys(periodId).containsAll(involved)) {
+            throw new BusinessException(400, "该项目校准尚未全部提交，不能进行总裁确认");
+        }
+    }
+
+    public boolean allProjectCalibrationsSubmitted(String periodId) {
+        Set<String> involved = involvedProjectKeys(periodId);
+        return !involved.isEmpty() && submittedProjectKeys(periodId).containsAll(involved);
+    }
+
     // 功能：确定本次提交的目标 (code|stage) 项目键——PD 只提交自己主 PD 负责且本周期涉及的项目；
     //   ADMIN 提交全部涉及项目；未登录/未绑定员工时提交空集（无可提交项目）
     private Set<String> targetProjectKeys(String periodId) {

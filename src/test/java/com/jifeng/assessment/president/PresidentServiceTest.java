@@ -199,6 +199,12 @@ class PresidentServiceTest {
         seedAssignment("PRJ_4", "P2", "PRESIDENT", "EMP_PRES_2", true);
         Long id1 = seedConfirmation("PERIOD_A2", "PRJ_3", "PENDING", 0);
         Long id2 = seedConfirmation("PERIOD_A2", "PRJ_4", "PENDING", 0);
+        seedEmployee("PRJ_3");
+        seedEmployee("PRJ_4");
+        seedSubmission("PERIOD_A2", "PRJ_3", "P2", "EMP_PRES_2");
+        seedSubmission("PERIOD_A2", "PRJ_4", "P2", "EMP_PRES_2");
+        seedTask("PERIOD_A2", "PRJ_3", "PRJ_3", "P2");
+        seedTask("PERIOD_A2", "PRJ_4", "PRJ_4", "P2");
 
         auth("pres2", "总裁");
 
@@ -209,6 +215,45 @@ class PresidentServiceTest {
         assertEquals("CONFIRMED", periodMapper.selectById("PERIOD_A2").getStatus());
         assertEquals("APPROVED", projectConfirmationMapper.selectById(id1).getStatus());
         assertEquals("APPROVED", projectConfirmationMapper.selectById(id2).getStatus());
+    }
+
+    @Test
+    void presidentCannotApproveBeforePdSubmitsProjectCalibration() {
+        seedEmployee("EMP_PRES_EARLY");
+        seedEmployee("EMP_EARLY");
+        seedUser("U_PRES_EARLY", "pres_early", "EMP_PRES_EARLY");
+        seedProject("PRJ_EARLY", "P2");
+        seedPeriod("PERIOD_EARLY", "CALIBRATING");
+        seedAssignment("PRJ_EARLY", "P2", "PRESIDENT", "EMP_PRES_EARLY", true);
+        seedTask("PERIOD_EARLY", "EMP_EARLY", "PRJ_EARLY", "P2");
+        Long id = seedConfirmation("PERIOD_EARLY", "PRJ_EARLY", "EMP_EARLY", "PENDING", 0);
+        auth("pres_early", "总裁");
+
+        assertEquals(400, assertThrows(BusinessException.class, () -> presidentService.approve(id)).getCode());
+        assertEquals("PENDING", projectConfirmationMapper.selectById(id).getStatus());
+        assertEquals("CALIBRATING", periodMapper.selectById("PERIOD_EARLY").getStatus());
+
+        seedProject("PRJ_EARLY", "P3");
+        seedTask("PERIOD_EARLY", "EMP_EARLY", "PRJ_EARLY", "P3");
+        seedSubmission("PERIOD_EARLY", "PRJ_EARLY", "P2", "EMP_PRES_EARLY");
+        assertEquals(400, assertThrows(BusinessException.class,
+                () -> presidentService.approveAll("PERIOD_EARLY", "PRJ_EARLY")).getCode());
+        seedSubmission("PERIOD_EARLY", "PRJ_EARLY", "P3", "EMP_PRES_EARLY");
+        assertEquals(1, presidentService.approveAll("PERIOD_EARLY", "PRJ_EARLY"));
+        assertEquals("CONFIRMED", periodMapper.selectById("PERIOD_EARLY").getStatus());
+    }
+
+    @Test
+    void emptyConfirmationListCannotCompletePeriod() {
+        seedEmployee("EMP_PRES_EMPTY");
+        seedUser("U_PRES_EMPTY", "pres_empty", "EMP_PRES_EMPTY");
+        seedProject("PRJ_EMPTY", "P2");
+        seedPeriod("PERIOD_EMPTY", "CALIBRATING");
+        seedAssignment("PRJ_EMPTY", "P2", "PRESIDENT", "EMP_PRES_EMPTY", true);
+        auth("pres_empty", "总裁");
+
+        assertEquals(0, presidentService.approveAll("PERIOD_EMPTY", "PRJ_EMPTY"));
+        assertEquals("CALIBRATING", periodMapper.selectById("PERIOD_EMPTY").getStatus());
     }
 
     // 功能：退回次数达 PRESIDENT_RETURN_TIMES 上限时拒绝——return_count=3 再退回报 400

@@ -1,13 +1,14 @@
 // 模块用途：验证参与页周期下拉——新增弹窗只显示未关闭周期，筛选栏仍显示全部周期
-// 依赖：运行中的后端(8080) + 前端(3000)，admin/admin123；DB 需同时存在未关闭与已关闭周期
+// 依赖：运行中的后端(8080) + 前端(3000)，E2E_ADMIN_PASSWORD；DB 需同时存在未关闭与已关闭周期
 import { test, expect } from '@playwright/test';
+import { adminPassword } from './helpers/admin-credentials.js';
 
 test.describe('项目参与页周期下拉过滤', () => {
   test('新增弹窗排除已关闭周期，筛选栏保留全部周期', async ({ page }) => {
     // 1. 登录 admin
     await page.goto('/login');
     await page.getByPlaceholder('用户名').fill('admin');
-    await page.getByPlaceholder('密码').fill('admin123');
+    await page.getByPlaceholder('密码').fill(adminPassword());
     await page.locator('#login-card button[type="submit"]').click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
 

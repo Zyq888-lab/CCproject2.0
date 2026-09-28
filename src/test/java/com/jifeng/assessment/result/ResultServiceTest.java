@@ -47,6 +47,7 @@ class ResultServiceTest {
     @Autowired private ResultService resultService;
     @Autowired private PeriodService periodService;
     @Autowired private AssessmentResultMapper resultMapper;
+    @Autowired private ScoreAdjustmentMapper adjustmentMapper;
     @Autowired private PeriodMapper periodMapper;
     @Autowired private EmployeeMapper employeeMapper;
     @Autowired private PositionConfigMapper positionConfigMapper;
@@ -139,6 +140,17 @@ class ResultServiceTest {
                         .eq(AssessmentResult::getAssesseeId, "EMP_ADJ"));
         result.setAdjustedScore(new BigDecimal("4.5000"));
         resultMapper.updateById(result);
+        ScoreAdjustment adjustment = new ScoreAdjustment();
+        adjustment.setAssessmentResultId(result.getId());
+        adjustment.setAdjustedBy("ASSESSOR1");
+        adjustment.setOldScore(new BigDecimal("3.7000"));
+        adjustment.setNewScore(new BigDecimal("4.5000"));
+        adjustment.setReason("人工总分调整");
+        adjustmentMapper.insert(adjustment);
+        AssessmentScore calibrated = scoreMapper.selectOne(new LambdaQueryWrapper<AssessmentScore>()
+                .eq(AssessmentScore::getTaskId, projTaskId));
+        calibrated.setCalibratedScore(new BigDecimal("5.0"));
+        scoreMapper.updateById(calibrated);
 
         // 重生成：原始分刷新为 3.7000，调整分保留 4.5000
         resultService.generateResults("PERIOD-001");
@@ -301,6 +313,39 @@ class ResultServiceTest {
                         .eq(AssessmentResult::getAssesseeId, "EMP_SINGLE"));
         assertNotNull(result);
         assertEquals(0, new BigDecimal("4.0000").compareTo(result.getOriginalScore()));
+    }
+
+    @Test
+    void calibratedKpiShouldFlowIntoFinalScoreAndDetail() {
+        seedPeriod();
+        seedEmployee("EMP_CALIBRATED");
+        seedEmployee("ASSESSOR1");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        Long kpiId = seedProjectKpi(BigDecimal.ONE);
+        Long taskId = seedTask("EMP_CALIBRATED", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        seedScore(taskId, kpiId, "PROJECT", new BigDecimal("3.0"));
+        seedParticipation("EMP_CALIBRATED", "PRJ1", "P2", new BigDecimal("100"));
+        AssessmentScore score = scoreMapper.selectOne(new LambdaQueryWrapper<AssessmentScore>()
+                .eq(AssessmentScore::getTaskId, taskId));
+        score.setCalibratedScore(new BigDecimal("4.0"));
+        scoreMapper.updateById(score);
+
+        resultService.generateResults("PERIOD-001");
+
+        AssessmentResult result = resultMapper.selectOne(new LambdaQueryWrapper<AssessmentResult>()
+                .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                .eq(AssessmentResult::getAssesseeId, "EMP_CALIBRATED"));
+        assertEquals(0, new BigDecimal("3.0000").compareTo(result.getOriginalScore()));
+        assertEquals(0, new BigDecimal("4.0000").compareTo(result.getAdjustedScore()));
+        EmployeeResultResponse detail = resultService.getEmployeeResult("PERIOD-001", "EMP_CALIBRATED");
+        assertEquals(0, new BigDecimal("4.0").compareTo(detail.getKpis().get(0).getScore()));
+        score = scoreMapper.selectById(score.getId());
+        score.setCalibratedScore(new BigDecimal("4.5"));
+        scoreMapper.updateById(score);
+        resultService.generateResults("PERIOD-001");
+        result = resultMapper.selectById(result.getId());
+        assertEquals(0, new BigDecimal("3.0000").compareTo(result.getOriginalScore()));
+        assertEquals(0, new BigDecimal("4.5000").compareTo(result.getAdjustedScore()));
     }
 
     // 功能：结果页 KPI 明细逐行带出所属项目/阶段；职能指标不误挂到项目

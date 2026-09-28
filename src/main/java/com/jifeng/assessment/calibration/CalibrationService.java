@@ -32,6 +32,7 @@ import com.jifeng.assessment.result.ScoreKpiAdjustment;
 import com.jifeng.assessment.result.ScoreKpiAdjustmentMapper;
 import com.jifeng.assessment.score.AssessmentScore;
 import com.jifeng.assessment.score.ScoreMapper;
+import com.jifeng.assessment.security.ProjectAccessService;
 import com.jifeng.assessment.task.AssessmentTask;
 import com.jifeng.assessment.task.KpiIndicatorDTO;
 import com.jifeng.assessment.task.TaskMapper;
@@ -78,6 +79,7 @@ public class CalibrationService {
     private final ScoreMapper scoreMapper;
     private final ScoreKpiAdjustmentMapper kpiAdjustmentMapper;
     private final AssessmentProjectSubtotalMapper projectSubtotalMapper;
+    private final ProjectAccessService projectAccessService;
 
     private static final String STATUS_CALIBRATING = "CALIBRATING";
     private static final String STATUS_SUBMITTED = "SUBMITTED";
@@ -276,6 +278,9 @@ public class CalibrationService {
     //   old_score 取改分前的 adjusted_score（首次改分即等于 original_score）
     @Transactional
     public void adjust(String periodId, String assesseeId, BigDecimal newScore, String reason) {
+        if (!hasRole("ADMIN")) {
+            throw new BusinessException(403, "仅管理员可调整跨项目总分");
+        }
         AssessmentPeriod period = periodMapper.selectById(periodId);
         if (period == null) {
             throw new BusinessException(404, "考核周期不存在: " + periodId);
@@ -667,6 +672,7 @@ public class CalibrationService {
         if (task == null || !periodId.equals(task.getPeriodId())) {
             throw new BusinessException(404, "考核任务不存在或不属于该周期: " + taskId);
         }
+        projectAccessService.assertPrimaryRole(task.getProjectCode(), task.getProjectStage(), "PD");
         if (!STATUS_SUBMITTED.equals(task.getStatus())) {
             throw new BusinessException(400, "仅已提交任务可校准");
         }

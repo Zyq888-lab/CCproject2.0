@@ -1,5 +1,12 @@
 $ErrorActionPreference = "Continue"
 $DEPLOY_DIR = "C:\jifeng-assessment\uat"
+if ([string]::IsNullOrWhiteSpace($env:DATASOURCE_PASSWORD) -or
+    [string]::IsNullOrWhiteSpace($env:ADMIN_BOOTSTRAP_PASSWORD) -or
+    [string]::IsNullOrWhiteSpace($env:APP_UPLOAD_DIR)) {
+    throw "Set DATASOURCE_PASSWORD, ADMIN_BOOTSTRAP_PASSWORD and APP_UPLOAD_DIR before deploying UAT"
+}
+if (![System.IO.Path]::IsPathRooted($env:APP_UPLOAD_DIR)) { throw "APP_UPLOAD_DIR must be an absolute path" }
+$uploadDir = $env:APP_UPLOAD_DIR
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Jifeng Assessment UAT Deploy" -ForegroundColor Cyan
@@ -7,7 +14,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 
 # 1. Create UAT database
 Write-Host "[1/4] Creating UAT database..." -ForegroundColor Yellow
-$env:PGPASSWORD = "P@ssw0rd123"
+$env:PGPASSWORD = $env:DATASOURCE_PASSWORD
 $psql = "C:\Program Files\PostgreSQL\16\bin\psql.exe"
 $dbCheck = & $psql -U postgres -t -c "SELECT 1 FROM pg_database WHERE datname='jifeng_uat'" 2>&1
 if ($dbCheck -notmatch "1") {
@@ -22,11 +29,11 @@ Write-Host "[2/4] Starting backend..." -ForegroundColor Yellow
 $env:DATASOURCE_URL = "jdbc:postgresql://localhost:5432/jifeng_uat"
 $env:DATASOURCE_DRIVER = "org.postgresql.Driver"
 $env:DATASOURCE_USERNAME = "postgres"
-$env:DATASOURCE_PASSWORD = "P@ssw0rd123"
 $java = "C:\Program Files\jdk-17.0.14+7\bin\java.exe"
 $jar = Join-Path $DEPLOY_DIR "assessment-1.0.0-SNAPSHOT.jar"
 if (Test-Path $jar) {
-    Start-Process $java -ArgumentList "-jar", "$jar", "--spring.profiles.active=prod" -WindowStyle Hidden
+    New-Item -ItemType Directory -Force -Path $uploadDir | Out-Null
+    Start-Process $java -ArgumentList "-jar", "$jar", "--spring.profiles.active=prod" -WorkingDirectory $DEPLOY_DIR -WindowStyle Hidden
     Write-Host "  OK: Backend started on http://localhost:8080" -ForegroundColor Green
 } else {
     Write-Host "  ERROR: JAR not found at $jar" -ForegroundColor Red
@@ -77,12 +84,12 @@ if ($mainContent -notmatch "conf.d") {
 }
 
 # Start Nginx
-Start-Process "C:\nginx-1.26.2\nginx.exe"
+Start-Process "C:\nginx-1.26.2\nginx.exe" -WindowStyle Hidden
 Write-Host "  OK: Nginx started" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  UAT Deployment Complete!" -ForegroundColor Cyan
 Write-Host "  Access: http://localhost from server" -ForegroundColor Green
-Write-Host "  Login:  admin / admin123" -ForegroundColor White
+Write-Host "  Admin:  use configured bootstrap password, then change it" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor Cyan

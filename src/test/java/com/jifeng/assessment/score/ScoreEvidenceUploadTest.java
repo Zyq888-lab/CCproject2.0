@@ -59,6 +59,7 @@ class ScoreEvidenceUploadTest {
         task.setId(20L);
         task.setPeriodId("PERIOD-1");
         task.setAssessorId("E001");
+        task.setStatus("IN_PROGRESS");
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                 "assessor", null, List.of(new SimpleGrantedAuthority("ROLE_评估人"))));
     }
@@ -70,10 +71,11 @@ class ScoreEvidenceUploadTest {
 
     private void allowUpload() {
         when(scoreMapper.selectById(10L)).thenReturn(score);
-        when(taskMapper.selectById(20L)).thenReturn(task);
+        when(taskMapper.selectByIdForUpdate(20L)).thenReturn(task);
         SysUser user = new SysUser();
         user.setEmployeeId("E001");
         when(sysUserMapper.selectOne(any())).thenReturn(user);
+        lenient().when(scoreMapper.updateById(any())).thenReturn(1);
     }
 
     @Test
@@ -101,6 +103,33 @@ class ScoreEvidenceUploadTest {
         assertEquals(403, ex.getCode());
         assertFalse(Files.exists(tempDir.resolve("evidence")));
         verify(scoreMapper, never()).updateById(any());
+    }
+
+    @Test
+    void uploadRejectsSubmittedTaskWithoutReplacingEvidence() {
+        allowUpload();
+        task.setStatus("SUBMITTED");
+        score.setEvidenceUrl("/api/v1/evidence/original.pdf");
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> scoreService.uploadEvidence(10L,
+                new MockMultipartFile("file", "replacement.pdf", "application/pdf", new byte[] {1})));
+
+        assertEquals(400, ex.getCode());
+        assertEquals("/api/v1/evidence/original.pdf", score.getEvidenceUrl());
+        assertFalse(Files.exists(tempDir.resolve("evidence")));
+        verify(scoreMapper, never()).updateById(any());
+    }
+
+    @Test
+    void uploadConflictRemovesNewFile() throws IOException {
+        allowUpload();
+        when(scoreMapper.updateById(any(AssessmentScore.class))).thenReturn(0);
+        assertEquals(409, assertThrows(BusinessException.class,
+                () -> scoreService.uploadEvidence(10L, new MockMultipartFile(
+                        "file", "proof.pdf", "application/pdf", new byte[]{1}))).getCode());
+        try (var files = Files.list(tempDir.resolve("evidence"))) {
+            assertEquals(0, files.count());
+        }
     }
 
     @Test

@@ -124,12 +124,14 @@ public class ResultService {
                 continue;
             }
 
-            BigDecimal composite = computeComposite(assesseeId, tasks, scoresByTask,
-                    projectWeightById, funcWeightById, participationsByEmployee.get(assesseeId));
+            BigDecimal originalComposite = computeComposite(assesseeId, tasks, scoresByTask,
+                    projectWeightById, funcWeightById, participationsByEmployee.get(assesseeId), false);
+            BigDecimal calibratedComposite = computeComposite(assesseeId, tasks, scoresByTask,
+                    projectWeightById, funcWeightById, participationsByEmployee.get(assesseeId), true);
 
             // 原子 upsert：并发生成时 ON CONFLICT 兜底，避免唯一键冲突 500；
-            //   已手动改分(original≠adjusted)的行仅刷新 original_score，保留 adjusted_score
-            resultMapper.upsertResult(periodId, assesseeId, composite);
+            //   有人工总分调整审计记录的行保留 adjusted_score，其余行刷新逐项校准后的总分
+            resultMapper.upsertResult(periodId, assesseeId, originalComposite, calibratedComposite);
             generated++;
         }
         return generated;
@@ -254,7 +256,7 @@ public class ResultService {
             for (AssessmentScore score : scoresByTask.getOrDefault(task.getId(), List.of())) {
                 EmployeeResultResponse.KpiDetail d = new EmployeeResultResponse.KpiDetail();
                 d.setKpiType(score.getKpiType());
-                d.setScore(score.getScore());
+                d.setScore(score.getCalibratedScore() != null ? score.getCalibratedScore() : score.getScore());
                 d.setAssessorName(assessorName);
                 d.setEvidenceUrl(score.getEvidenceUrl());
                 d.setProjectCode(projectCode);
@@ -281,7 +283,8 @@ public class ResultService {
                                         Map<Long, List<AssessmentScore>> scoresByTask,
                                         Map<Long, BigDecimal> projectWeightById,
                                         Map<Long, BigDecimal> funcWeightById,
-                                        List<EmployeeProjectParticipation> participations) {
+                                        List<EmployeeProjectParticipation> participations,
+                                        boolean useCalibratedScores) {
         List<AssessmentTask> projectTasks = tasks.stream()
                 .filter(t -> "PROJECT".equals(t.getTaskType())).toList();
         List<AssessmentTask> funcTasks = tasks.stream()
@@ -291,10 +294,11 @@ public class ResultService {
         boolean hasFunc = !funcTasks.isEmpty();
 
         BigDecimal projectComposite = hasProject
-                ? aggregateProjectComposite(projectTasks, scoresByTask, projectWeightById, participations)
+                ? aggregateProjectComposite(projectTasks, scoresByTask, projectWeightById, participations,
+                        useCalibratedScores)
                 : null;
         BigDecimal funcComposite = hasFunc
-                ? aggregateFuncComposite(funcTasks, scoresByTask, funcWeightById)
+                ? aggregateFuncComposite(funcTasks, scoresByTask, funcWeightById, useCalibratedScores)
                 : null;
 
         // 双组件：按岗位配置权重加权；单组件：权重重归一化（组件权重置 1）+ WARN
@@ -319,7 +323,8 @@ public class ResultService {
     private BigDecimal aggregateProjectComposite(List<AssessmentTask> projectTasks,
                                                  Map<Long, List<AssessmentScore>> scoresByTask,
                                                  Map<Long, BigDecimal> projectWeightById,
-                                                 List<EmployeeProjectParticipation> participations) {
+                                                 List<EmployeeProjectParticipation> participations,
+                                                 boolean useCalibratedScores) {
         Map<String, List<AssessmentTask>> byProject = new HashMap<>();
         for (AssessmentTask t : projectTasks) {
             String key = key(t.getProjectCode(), t.getProjectStage());
@@ -336,7 +341,8 @@ public class ResultService {
         List<BigDecimal> projectScores = new ArrayList<>();
         List<BigDecimal> rates = new ArrayList<>();
         for (Map.Entry<String, List<AssessmentTask>> e : byProject.entrySet()) {
-            BigDecimal projectScore = averageTaskScores(e.getValue(), scoresByTask, projectWeightById);
+            BigDecimal projectScore = averageTaskScores(e.getValue(), scoresByTask, projectWeightById,
+                    useCalibratedScores);
             projectScores.add(projectScore);
             BigDecimal rate = rateByProject.get(e.getKey());
             rates.add(rate != null ? rate.divide(HUNDRED, 4, RoundingMode.HALF_UP) : BigDecimal.ONE);
@@ -347,19 +353,24 @@ public class ResultService {
     // 功能：聚合职能 composite——多职能任务取均值（通常仅直属上级一条）
     private BigDecimal aggregateFuncComposite(List<AssessmentTask> funcTasks,
                                               Map<Long, List<AssessmentScore>> scoresByTask,
-                                              Map<Long, BigDecimal> funcWeightById) {
-        return averageTaskScores(funcTasks, scoresByTask, funcWeightById);
+                                              Map<Long, BigDecimal> funcWeightById,
+                                              boolean useCalibratedScores) {
+        return averageTaskScores(funcTasks, scoresByTask, funcWeightById, useCalibratedScores);
     }
 
     // 功能：一组任务加权得分的算术均值——单任务即其自身；多任务（多评估人）取平均拉平
     private BigDecimal averageTaskScores(List<AssessmentTask> tasks,
                                          Map<Long, List<AssessmentScore>> scoresByTask,
-                                         Map<Long, BigDecimal> weightById) {
+                                         Map<Long, BigDecimal> weightById,
+                                         boolean useCalibratedScores) {
         BigDecimal total = BigDecimal.ZERO;
         int count = 0;
         for (AssessmentTask task : tasks) {
             List<AssessmentScore> scores = scoresByTask.getOrDefault(task.getId(), List.of());
-            List<BigDecimal> scoreVals = scores.stream().map(AssessmentScore::getScore).toList();
+            List<BigDecimal> scoreVals = scores.stream()
+                    .map(s -> useCalibratedScores && s.getCalibratedScore() != null
+                            ? s.getCalibratedScore() : s.getScore())
+                    .toList();
             List<BigDecimal> weightVals = scores.stream()
                     .map(s -> weightById.get(s.getKpiConfigId())).toList();
             // 归一化 KPI 权重到和=1（与参与比重归一化口径一致）——避免权重和≠1 导致单任务得分越界

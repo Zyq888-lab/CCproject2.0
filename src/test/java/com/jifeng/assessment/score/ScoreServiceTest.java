@@ -15,6 +15,7 @@ import com.jifeng.assessment.task.TaskStateMachine;
 import com.jifeng.assessment.user.SysUser;
 import com.jifeng.assessment.user.SysUserMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -35,6 +36,11 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class ScoreServiceTest {
+
+    @AfterEach
+    void clearAuth() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Mock private TaskMapper taskMapper;
     @Mock private TaskService taskService;
@@ -87,12 +93,51 @@ class ScoreServiceTest {
                 .thenReturn(List.of(new KpiIndicatorDTO(100L, "PROJECT", "项目KPI", BigDecimal.ONE, null, null, null)));
     }
 
+    @Test
+    void draftCannotReplaceServerRegisteredEvidenceWithClientUrl() {
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(inProgressTask);
+        when(projectKpiMapper.selectById(100L)).thenReturn(new com.jifeng.assessment.kpi.ProjectKpiConfig());
+        AssessmentScore existing = new AssessmentScore();
+        existing.setEvidenceUrl("/api/v1/evidence/owned.pdf");
+        when(scoreMapper.selectOne(any())).thenReturn(existing);
+        when(scoreMapper.updateById(any(AssessmentScore.class))).thenReturn(1);
+        ScoreService.ScoreItem item = validItem();
+        item.setEvidenceUrl("/api/v1/evidence/someone-elses.pdf");
+
+        scoreService.saveDraft(1L, List.of(item));
+
+        assertEquals("/api/v1/evidence/owned.pdf", existing.getEvidenceUrl());
+    }
+
+    @Test
+    void submitCannotBindClientUrlToANewScore() {
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(inProgressTask);
+        stubIndicators();
+        when(projectKpiMapper.selectById(100L)).thenReturn(new com.jifeng.assessment.kpi.ProjectKpiConfig());
+        when(taskMapper.updateById(any(AssessmentTask.class))).thenReturn(1);
+        ScoreService.ScoreItem item = validItem();
+        item.setEvidenceUrl("/api/v1/evidence/someone-elses.pdf");
+        scoreService.submit(1L, List.of(item));
+        org.mockito.ArgumentCaptor<AssessmentScore> captor = org.mockito.ArgumentCaptor.forClass(AssessmentScore.class);
+        verify(scoreMapper).insert(captor.capture());
+        assertNull(captor.getValue().getEvidenceUrl());
+    }
+
+    @Test
+    void draftCannotModifySubmittedTask() {
+        inProgressTask.setStatus("SUBMITTED");
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(inProgressTask);
+        assertEquals(400, assertThrows(BusinessException.class,
+                () -> scoreService.saveDraft(1L, List.of(validItem()))).getCode());
+        verify(scoreMapper, never()).updateById(any(AssessmentScore.class));
+    }
+
     // ========================================
     // 1. 提交评分时指标不完整（空列表）→ BusinessException
     // ========================================
     @Test
     void submitShouldRejectEmptyItems() {
-        when(taskMapper.selectById(1L)).thenReturn(inProgressTask);
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(inProgressTask);
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> scoreService.submit(1L, List.of()));
@@ -106,7 +151,7 @@ class ScoreServiceTest {
     // ========================================
     @Test
     void submitShouldRejectScoreOutOfRange() {
-        when(taskMapper.selectById(1L)).thenReturn(inProgressTask);
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(inProgressTask);
         stubIndicators();
 
         ScoreService.ScoreItem item = validItem();
@@ -124,7 +169,7 @@ class ScoreServiceTest {
     // ========================================
     @Test
     void submitShouldRejectMismatchedKpiType() {
-        when(taskMapper.selectById(1L)).thenReturn(inProgressTask); // taskType=PROJECT
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(inProgressTask); // taskType=PROJECT
         stubIndicators();
 
         ScoreService.ScoreItem item = validItem();
@@ -142,7 +187,7 @@ class ScoreServiceTest {
     // ========================================
     @Test
     void submitShouldReturn409OnVersionConflict() {
-        when(taskMapper.selectById(1L)).thenReturn(inProgressTask);
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(inProgressTask);
         stubIndicators();
         when(projectKpiMapper.selectById(100L)).thenReturn(new com.jifeng.assessment.kpi.ProjectKpiConfig());
         // upsert 时查重返回 null（无已有草稿）
@@ -161,7 +206,7 @@ class ScoreServiceTest {
     // ========================================
     @Test
     void submitShouldRejectIncompleteIndicatorSet() {
-        when(taskMapper.selectById(1L)).thenReturn(inProgressTask);
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(inProgressTask);
         // 任务实际需要两个指标，只提交一个 → 指标集不完整
         when(taskService.resolveIndicators(any())).thenReturn(List.of(
                 new KpiIndicatorDTO(100L, "PROJECT", "指标A", BigDecimal.ONE, null, null, null),

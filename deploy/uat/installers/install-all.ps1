@@ -22,9 +22,14 @@ if (Test-Path $javaZip) {
 
 Write-Host "[2/3] Installing PostgreSQL 16..." -ForegroundColor Yellow
 $pgExe = Join-Path $DIR "postgresql-16.exe"
+if ([string]::IsNullOrWhiteSpace($env:POSTGRES_SUPERPASSWORD)) {
+    throw "Set POSTGRES_SUPERPASSWORD before installing PostgreSQL"
+}
 if (Test-Path $pgExe) {
     Write-Host "  (silent install, 1-2 minutes...)" -ForegroundColor White
-    Start-Process $pgExe -ArgumentList "--mode unattended --superpassword P@ssw0rd123 --servicename postgresql" -Wait
+    # Start-Process 会拼接参数；按 Windows 参数规则引用口令，保留空格、引号和尾部反斜杠。
+    $installerPasswordArgument = '"' + [regex]::Replace([regex]::Replace($env:POSTGRES_SUPERPASSWORD, '(\\*)"', '${1}${1}\"'), '(\\+)$', '${1}${1}') + '"'
+    Start-Process $pgExe -ArgumentList @("--mode", "unattended", "--superpassword", $installerPasswordArgument, "--servicename", "postgresql") -Wait -WindowStyle Hidden
     Write-Host "  OK: PostgreSQL 16 installed" -ForegroundColor Green
 } else {
     Write-Host "  ERROR: postgresql-16.exe not found in $DIR" -ForegroundColor Red

@@ -10,7 +10,14 @@ import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.projectrole.ProjectRole;
 import com.jifeng.assessment.projectrole.ProjectRoleMapper;
+import com.jifeng.assessment.user.SysUser;
+import com.jifeng.assessment.user.SysUserMapper;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -36,13 +43,35 @@ class RoleAssignmentServiceTest {
 
     @Autowired
     private ProjectRoleMapper projectRoleMapper;
+    @Autowired
+    private SysUserMapper sysUserMapper;
+
+    @BeforeEach
+    void useAdmin() {
+        auth("admin", "ADMIN");
+    }
+
+    @AfterEach
+    void clearAuth() {
+        SecurityContextHolder.clearContext();
+    }
+
+    private void auth(String username, String role) {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(username, null,
+                        List.of(new SimpleGrantedAuthority("ROLE_" + role))));
+    }
 
     // 辅助方法：创建测试项目
     private void createTestProject(String code) {
+        createTestProject(code, "P3");
+    }
+
+    private void createTestProject(String code, String stage) {
         Project p = new Project();
         p.setProjectCode(code);
         p.setProjectName("测试项目" + code);
-        p.setProjectStage("P3");
+        p.setProjectStage(stage);
         p.setStatus("ACTIVE");
         p.setStageConfirmed(false);
         projectMapper.insert(p);
@@ -84,6 +113,48 @@ class RoleAssignmentServiceTest {
         assertEquals("EMP_RA1", dto.getEmployeeId());
         assertEquals("张三", dto.getEmployeeName());
         assertFalse(dto.getIsPrimary());
+    }
+
+    @Test
+    void pmCannotAssignRolesOnAnotherProject() {
+        createTestProject("PJ_PM_OWN");
+        createTestProject("PJ_PM_OWN", "P4");
+        createTestProject("PJ_PM_OTHER");
+        createTestEmployee("EMP_PM_SCOPE", "项目经理甲");
+        createTestEmployee("EMP_SCOPE_TARGET", "目标员工");
+        createTestRole("PM", "项目经理");
+        createTestRole("PD", "项目负责人");
+        SysUser user = new SysUser();
+        user.setUserId("U_PM_SCOPE");
+        user.setUsername("pm_scope");
+        user.setPasswordHash("test-hash");
+        user.setEmployeeId("EMP_PM_SCOPE");
+        user.setEnabled(true);
+        sysUserMapper.insert(user);
+        ProjectRoleAssignmentDTO mine = roleAssignmentService.assignEmployee(
+                "PJ_PM_OWN", "P3", "PM", "EMP_PM_SCOPE");
+        roleAssignmentService.markPrimary(mine.getId());
+        ProjectRoleAssignmentDTO foreign = roleAssignmentService.assignEmployee(
+                "PJ_PM_OTHER", "P3", "PD", "EMP_SCOPE_TARGET");
+        roleAssignmentService.markPrimary(foreign.getId());
+        auth("pm_scope", "PM");
+
+        assertEquals(403, assertThrows(BusinessException.class,
+                () -> roleAssignmentService.assignEmployee("PJ_PM_OTHER", "P3", "PM", "EMP_SCOPE_TARGET"))
+                .getCode());
+        assertEquals(403, assertThrows(BusinessException.class,
+                () -> roleAssignmentService.assignEmployee("PJ_PM_OWN", "P4", "PD", "EMP_SCOPE_TARGET"))
+                .getCode());
+        assertEquals(403, assertThrows(BusinessException.class,
+                () -> roleAssignmentService.markPrimary(foreign.getId())).getCode());
+        assertEquals(403, assertThrows(BusinessException.class,
+                () -> roleAssignmentService.unmarkPrimary(foreign.getId())).getCode());
+        assertEquals(403, assertThrows(BusinessException.class,
+                () -> roleAssignmentService.removeAssignment(foreign.getId())).getCode());
+        assertEquals(404, assertThrows(BusinessException.class,
+                () -> roleAssignmentService.assertAssignmentPath("PJ_PM_OTHER", "P3", mine.getId())).getCode());
+        assertNotNull(roleAssignmentService.assignEmployee(
+                "PJ_PM_OWN", "P3", "PD", "EMP_SCOPE_TARGET"));
     }
 
     // 功能：重复分配同一员工到同一项目同一角色时抛出409异常

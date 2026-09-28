@@ -1,18 +1,18 @@
 // 模块用途：E2E 登录流程测试（T32）
-// 依赖：运行中的后端(8080) + 前端(3000)，admin/admin123 种子账号
-// 修改注意：测试依赖 DataInitializer 种子数据，admin 密码为 admin123
+// 依赖：运行中的后端(8080) + 前端(3000)，通过 E2E_ADMIN_PASSWORD 配置已完成首次改密的管理员密码
 
 import { test, expect } from '@playwright/test';
+import { adminPassword } from './helpers/admin-credentials.js';
 
 test.describe('登录流程', () => {
-  test('使用 admin/admin123 登录成功并跳转仪表盘', async ({ page }) => {
+  test('使用管理员账号登录成功并跳转仪表盘', async ({ page }) => {
     // 1. 访问登录页
     await page.goto('/login');
     await expect(page.locator('#login-card')).toBeVisible();
 
     // 2. 填写用户名和密码
     await page.getByPlaceholder('用户名').fill('admin');
-    await page.getByPlaceholder('密码').fill('admin123');
+    await page.getByPlaceholder('密码').fill(adminPassword());
 
     // 3. 点击登录按钮（antd 在中文按钮文字间插入空格，"登录" → "登 录"）
     await page.locator('#login-card button[type="submit"]').click();
