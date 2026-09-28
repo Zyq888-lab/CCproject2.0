@@ -1,4 +1,4 @@
-{/* 模块用途：MyResultPage——我的结果入口页，列出各周期，仅 CONFIRMED/COMPLETED 可查看结果 */}
+{/* 模块用途：MyResultPage——我的结果入口页，列出各周期，仅 PUBLISHED/COMPLETED 可查看结果 */}
 {/* 依赖组件：PageHeader, EmptyState, client.js, Ant Design Table/Tag/Button/Spin/Result */}
 {/* 修改注意：复用 GET /periods（全员只读），前端按状态过滤可查看性，无需新增后端列表接口 */}
 import { useState, useEffect, useRef } from 'react';
@@ -14,10 +14,11 @@ const STATUS_CONFIG = {
   ONGOING:     { color: 'processing', label: '进行中' },
   CALIBRATING: { color: 'warning', label: '校准中' },
   CONFIRMED:   { color: 'cyan', label: '已确认' },
+  PUBLISHED:   { color: 'success', label: '已发布' },
   COMPLETED:   { color: 'success', label: '已完成' },
 };
 
-const VISIBLE_STATUS = ['CONFIRMED', 'COMPLETED'];
+const VISIBLE_STATUS = ['PUBLISHED', 'COMPLETED'];
 
 // 功能：日期格式化——截取到日
 const formatDate = (d) => {

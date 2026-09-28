@@ -1,6 +1,7 @@
 // 模块用途：验证项目参与录入的项目下拉数据隔离——员工仅见被分配项目阶段，未分配提交被拒，管理员仍全量
-// 依赖：运行中的后端(8080) + 前端(3000)；zhanggong/123456(E001,员工,仅分配 P001@P2)，admin/admin123
+// 依赖：运行中的后端(8080) + 前端(3000)；zhanggong/123456(E001,员工,仅分配 P001@P2)，E2E_ADMIN_PASSWORD
 import { test, expect } from '@playwright/test';
+import { adminPassword } from './helpers/admin-credentials.js';
 
 async function loginAs(page, username, password) {
   await page.goto('/login');
@@ -57,7 +58,7 @@ test.describe('项目参与录入项目下拉数据隔离', () => {
   });
 
   test('管理员项目下拉仍显示全部项目（非员工不受 scope 影响）', async ({ page }) => {
-    await loginAs(page, 'admin', 'admin123');
+    await loginAs(page, 'admin', adminPassword());
     const options = await openProjectDropdown(page);
     await expect(options.filter({ hasText: 'P001' })).toHaveCount(1);
     await expect(options.filter({ hasText: 'P002' })).toHaveCount(1);

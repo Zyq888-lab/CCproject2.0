@@ -63,11 +63,11 @@ public class PeriodController extends BaseController {
         return ok(periodService.enterCalibration(periodId));
     }
 
-    // 功能：总裁确认——状态从CALIBRATING变为CONFIRMED（结果对员工可见）
-    @PutMapping("/api/v1/periods/{periodId}/confirm")
+    // 功能：发布结果——CONFIRMED→PUBLISHED（结果对员工可见），总裁逐项目确认全部通过后由 ADMIN 触发
+    @PutMapping("/api/v1/periods/{periodId}/publish")
     @PreAuthorize("hasRole('ADMIN')")
-    public ApiResponse<AssessmentPeriod> confirm(@PathVariable String periodId) {
-        return ok(periodService.confirmPeriod(periodId));
+    public ApiResponse<AssessmentPeriod> publish(@PathVariable String periodId) {
+        return ok(periodService.publishPeriod(periodId));
     }
 
     // 功能：PD 提交校准——标记校准完成，等待总裁确认；幂等，ADMIN/PD 均可触发
@@ -84,7 +84,7 @@ public class PeriodController extends BaseController {
         return ok(resultService.countUnsubmitted(periodId));
     }
 
-    // 功能：关闭考核周期——仅CONFIRMED状态可关闭，状态变为COMPLETED
+    // 功能：关闭考核周期——仅PUBLISHED状态可关闭，状态变为COMPLETED
     @PutMapping("/api/v1/periods/{periodId}/close")
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<AssessmentPeriod> close(@PathVariable String periodId) {

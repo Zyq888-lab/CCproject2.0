@@ -21,9 +21,11 @@ public class EmployeeResultResponse {
     private boolean adjusted;      // 是否已改分（original ≠ adjusted）
     private BigDecimal delta;      // adjusted - original（仅 adjusted=true 时有值）
     private String adjustReason;   // 最新一次改分原因
+    private String projectName;    // 项目名称（纯职能员工为 null）
+    private String adjustedBy;     // 校准人姓名（最近一次改分人；未改分为 null）
     private List<KpiDetail> kpis;
 
-    // KPI 明细行——指标名/权重/得分/评估人/凭证
+    // KPI 明细行——指标名/权重/得分/评估人/凭证 + 所属项目/阶段（职能行为 null）
     @Data
     public static class KpiDetail {
         private String kpiType;    // PROJECT / FUNCTIONAL
@@ -32,5 +34,8 @@ public class EmployeeResultResponse {
         private BigDecimal score;
         private String assessorName;
         private String evidenceUrl; // 为 null 时前端回退「凭证暂不可用」
+        private String projectCode; // 所属项目编码（职能行为 null）
+        private String projectName; // 所属项目名称（职能行为 null）
+        private String projectStage;// 所属阶段（职能行为 null）
     }
 }

@@ -31,8 +31,11 @@ public class PeriodMonitorItem {
     /** PROJECT / FUNCTIONAL */
     private String taskType;
 
-    /** PENDING / IN_PROGRESS / SUBMITTED / CONFIRMED / CANCELED */
+    /** 状态文案（由任务状态映射：待评分/评分中/已提交/已确认/已取消） */
     private String status;
+
+    /** 当前审批节点文案（由任务状态映射：待评估人评分/评估人评分中/待确认/已完成/已取消） */
+    private String nodeLabel;
 
     /** KPI 指标列表（含单项得分回填） */
     private List<KpiIndicatorDTO> indicators;
@@ -48,9 +51,28 @@ public class PeriodMonitorItem {
     private String currentApproverId;
     private String currentApproverName;
 
-    /** 周期状态（INIT/ONGOING/CALIBRATING/CONFIRMED/COMPLETED），监控页据此展示提示 */
+    /** 周期状态（INIT/ONGOING/CALIBRATING/CONFIRMED/PUBLISHED/COMPLETED），监控页据此展示提示 */
     private String periodStatus;
 
-    /** PD 提交校准时间（周期级，NULL=尚未提交），监控页据此展示「PD 已提交/尚未提交」 */
+    /** PD 提交校准时间（周期级，NULL=尚未全部提交），监控页据此展示「PD 已提交/尚未提交」 */
     private LocalDateTime calibrationSubmittedAt;
+
+    /** 该项目是否已提交校准（项目级，来自 calibration_submission；CALIBRATING 期逐行渲染审批节点/当前审批人） */
+    private Boolean calibrationSubmitted;
+
+    /** 本周期已提交校准的项目数（CALIBRATING 期，周期级，用于顶部汇总提示） */
+    private Integer submittedProjectCount;
+
+    /** 本周期涉及的项目总数（CALIBRATING 期，周期级，用于顶部汇总提示） */
+    private Integer totalProjectCount;
+
+    /** 该行对应的总裁确认状态（project_confirmation.status：APPROVED/PENDING/RETURNED；无确认行=null），
+     *   CALIBRATING 期逐行渲染「总裁已确认/退回待重提/总裁确认中」 */
+    private String confirmationStatus;
+
+    /** 本周期已全部确认的项目数（CALIBRATING 期，project_code 粒度，用于顶部「已确认」汇总提示） */
+    private Integer confirmedProjectCount;
+
+    /** 本周期需总裁确认的项目总数（CALIBRATING 期，project_code 粒度） */
+    private Integer confirmationProjectCount;
 }

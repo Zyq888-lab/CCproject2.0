@@ -567,4 +567,69 @@ class TaskGeneratorServiceTest {
         assertEquals(0, result.discrepancyCount());
         verify(notificationService, never()).notifyBatch(any());
     }
+
+    // ========================================
+    // 17. launch: 存在未处理差异记录 → 抛400，不生成任务、不改周期状态
+    // ========================================
+    @Test
+    void launchShouldRejectWhenUnresolvedDiscrepancyExists() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
+        when(discrepancyLogMapper.selectCount(any())).thenReturn(1L);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> generatorService.launch("PERIOD-001"));
+        assertEquals(400, ex.getCode());
+        assertTrue(ex.getMessage().contains("未处理的差异"));
+        // 未处理差异闸门先行拦截：不查员工、不生成任务、不改周期状态
+        verify(employeeMapper, never()).selectList(any());
+        verify(taskMapper, never()).insertIgnore(any());
+        verify(periodMapper, never()).updateStatus(anyString(), anyString(), anyString());
+    }
+
+    // ========================================
+    // 18. previewLaunch: dry-run 预检——正确预测任务数，但不生成任务、不改周期状态
+    // ========================================
+    @Test
+    void previewLaunchShouldNotGenerateTasksOrChangePeriod() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
+        when(employeeMapper.selectList(any())).thenReturn(List.of(
+                activeEmployee("EMP1", "研发技术类", "整椅研发岗", "LEADER1")));
+        when(positionConfigMapper.selectOne(any())).thenReturn(posConfig(1L, "研发技术类", "整椅研发岗"));
+        when(assessorRoleMapper.selectList(any())).thenReturn(List.of(assessorRole(1L, 1L, "PDL")));
+        when(participationMapper.selectList(any())).thenReturn(List.of(
+                approvedParticipation("EMP1", "PERIOD-001", "PRJ1", "P2")));
+        when(roleAssignmentMapper.selectList(any())).thenReturn(List.of(
+                assignment("PRJ1", "P2", "PDL", "ASSESSOR1")));
+
+        TaskGeneratorService.LaunchPreview preview = generatorService.previewLaunch("PERIOD-001");
+
+        // dry-run 仍正确预测任务数（1 PROJECT + 1 FUNCTIONAL），但零副作用
+        assertEquals(2, preview.taskCount());
+        assertTrue(preview.discrepancies().isEmpty());
+        verify(taskMapper, never()).insertIgnore(any());
+        verify(periodMapper, never()).updateStatus(anyString(), anyString(), anyString());
+        verify(discrepancyLogMapper, never()).insert(any());
+        verify(notificationService, never()).notifyBatch(any());
+    }
+
+    // ========================================
+    // 19. previewLaunch: 缺岗位配置 → 预检返回差异清单，但不生成任务、不写差异
+    // ========================================
+    @Test
+    void previewLaunchShouldReturnDiscrepancyWithoutGenerating() {
+        when(periodMapper.selectById("PERIOD-001")).thenReturn(initPeriod);
+        when(employeeMapper.selectList(any())).thenReturn(List.of(
+                activeEmployee("EMP1", "无配置类", "无配置岗", "LEADER1")));
+        when(positionConfigMapper.selectOne(any())).thenReturn(null);
+
+        TaskGeneratorService.LaunchPreview preview = generatorService.previewLaunch("PERIOD-001");
+
+        assertEquals(0, preview.taskCount());
+        assertEquals(1, preview.discrepancies().size());
+        TaskGeneratorService.LaunchPreview.DiscrepancyItem item = preview.discrepancies().get(0);
+        assertEquals("EMP1", item.employeeId());
+        assertEquals("NO_POSITION_CONFIG", item.type());
+        verify(taskMapper, never()).insertIgnore(any());
+        verify(discrepancyLogMapper, never()).insert(any());
+    }
 }

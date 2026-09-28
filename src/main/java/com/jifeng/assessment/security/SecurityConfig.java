@@ -13,6 +13,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
@@ -38,8 +39,11 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http,
+                                           MustChangePasswordFilter mustChangePasswordFilter) throws Exception {
         http
+            // 强制改密硬门——先于认证过滤器注册，对已认证且标记为 true 的用户按白名单拦截
+            .addFilterBefore(mustChangePasswordFilter, UsernamePasswordAuthenticationFilter.class)
             // CORS — 允许前端开发服务器跨域访问
             .cors(Customizer.withDefaults())
 

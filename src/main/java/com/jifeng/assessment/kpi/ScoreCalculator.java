@@ -6,6 +6,7 @@ package com.jifeng.assessment.kpi;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.List;
 
 public final class ScoreCalculator {
@@ -42,5 +43,25 @@ public final class ScoreCalculator {
         return projectScore.multiply(projectWeight)
                 .add(funcScore.multiply(funcWeight))
                 .setScale(4, RoundingMode.HALF_UP);
+    }
+
+    // 功能：权重归一化——将权重列表缩放到和为 1（防御权重和≠1 导致加权得分越界）；
+    //   null 权重（如已停用 KPI 无权重）跳过求和并原样保留 null（weightedSum 会跳过 null 对）；
+    //   空列表/和为 0 时原样返回（调用方保证非空）
+    public static List<BigDecimal> normalizeWeights(List<BigDecimal> weights) {
+        BigDecimal sum = BigDecimal.ZERO;
+        for (BigDecimal w : weights) {
+            if (w != null) {
+                sum = sum.add(w);
+            }
+        }
+        if (sum.compareTo(BigDecimal.ZERO) == 0) {
+            return weights;
+        }
+        List<BigDecimal> result = new ArrayList<>(weights.size());
+        for (BigDecimal w : weights) {
+            result.add(w == null ? null : w.divide(sum, 4, RoundingMode.HALF_UP));
+        }
+        return result;
     }
 }

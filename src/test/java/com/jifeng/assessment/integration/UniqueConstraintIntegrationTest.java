@@ -21,14 +21,19 @@ import com.jifeng.assessment.projectrole.ProjectRoleService;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.RoleAssignmentService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -36,6 +41,11 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test")
 @Transactional
 class UniqueConstraintIntegrationTest {
+
+    @AfterEach
+    void clearAuth() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Autowired private EmployeeService employeeService;
     @Autowired private EmployeeMapper employeeMapper;
@@ -164,6 +174,8 @@ class UniqueConstraintIntegrationTest {
 
     @Test
     void duplicateAssignmentShouldThrow409() {
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                "admin", null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))));
         // Setup
         Employee emp = new Employee();
         emp.setEmployeeId("UNQ_ASGN_EMP");

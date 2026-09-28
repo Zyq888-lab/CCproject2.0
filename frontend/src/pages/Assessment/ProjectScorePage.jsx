@@ -167,6 +167,8 @@ function ProjectScorePage({ kpiType = 'PROJECT' }) {
 
   const columns = [
     { title: '指标名称', dataIndex: 'indicatorName', key: 'indicatorName', width: 200 },
+    { title: '评价标准', dataIndex: 'evaluationCriteria', key: 'evaluationCriteria', width: 220,
+      render: (v) => v || '-' },
     { title: '权重', dataIndex: 'weight', key: 'weight', width: 80,
       render: (v) => v != null ? `${Math.round(v * 100)}%` : '-' },
     { title: '得分(1-5)', dataIndex: 'score', key: 'score', width: 240,

@@ -1,7 +1,7 @@
 {/* 模块用途：AppLayout——全局布局组件，左侧边栏+顶部导航+内容区域的三明治结构 */}
 {/* 依赖组件：react-router-dom, Ant Design Menu/Layout */}
 {/* 修改注意：菜单项变更时同步更新 menuItems 数组和路由配置 */}
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { Layout, Menu, Dropdown, Badge } from 'antd';
 import {
@@ -21,13 +21,14 @@ import {
   BellOutlined,
   SlidersOutlined,
   TrophyOutlined,
+  AuditOutlined,
 } from '@ant-design/icons';
 import client from '../api/client';
 
 const { Sider, Header, Content } = Layout;
 
 // 功能：全员可见的角色集合（Phase 2.0 考核流程入口）
-const ALL_STAFF_ROLES = ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工'];
+const ALL_STAFF_ROLES = ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工', 'ROLE_总裁'];
 
 // 功能：非 ADMIN 员工角色集合——「本人」视角页面（我的指标/考核任务）ADMIN 无需看到
 const STAFF_ROLES = ['ROLE_PM', 'ROLE_PD', 'ROLE_评估人', 'ROLE_员工'];
@@ -36,7 +37,7 @@ const allMenuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', roles: ALL_STAFF_ROLES, group: 'top' },
   { type: 'divider', label: '配置中心', roles: ['ROLE_ADMIN', 'ROLE_PM'], group: 'config' },
   { key: '/employee-management', icon: <TeamOutlined />, label: '员工管理', roles: ['ROLE_ADMIN'] },
-  { key: '/project/list', icon: <FolderOutlined />, label: '项目管理', roles: ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD'] },
+  { key: '/project/list', icon: <FolderOutlined />, label: '项目管理', roles: ['ROLE_ADMIN', 'ROLE_PM', 'ROLE_PD', 'ROLE_总裁'] },
   { key: '/project-role', icon: <AimOutlined />, label: '项目角色管理', roles: ['ROLE_ADMIN'] },
   { key: '/position-config', icon: <SettingOutlined />, label: '岗位配置', roles: ['ROLE_ADMIN'] },
   { key: '/kpi-config', icon: <LineChartOutlined />, label: 'KPI配置', roles: ['ROLE_ADMIN'] },
@@ -46,6 +47,7 @@ const allMenuItems = [
   { key: '/my-assessment', icon: <ProfileOutlined />, label: '我的指标', roles: STAFF_ROLES },
   { key: '/my-result', icon: <TrophyOutlined />, label: '我的结果', roles: STAFF_ROLES },
   { key: '/tasks', icon: <CarryOutOutlined />, label: '考核任务', roles: STAFF_ROLES },
+  { key: '/president-confirm', icon: <AuditOutlined />, label: '总裁确认', roles: ['ROLE_总裁'] },
   { key: '/period-config', icon: <SlidersOutlined />, label: '考核校准', roles: ['ROLE_PD'] },
   { type: 'divider', label: '系统设置', roles: ['ROLE_ADMIN'], group: 'system' },
   { key: '/user-role', icon: <UserOutlined />, label: '用户管理', roles: ['ROLE_ADMIN'] },
@@ -70,11 +72,16 @@ function AppLayout() {
   }, []);
 
   // 功能：获取未读通知数量——顶部红点显示
-  useEffect(() => {
+  const fetchUnreadCount = useCallback(() => {
     client.get('/notifications/unread-count').then((res) => {
       setUnreadCount(res.data || 0);
     }).catch(() => { /* 非关键 */ });
   }, []);
+
+  // 功能：路由切换时重拉未读数——处理完任务/通知后回到任意页红点即时更新
+  useEffect(() => {
+    fetchUnreadCount();
+  }, [fetchUnreadCount, location.pathname]);
 
   // 功能：根据用户角色过滤可见菜单项
   const menuItems = allMenuItems.filter((item) => {
@@ -164,7 +171,7 @@ function AppLayout() {
           <Badge count={unreadCount} size="small" style={{ marginRight: 24 }}>
             <BellOutlined
               style={{ fontSize: 18, color: '#1890FF', cursor: 'pointer' }}
-              onClick={() => navigate('/notifications')}
+              onClick={() => { navigate('/notifications'); fetchUnreadCount(); }}
             />
           </Badge>
           <Dropdown

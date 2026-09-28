@@ -29,7 +29,7 @@ public class ProjectController extends BaseController {
 
     // 功能：分页查询项目列表，可选 ?stage=&status= 筛选——员工录入参与需选项目，故对所有角色开放只读
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PM', 'PD', '评估人', '员工', '总裁')")
     public ApiResponse<PageResult<ProjectDTO>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,

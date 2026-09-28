@@ -21,6 +21,8 @@ import com.jifeng.assessment.task.TaskStatus;
 import com.jifeng.assessment.user.SysUser;
 import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -28,13 +30,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
@@ -47,6 +54,10 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
     private final SysUserMapper sysUserMapper;
     private final PeriodService periodService;
 
+    // 凭证上传目录，与 EvidenceController 同源（可被 app.upload-dir 覆盖）
+    @Value("${app.upload-dir:./uploads/evidence}")
+    private String uploadDir;
+
     private static final BigDecimal MIN_SCORE = new BigDecimal("1.0");
     private static final BigDecimal MAX_SCORE = new BigDecimal("5.0");
     private static final long MAX_EVIDENCE_SIZE = 10L * 1024 * 1024; // 10MB
@@ -54,7 +65,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
     // 功能：提交评分——校验指标完整性、得分范围、kpiType一致性、task乐观锁，任务状态→SUBMITTED
     @Transactional
     public AssessmentTask submit(Long taskId, List<ScoreItem> items) {
-        AssessmentTask task = taskMapper.selectById(taskId);
+        AssessmentTask task = taskMapper.selectByIdForUpdate(taskId);
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
@@ -108,7 +119,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
             score.setKpiConfigId(item.getKpiConfigId());
             score.setKpiType(item.getKpiType());
             score.setScore(item.getScore());
-            score.setEvidenceUrl(item.getEvidenceUrl());
+            // 凭证 URL 只能由上传接口写入；客户端提交的 URL 不能绑定别人的文件。
             score.setStatus("SUBMITTED");
             score.setUpdatedAt(now);
             if (existing != null) {
@@ -140,7 +151,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
     // 功能：暂存草稿——可只填部分指标，不改变 task 状态
     @Transactional
     public void saveDraft(Long taskId, List<ScoreItem> items) {
-        AssessmentTask task = taskMapper.selectById(taskId);
+        AssessmentTask task = taskMapper.selectByIdForUpdate(taskId);
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
@@ -148,6 +159,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         assertAssessor(task);
         // 周期锁定：考核尚未发起或已关闭时拒绝保存草稿
         periodService.assertOngoing(task.getPeriodId(), "保存评分草稿");
+        assertTaskInProgress(task);
 
         LocalDateTime now = LocalDateTime.now();
         for (ScoreItem item : items) {
@@ -173,7 +185,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
             score.setKpiConfigId(item.getKpiConfigId());
             score.setKpiType(item.getKpiType());
             score.setScore(item.getScore());
-            score.setEvidenceUrl(item.getEvidenceUrl());
+            // 草稿同样保留服务端已登记的凭证 URL。
             score.setStatus("DRAFT");
             score.setUpdatedAt(now);
             if (existing != null) {
@@ -195,7 +207,8 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         // 不改变 task 状态
     }
 
-    // 功能：凭证上传——校验文件大小≤10MB，返回访问 URL
+    // 功能：凭证上传——校验文件大小≤10MB，先把文件落盘，成功后才更新 DB 并返回访问 URL；
+    //   落盘失败直接抛 500，绝不返回 URL 造成「误报成功」
     @Transactional
     public String uploadEvidence(Long scoreId, MultipartFile file) {
         AssessmentScore score = baseMapper.selectById(scoreId);
@@ -203,13 +216,14 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
             throw new BusinessException(404, "评分记录不存在: " + scoreId);
         }
         // 权限校验：当前登录用户必须是该评分所属任务的考核人（ADMIN 豁免），否则 403
-        AssessmentTask task = taskMapper.selectById(score.getTaskId());
+        AssessmentTask task = taskMapper.selectByIdForUpdate(score.getTaskId());
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + score.getTaskId());
         }
         assertAssessor(task);
         // 周期锁定：考核尚未发起或已关闭时拒绝上传凭证
         periodService.assertOngoing(task.getPeriodId(), "上传凭证");
+        assertTaskInProgress(task);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "请选择要上传的凭证文件");
         }
@@ -217,24 +231,50 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
             throw new BusinessException(400, "文件大小超过10MB限制");
         }
 
-        // 生成访问 URL（Phase 2.0 简化为占位 URL，文件存储由对象存储服务承接）
+        // 生成文件名：UUID 裸名 + 原扩展名（无路径分隔符，天然防路径穿越）
         String ext = "";
         String originalName = file.getOriginalFilename();
         if (originalName != null && originalName.contains(".")) {
             ext = originalName.substring(originalName.lastIndexOf('.'));
         }
-        String url = "/uploads/evidence/" + UUID.randomUUID().toString().replace("-", "") + ext;
+        if (!ext.isEmpty() && !ext.matches("\\.[A-Za-z0-9]{1,10}")) {
+            throw new BusinessException(400, "凭证文件扩展名不合法");
+        }
+        String filename = UUID.randomUUID().toString().replace("-", "") + ext;
 
+        // 实际落盘：先写文件，成功后再更新 DB 与返回 URL
+        Path dir = Paths.get(uploadDir);
+        Path target = dir.resolve(filename);
+        try {
+            Files.createDirectories(dir);
+            file.transferTo(target);
+        } catch (IOException e) {
+            log.error("凭证文件保存失败: {}", filename, e);
+            throw new BusinessException(500, "凭证文件保存失败，请稍后重试");
+        }
+
+        String url = "/api/v1/evidence/" + filename;
         score.setEvidenceUrl(url);
         score.setUpdatedAt(LocalDateTime.now());
-        baseMapper.updateById(score);
+        try {
+            if (baseMapper.updateById(score) == 0) {
+                throw new BusinessException(409, "评分数据已被他人修改，请刷新后重试");
+            }
+        } catch (RuntimeException e) {
+            try {
+                Files.deleteIfExists(target);
+            } catch (IOException cleanupError) {
+                log.warn("无法清理上传失败的凭证: {}", target, cleanupError);
+            }
+            throw e;
+        }
         return url;
     }
 
     // 功能：确保评分草稿行存在（凭证上传前需要 scoreId）——已存在则返回其 id，否则插入空 DRAFT 行
     @Transactional
     public Long ensureScore(Long taskId, Long kpiConfigId, String kpiType) {
-        AssessmentTask task = taskMapper.selectById(taskId);
+        AssessmentTask task = taskMapper.selectByIdForUpdate(taskId);
         if (task == null) {
             throw new BusinessException(404, "考核任务不存在: " + taskId);
         }
@@ -242,6 +282,7 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         assertAssessor(task);
         // 周期锁定：考核尚未发起或已关闭时拒绝评分操作
         periodService.assertOngoing(task.getPeriodId(), "评分操作");
+        assertTaskInProgress(task);
         if (!expectedKpiType(task).equals(kpiType)) {
             throw new BusinessException(400, "指标类型 " + kpiType + " 与任务类型 " + task.getTaskType() + " 不一致");
         }
@@ -273,6 +314,12 @@ public class ScoreService extends BaseService<ScoreMapper, AssessmentScore> {
         int rows = taskMapper.updateById(task);
         if (rows == 0) {
             throw new BusinessException(409, "数据已被他人修改，请刷新后重试");
+        }
+    }
+
+    private void assertTaskInProgress(AssessmentTask task) {
+        if (!"IN_PROGRESS".equals(task.getStatus())) {
+            throw new BusinessException(400, "仅评分中的任务可修改凭证或草稿");
         }
     }
 

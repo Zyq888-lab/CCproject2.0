@@ -10,6 +10,7 @@ public record KpiIndicatorDTO(
         String kpiType,
         String indicatorName,
         BigDecimal weight,
+        String evaluationCriteria,
         BigDecimal score,
         String evidenceUrl) {
 }

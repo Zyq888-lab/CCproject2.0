@@ -4,12 +4,20 @@
 package com.jifeng.assessment.dashboard;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jifeng.assessment.calibration.CalibrationSubmission;
+import com.jifeng.assessment.calibration.CalibrationSubmissionMapper;
+import com.jifeng.assessment.common.BusinessException;
+import com.jifeng.assessment.confirmation.ProjectConfirmation;
+import com.jifeng.assessment.confirmation.ProjectConfirmationMapper;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.kpi.FuncKpiMapper;
 import com.jifeng.assessment.kpi.ProjectKpiMapper;
 import com.jifeng.assessment.participation.EmployeeProjectParticipation;
 import com.jifeng.assessment.participation.ParticipationMapper;
+import com.jifeng.assessment.period.AssessmentPeriod;
+import com.jifeng.assessment.period.PeriodMapper;
 import com.jifeng.assessment.position.PositionConfigMapper;
+import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.projectrole.ProjectRoleMapper;
 import com.jifeng.assessment.task.AssessmentTask;
@@ -26,7 +34,13 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -43,6 +57,9 @@ public class DashboardService {
     private final DiscrepancyLogMapper discrepancyLogMapper;
     private final SysUserMapper sysUserMapper;
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
+    private final PeriodMapper periodMapper;
+    private final ProjectConfirmationMapper projectConfirmationMapper;
+    private final CalibrationSubmissionMapper calibrationSubmissionMapper;
 
     public static final String STATUS_CONFIGURED = "已配置";
     public static final String STATUS_PENDING = "待配置";
@@ -93,7 +110,8 @@ public class DashboardService {
 
     // 功能：待处理任务计数——按角色返回不同数据，且按当前用户 employeeId 过滤：
     //   评估人=自己待评分任务数、员工=自己待参与项目数(PENDING参与)、
-    //   PM=自己项目的待审批参与数、ADMIN=差异报告未处理数(resolved=false)
+    //   PM=自己项目的待审批参与数、ADMIN=差异报告未处理数(resolved=false)、
+    //   PD=我为主 PD 的未提交校准周期数、总裁=我为主总裁的待确认人数(PENDING/RETURNED)
     public long pendingCount() {
         String role = getPrimaryRole();
         String employeeId = getCurrentEmployeeId();
@@ -115,9 +133,124 @@ public class DashboardService {
                         .eq(EmployeeProjectParticipation::getStatus, "PENDING"));
             case "PM":
                 return countPendingParticipationForPm(employeeId);
+            case "PD":
+                return countUnsubmittedCalibrationPeriodsForPd(employeeId);
+            case "总裁":
+                return countPendingConfirmationsForPresident(employeeId);
             default:
                 return 0;
         }
+    }
+
+    // 功能：PD 待处理——CALIBRATING 周期中，我为主 PD 且仍有未提交项目（项目级粒度）的周期数。
+    //   不再读周期级 calibration_submitted_at（那是「全部 PD 提交后」才非空的派生标记），
+    //   改为逐周期判断「我名下涉及的项目是否全部在 calibration_submission 有 submitted_at」
+    private long countUnsubmittedCalibrationPeriodsForPd(String employeeId) {
+        Set<String> owned = ownedPdProjectKeys(employeeId);
+        if (owned.isEmpty()) {
+            return 0;
+        }
+        Set<String> calibratingPeriodIds = periodMapper.selectList(
+                        new LambdaQueryWrapper<AssessmentPeriod>()
+                                .eq(AssessmentPeriod::getStatus, "CALIBRATING"))
+                .stream()
+                .map(AssessmentPeriod::getPeriodId)
+                .collect(Collectors.toSet());
+        if (calibratingPeriodIds.isEmpty()) {
+            return 0;
+        }
+        // 各 CALIBRATING 周期涉及的 (code|stage) 项目键——来自 SUBMITTED PROJECT 任务（与校准矩阵同源）
+        Map<String, Set<String>> involvedByPeriod = taskMapper.selectList(
+                        new LambdaQueryWrapper<AssessmentTask>()
+                                .in(AssessmentTask::getPeriodId, calibratingPeriodIds)
+                                .eq(AssessmentTask::getTaskType, "PROJECT")
+                                .eq(AssessmentTask::getStatus, "SUBMITTED")
+                                .isNotNull(AssessmentTask::getProjectCode)
+                                .ne(AssessmentTask::getProjectCode, ""))
+                .stream()
+                .collect(Collectors.groupingBy(
+                        AssessmentTask::getPeriodId,
+                        Collectors.mapping(t -> submissionKey(t.getProjectCode(), t.getProjectStage()),
+                                Collectors.toSet())));
+        // 我为主 PD 且本周期确有涉及项目的周期集合
+        Set<String> minePeriodIds = involvedByPeriod.entrySet().stream()
+                .filter(e -> e.getValue().stream().anyMatch(owned::contains))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
+        if (minePeriodIds.isEmpty()) {
+            return 0;
+        }
+        // 这些周期内已提交的 (code|stage) 项目键
+        Set<String> submitted = calibrationSubmissionMapper.selectList(
+                        new LambdaQueryWrapper<CalibrationSubmission>()
+                                .in(CalibrationSubmission::getPeriodId, minePeriodIds)
+                                .isNotNull(CalibrationSubmission::getSubmittedAt))
+                .stream()
+                .map(s -> submissionKey(s.getProjectCode(), s.getProjectStage()))
+                .collect(Collectors.toSet());
+        long count = 0;
+        for (String periodId : minePeriodIds) {
+            Set<String> mine = involvedByPeriod.getOrDefault(periodId, Set.of()).stream()
+                    .filter(owned::contains)
+                    .collect(Collectors.toSet());
+            if (mine.isEmpty()) {
+                continue;
+            }
+            if (!submitted.containsAll(mine)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    // 功能：反查当前员工主 PD 负责的 (code|stage) 项目键集合——project_role_assignment（PD 且 is_primary 且未删除）
+    private Set<String> ownedPdProjectKeys(String employeeId) {
+        if (employeeId == null) {
+            return Set.of();
+        }
+        return roleAssignmentMapper.selectList(new LambdaQueryWrapper<ProjectRoleAssignment>()
+                        .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
+                        .eq(ProjectRoleAssignment::getProjectRoleCode, "PD")
+                        .eq(ProjectRoleAssignment::getIsPrimary, true)
+                        .eq(ProjectRoleAssignment::getDeleted, 0))
+                .stream()
+                .map(a -> submissionKey(a.getProjectCode(), a.getProjectStage()))
+                .collect(Collectors.toSet());
+    }
+
+    // 功能：拼接 (code|stage) 复合键——与 PeriodService/CalibrationService 的校准分组口径一致
+    private String submissionKey(String code, String stage) {
+        return (code == null ? "" : code) + "|" + (stage == null ? "" : stage);
+    }
+
+    // 功能：总裁待处理——CALIBRATING 且已提交校准、我为主总裁的项目中，PENDING/RETURNED 确认人数
+    private long countPendingConfirmationsForPresident(String employeeId) {
+        List<String> projectCodes = primaryProjectCodes(employeeId, "PRESIDENT");
+        if (projectCodes.isEmpty()) {
+            return 0;
+        }
+        return projectConfirmationMapper.selectCount(new LambdaQueryWrapper<ProjectConfirmation>()
+                .in(ProjectConfirmation::getProjectCode, projectCodes)
+                .in(ProjectConfirmation::getStatus, "PENDING", "RETURNED")
+                .inSql(ProjectConfirmation::getPeriodId,
+                        "SELECT period_id FROM assessment_period WHERE status = 'CALIBRATING' "
+                                + "AND calibration_submitted_at IS NOT NULL AND deleted = 0"));
+    }
+
+    // 功能：反查我为主角色(roleCode)的项目编码集合——project_role_assignment（is_primary 且未删除）
+    private List<String> primaryProjectCodes(String employeeId, String roleCode) {
+        if (employeeId == null) {
+            return List.of();
+        }
+        return roleAssignmentMapper.selectList(new LambdaQueryWrapper<ProjectRoleAssignment>()
+                        .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
+                        .eq(ProjectRoleAssignment::getProjectRoleCode, roleCode)
+                        .eq(ProjectRoleAssignment::getIsPrimary, true)
+                        .eq(ProjectRoleAssignment::getDeleted, 0))
+                .stream()
+                .map(ProjectRoleAssignment::getProjectCode)
+                .distinct()
+                .toList();
     }
 
     // 功能：统计 PM 自己项目的待审批参与数——先查 PM 分配的项目编码集合，再按项目过滤参与记录
@@ -158,11 +291,79 @@ public class DashboardService {
         return auth.getName();
     }
 
-    // 功能：查询未处理的差异记录——仅返回 resolved=false 的异常项
-    public List<DiscrepancyLog> pendingDiscrepancies() {
-        return discrepancyLogMapper.selectList(new LambdaQueryWrapper<DiscrepancyLog>()
+    // 功能：查询未处理的差异记录——仅返回 resolved=false 的异常项，批量 join 员工姓名/项目名避免 N+1
+    public List<DiscrepancyLogDTO> pendingDiscrepancies() {
+        List<DiscrepancyLog> logs = discrepancyLogMapper.selectList(new LambdaQueryWrapper<DiscrepancyLog>()
                 .eq(DiscrepancyLog::getResolved, false)
                 .orderByAsc(DiscrepancyLog::getId));
+        if (logs.isEmpty()) {
+            return List.of();
+        }
+
+        // 批量补员工姓名
+        Map<String, String> employeeNames = new HashMap<>();
+        List<String> employeeIds = logs.stream()
+                .map(DiscrepancyLog::getEmployeeId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (!employeeIds.isEmpty()) {
+            employeeMapper.selectBatchIds(employeeIds)
+                    .forEach(e -> employeeNames.put(e.getEmployeeId(), e.getName()));
+        }
+
+        // 批量补项目名——按 project_code 聚合（同一 code 各阶段共用 project_name）
+        Map<String, String> projectNames = new HashMap<>();
+        List<String> projectCodes = logs.stream()
+                .map(DiscrepancyLog::getProjectCode)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (!projectCodes.isEmpty()) {
+            projectMapper.selectList(new LambdaQueryWrapper<Project>()
+                            .in(Project::getProjectCode, projectCodes)
+                            .eq(Project::getDeleted, 0))
+                    .forEach(p -> projectNames.putIfAbsent(p.getProjectCode(), p.getProjectName()));
+        }
+
+        return logs.stream()
+                .map(log -> toDiscrepancyDTO(log, employeeNames, projectNames))
+                .toList();
+    }
+
+    // 功能：差异记录转 DTO——补员工姓名/项目名
+    private DiscrepancyLogDTO toDiscrepancyDTO(DiscrepancyLog log,
+                                               Map<String, String> employeeNames,
+                                               Map<String, String> projectNames) {
+        DiscrepancyLogDTO dto = new DiscrepancyLogDTO();
+        dto.setId(log.getId());
+        dto.setPeriodId(log.getPeriodId());
+        dto.setEmployeeId(log.getEmployeeId());
+        dto.setEmployeeName(employeeNames.get(log.getEmployeeId()));
+        dto.setProjectCode(log.getProjectCode());
+        dto.setProjectStage(log.getProjectStage());
+        dto.setProjectName(log.getProjectCode() == null ? null : projectNames.get(log.getProjectCode()));
+        dto.setType(log.getType());
+        dto.setDetail(log.getDetail());
+        dto.setResolved(log.getResolved());
+        dto.setCreatedAt(log.getCreatedAt());
+        return dto;
+    }
+
+    // 功能：标记差异已处理——ADMIN 补完配置后销账，resolved 置 true（幂等）
+    public void resolveDiscrepancy(Long id) {
+        DiscrepancyLog log = discrepancyLogMapper.selectById(id);
+        if (log == null) {
+            throw new BusinessException(404, "差异记录不存在: " + id);
+        }
+        if (Boolean.TRUE.equals(log.getResolved())) {
+            return;
+        }
+        DiscrepancyLog update = new DiscrepancyLog();
+        update.setId(id);
+        update.setResolved(true);
+        update.setUpdatedAt(LocalDateTime.now());
+        discrepancyLogMapper.updateById(update);
     }
 
     // 功能：获取当前用户主角色——取权限列表中第一个匹配的已知角色，未认证返回空
@@ -173,7 +374,7 @@ public class DashboardService {
         }
         for (GrantedAuthority authority : auth.getAuthorities()) {
             String a = authority.getAuthority();
-            for (String role : new String[]{"ADMIN", "PM", "PD", "评估人", "员工"}) {
+            for (String role : new String[]{"ADMIN", "PM", "PD", "评估人", "员工", "总裁"}) {
                 if (a.equals("ROLE_" + role)) {
                     return role;
                 }

@@ -1,8 +1,9 @@
 // 模块用途：E2E 7步配置向导完整走通测试（T32）
-// 依赖：运行中的后端(8080) + 前端(3000)，admin/admin123 种子账号
+// 依赖：运行中的后端(8080) + 前端(3000)，E2E_ADMIN_PASSWORD
 // 修改注意：用时间戳生成唯一编码避免重复运行409冲突；antd 中文按钮空格问题用CSS选择器规避
 
 import { test, expect } from '@playwright/test';
+import { adminPassword } from './helpers/admin-credentials.js';
 
 const TS = Date.now();
 const ROLE_CODE = `PDL${TS}`;
@@ -19,7 +20,7 @@ test.describe('7步配置向导', () => {
     // 1. 登录
     await page.goto('/login');
     await page.getByPlaceholder('用户名').fill('admin');
-    await page.getByPlaceholder('密码').fill('admin123');
+    await page.getByPlaceholder('密码').fill(adminPassword());
     await page.locator('#login-card button[type="submit"]').click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15000 });
 

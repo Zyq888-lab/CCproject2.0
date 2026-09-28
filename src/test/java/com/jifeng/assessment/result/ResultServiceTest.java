@@ -47,6 +47,7 @@ class ResultServiceTest {
     @Autowired private ResultService resultService;
     @Autowired private PeriodService periodService;
     @Autowired private AssessmentResultMapper resultMapper;
+    @Autowired private ScoreAdjustmentMapper adjustmentMapper;
     @Autowired private PeriodMapper periodMapper;
     @Autowired private EmployeeMapper employeeMapper;
     @Autowired private PositionConfigMapper positionConfigMapper;
@@ -139,6 +140,17 @@ class ResultServiceTest {
                         .eq(AssessmentResult::getAssesseeId, "EMP_ADJ"));
         result.setAdjustedScore(new BigDecimal("4.5000"));
         resultMapper.updateById(result);
+        ScoreAdjustment adjustment = new ScoreAdjustment();
+        adjustment.setAssessmentResultId(result.getId());
+        adjustment.setAdjustedBy("ASSESSOR1");
+        adjustment.setOldScore(new BigDecimal("3.7000"));
+        adjustment.setNewScore(new BigDecimal("4.5000"));
+        adjustment.setReason("人工总分调整");
+        adjustmentMapper.insert(adjustment);
+        AssessmentScore calibrated = scoreMapper.selectOne(new LambdaQueryWrapper<AssessmentScore>()
+                .eq(AssessmentScore::getTaskId, projTaskId));
+        calibrated.setCalibratedScore(new BigDecimal("5.0"));
+        scoreMapper.updateById(calibrated);
 
         // 重生成：原始分刷新为 3.7000，调整分保留 4.5000
         resultService.generateResults("PERIOD-001");
@@ -255,6 +267,119 @@ class ResultServiceTest {
         assertEquals(1, resultService.countUnsubmitted("PERIOD-001"));
     }
 
+    // 功能：单任务两个项目KPI权重各 1.0 → 归一化后各 0.5，单任务得分不越界（5.0×0.5 + 4.0×0.5 = 4.5 ≤ 5）
+    @Test
+    void generateShouldNormalizeKpiWeightsWhenSumExceedsOne() {
+        seedPeriod();
+        seedEmployee("EMP_2KPI");
+        seedEmployee("ASSESSOR1");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        List<Long> kpiIds = seedTwoProjectKpis(new BigDecimal("1.0000"), new BigDecimal("1.0000"));
+
+        Long taskId = seedTask("EMP_2KPI", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        seedScore(taskId, kpiIds.get(0), "PROJECT", new BigDecimal("5.0"));
+        seedScore(taskId, kpiIds.get(1), "PROJECT", new BigDecimal("4.0"));
+        seedParticipation("EMP_2KPI", "PRJ1", "P2", new BigDecimal("100"));
+
+        resultService.generateResults("PERIOD-001");
+
+        AssessmentResult result = resultMapper.selectOne(
+                new LambdaQueryWrapper<AssessmentResult>()
+                        .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                        .eq(AssessmentResult::getAssesseeId, "EMP_2KPI"));
+        assertNotNull(result);
+        assertEquals(0, new BigDecimal("4.5000").compareTo(result.getOriginalScore()));
+        assertTrue(result.getOriginalScore().compareTo(new BigDecimal("5.0")) <= 0);
+    }
+
+    // 功能：单KPI权重 0.7 → 归一化为 1.0，得分不被低估（4.0×1.0 = 4.0，而非 4.0×0.7 = 2.8）
+    @Test
+    void generateShouldNormalizeSingleKpiWeightBelowOne() {
+        seedPeriod();
+        seedEmployee("EMP_SINGLE");
+        seedEmployee("ASSESSOR1");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        Long kpiId = seedProjectKpi(new BigDecimal("0.7000"));
+
+        Long taskId = seedTask("EMP_SINGLE", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        seedScore(taskId, kpiId, "PROJECT", new BigDecimal("4.0"));
+        seedParticipation("EMP_SINGLE", "PRJ1", "P2", new BigDecimal("100"));
+
+        resultService.generateResults("PERIOD-001");
+
+        AssessmentResult result = resultMapper.selectOne(
+                new LambdaQueryWrapper<AssessmentResult>()
+                        .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                        .eq(AssessmentResult::getAssesseeId, "EMP_SINGLE"));
+        assertNotNull(result);
+        assertEquals(0, new BigDecimal("4.0000").compareTo(result.getOriginalScore()));
+    }
+
+    @Test
+    void calibratedKpiShouldFlowIntoFinalScoreAndDetail() {
+        seedPeriod();
+        seedEmployee("EMP_CALIBRATED");
+        seedEmployee("ASSESSOR1");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        Long kpiId = seedProjectKpi(BigDecimal.ONE);
+        Long taskId = seedTask("EMP_CALIBRATED", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        seedScore(taskId, kpiId, "PROJECT", new BigDecimal("3.0"));
+        seedParticipation("EMP_CALIBRATED", "PRJ1", "P2", new BigDecimal("100"));
+        AssessmentScore score = scoreMapper.selectOne(new LambdaQueryWrapper<AssessmentScore>()
+                .eq(AssessmentScore::getTaskId, taskId));
+        score.setCalibratedScore(new BigDecimal("4.0"));
+        scoreMapper.updateById(score);
+
+        resultService.generateResults("PERIOD-001");
+
+        AssessmentResult result = resultMapper.selectOne(new LambdaQueryWrapper<AssessmentResult>()
+                .eq(AssessmentResult::getPeriodId, "PERIOD-001")
+                .eq(AssessmentResult::getAssesseeId, "EMP_CALIBRATED"));
+        assertEquals(0, new BigDecimal("3.0000").compareTo(result.getOriginalScore()));
+        assertEquals(0, new BigDecimal("4.0000").compareTo(result.getAdjustedScore()));
+        EmployeeResultResponse detail = resultService.getEmployeeResult("PERIOD-001", "EMP_CALIBRATED");
+        assertEquals(0, new BigDecimal("4.0").compareTo(detail.getKpis().get(0).getScore()));
+        score = scoreMapper.selectById(score.getId());
+        score.setCalibratedScore(new BigDecimal("4.5"));
+        scoreMapper.updateById(score);
+        resultService.generateResults("PERIOD-001");
+        result = resultMapper.selectById(result.getId());
+        assertEquals(0, new BigDecimal("3.0000").compareTo(result.getOriginalScore()));
+        assertEquals(0, new BigDecimal("4.5000").compareTo(result.getAdjustedScore()));
+    }
+
+    // 功能：结果页 KPI 明细逐行带出所属项目/阶段；职能指标不误挂到项目
+    @Test
+    void employeeResultShouldIncludeProjectAndStageForEachKpi() {
+        seedPeriod();
+        seedEmployee("EMP_DETAIL");
+        seedEmployee("ASSESSOR1");
+        seedPositionConfig(new BigDecimal("0.7000"), new BigDecimal("0.3000"));
+        Long projectKpiId = seedProjectKpi(BigDecimal.ONE);
+        Long functionalKpiId = seedFuncKpi(BigDecimal.ONE);
+
+        Long projectTaskId = seedTask("EMP_DETAIL", "ASSESSOR1", "PRJ1", "P2", "PROJECT", "SUBMITTED");
+        Long functionalTaskId = seedTask("EMP_DETAIL", "ASSESSOR1", null, null, "FUNCTIONAL", "SUBMITTED");
+        seedScore(projectTaskId, projectKpiId, "PROJECT", new BigDecimal("4.0"));
+        seedScore(functionalTaskId, functionalKpiId, "FUNCTIONAL", new BigDecimal("3.0"));
+        seedParticipation("EMP_DETAIL", "PRJ1", "P2", new BigDecimal("100"));
+
+        resultService.generateResults("PERIOD-001");
+        EmployeeResultResponse result = resultService.getEmployeeResult("PERIOD-001", "EMP_DETAIL");
+
+        EmployeeResultResponse.KpiDetail project = result.getKpis().stream()
+                .filter(k -> "PROJECT".equals(k.getKpiType())).findFirst().orElseThrow();
+        assertEquals("PRJ1", project.getProjectCode());
+        assertEquals("项目一", project.getProjectName());
+        assertEquals("P2", project.getProjectStage());
+
+        EmployeeResultResponse.KpiDetail functional = result.getKpis().stream()
+                .filter(k -> "FUNCTIONAL".equals(k.getKpiType())).findFirst().orElseThrow();
+        assertNull(functional.getProjectCode());
+        assertNull(functional.getProjectName());
+        assertNull(functional.getProjectStage());
+    }
+
     // ================= 辅助：种子数据 =================
 
     private void seedPeriod() {
@@ -310,6 +435,41 @@ class ResultServiceTest {
         kpi.setIsActive(true);
         projectKpiMapper.insert(kpi);
         return kpi.getId();
+    }
+
+    // 辅助方法：同角色同阶段下创建两个项目KPI（用于验证 KPI 权重重归一化——两权重各 1.0 求和 2.0）
+    private List<Long> seedTwoProjectKpis(BigDecimal weight1, BigDecimal weight2) {
+        ProjectRole role = new ProjectRole();
+        role.setRoleCode("PDL");
+        role.setRoleName("项目负责人");
+        projectRoleMapper.insert(role);
+
+        Project project = new Project();
+        project.setProjectCode("PRJ1");
+        project.setProjectName("项目一");
+        project.setProjectStage("P2");
+        project.setStatus("ACTIVE");
+        projectMapper.insert(project);
+
+        ProjectKpiConfig kpi1 = new ProjectKpiConfig();
+        kpi1.setProjectRoleCode("PDL");
+        kpi1.setProjectStage("P2");
+        kpi1.setKpiName("项目KPI-A");
+        kpi1.setWeight(weight1);
+        kpi1.setSortOrder(1);
+        kpi1.setIsActive(true);
+        projectKpiMapper.insert(kpi1);
+
+        ProjectKpiConfig kpi2 = new ProjectKpiConfig();
+        kpi2.setProjectRoleCode("PDL");
+        kpi2.setProjectStage("P2");
+        kpi2.setKpiName("项目KPI-B");
+        kpi2.setWeight(weight2);
+        kpi2.setSortOrder(2);
+        kpi2.setIsActive(true);
+        projectKpiMapper.insert(kpi2);
+
+        return List.of(kpi1.getId(), kpi2.getId());
     }
 
     private Long seedFuncKpi(BigDecimal weight) {

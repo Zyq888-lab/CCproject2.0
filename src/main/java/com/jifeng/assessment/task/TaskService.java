@@ -129,7 +129,8 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
                 .map(dto -> {
                     AssessmentScore s = scoreMap.get(dto.kpiConfigId());
                     return new KpiIndicatorDTO(dto.kpiConfigId(), dto.kpiType(), dto.indicatorName(),
-                            dto.weight(), s != null ? s.getScore() : null,
+                            dto.weight(), dto.evaluationCriteria(),
+                            s != null ? s.getScore() : null,
                             s != null ? s.getEvidenceUrl() : null);
                 })
                 .toList();
@@ -164,7 +165,8 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
                                 .orderByAsc(ProjectKpiConfig::getSortOrder));
                 for (ProjectKpiConfig kpi : kpis) {
                     indicators.add(new KpiIndicatorDTO(
-                            kpi.getId(), "PROJECT", kpi.getKpiName(), kpi.getWeight(), null, null));
+                            kpi.getId(), "PROJECT", kpi.getKpiName(), kpi.getWeight(),
+                            kpi.getEvaluationCriteria(), null, null));
                 }
             }
         } else if (isFunctionalKpi(task)) {
@@ -179,7 +181,8 @@ public class TaskService extends BaseService<TaskMapper, AssessmentTask> {
                                 .orderByAsc(FuncKpiConfig::getSortOrder));
                 for (FuncKpiConfig kpi : kpis) {
                     indicators.add(new KpiIndicatorDTO(
-                            kpi.getId(), "FUNCTIONAL", kpi.getKpiName(), kpi.getWeight(), null, null));
+                            kpi.getId(), "FUNCTIONAL", kpi.getKpiName(), kpi.getWeight(),
+                            kpi.getEvaluationCriteria(), null, null));
                 }
             }
         }

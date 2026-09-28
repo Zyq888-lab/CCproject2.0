@@ -24,24 +24,45 @@ public class CalibrationController extends BaseController {
 
     // 功能：校准矩阵——分布汇总带 + 离群优先排序的员工结果行 + 未提交人数告警
     @GetMapping("/api/v1/periods/{periodId}/calibration")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PD')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PD', '总裁')")
     public ApiResponse<CalibrationMatrixResponse> matrix(@PathVariable String periodId) {
         return ok(calibrationService.getCalibrationMatrix(periodId));
     }
 
     // 功能：行内改分——写 adjusted_score + 追加审计行；409 为乐观锁冲突
     @PutMapping("/api/v1/periods/{periodId}/calibration/adjust")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PD')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Void> adjust(@PathVariable String periodId,
                                     @Valid @RequestBody AdjustRequest request) {
         calibrationService.adjust(periodId, request.getAssesseeId(), request.getNewScore(), request.getReason());
         return ok(null);
     }
 
+    // 功能：按 task 单项改分——写 assessment_score.calibrated_score + 单项审计，返回重算后的项目任务小计
+    @PutMapping("/api/v1/periods/{periodId}/calibration/adjust-kpi")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PD')")
+    public ApiResponse<AdjustKpiResult> adjustKpi(@PathVariable String periodId,
+                                                  @Valid @RequestBody AdjustKpiRequest request) {
+        return ok(calibrationService.adjustKpi(periodId, request.getTaskId(), request.getKpiConfigId(),
+                request.getNewScore(), request.getReason()));
+    }
+
     @Data
     public static class AdjustRequest {
         @NotBlank
         private String assesseeId;
+        @NotNull
+        private BigDecimal newScore;
+        @NotBlank
+        private String reason;
+    }
+
+    @Data
+    public static class AdjustKpiRequest {
+        @NotNull
+        private Long taskId;
+        @NotNull
+        private Long kpiConfigId;
         @NotNull
         private BigDecimal newScore;
         @NotBlank

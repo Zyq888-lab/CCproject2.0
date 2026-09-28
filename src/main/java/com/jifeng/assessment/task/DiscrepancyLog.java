@@ -24,6 +24,9 @@ public class DiscrepancyLog {
     @TableField("project_code")
     private String projectCode;
 
+    @TableField("project_stage")
+    private String projectStage;
+
     private String type;
 
     private String detail;

@@ -225,12 +225,12 @@ function TaskListPage() {
     } catch (_) { /* 非关键数据 */ }
   };
 
-  // 功能：分页获取待审批参与记录——status=PENDING
+  // 功能：分页获取待审批参与记录——status=PENDING 且 scope=approval（仅当前用户可审批的主 PM 范围）
   const fetchApprovals = async (page, size) => {
     setApprovalLoading(true);
     setApprovalError(null);
     try {
-      const res = await client.get('/participations', { params: { page, size, status: 'PENDING' } });
+      const res = await client.get('/participations', { params: { page, size, status: 'PENDING', scope: 'approval' } });
       if (mountedRef.current) {
         const pageData = res.data || {};
         setApprovalData(pageData.list || []);

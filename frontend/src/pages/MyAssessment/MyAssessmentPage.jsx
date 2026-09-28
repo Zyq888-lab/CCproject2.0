@@ -3,7 +3,7 @@
 {/* 修改注意：仅员工角色可见；无项目时显示"暂无考核项目，请联系PM分配项目角色" */}
 import { useState, useEffect, useRef } from 'react';
 import {
-  Table, Tag, Spin, Result, Button,
+  Table, Tag, Spin, Result, Button, Select,
 } from 'antd';
 import { ProfileOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
@@ -35,6 +35,7 @@ const formatWeight = (w) => {
 
 function MyAssessmentPage() {
   const [items, setItems] = useState([]);
+  const [periodFilter, setPeriodFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const mountedRef = useRef(true);
@@ -61,16 +62,22 @@ function MyAssessmentPage() {
     return () => { mountedRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 功能：周期筛选选项——从数据源去重 derive（数据源已含 periodId/periodName）
+  const periodOptions = [...new Map(
+    items.map((it) => [it.periodId, it.periodName || it.periodId]),
+  ).entries()].map(([value, label]) => ({ value, label }));
+  const visibleItems = periodFilter ? items.filter((it) => it.periodId === periodFilter) : items;
+
   // 功能：平铺列表——每个 KPI 一行，合并任务与指标字段；KPI 为空的指标跳过（不显示占位行）
   const rows = [];
   let rowIndex = 0;
-  items.forEach((it) => {
+  visibleItems.forEach((it) => {
     const kpis = it.kpis || [];
     kpis.forEach((kpi) => {
       rows.push({
         key: `row-${rowIndex++}`,
         item: it,
-        periodName: it.periodName || it.periodId || '-',
+        periodName: it.periodName || it.periodId || '当前考核周期',
         projectName: it.projectName || it.projectCode || '职能考核',
         projectStage: it.projectStage,
         kpiName: kpi.kpiName,
@@ -84,7 +91,7 @@ function MyAssessmentPage() {
 
   const columns = [
     { title: '考核周期', dataIndex: 'periodName', key: 'periodName', width: 140,
-      render: (v) => v || '-' },
+      render: (v) => v || '当前考核周期' },
     { title: '项目', dataIndex: 'projectName', key: 'projectName',
       render: (v) => v || '-' },
     { title: '阶段', dataIndex: 'projectStage', key: 'projectStage', width: 100,
@@ -134,6 +141,19 @@ function MyAssessmentPage() {
         title="我的指标"
         breadcrumb={[{ title: '首页', path: '/dashboard' }]}
       />
+
+      {!isEmpty && (
+        <div style={{ marginBottom: 16 }}>
+          <Select
+            placeholder="按考核周期筛选"
+            value={periodFilter || undefined}
+            onChange={(v) => setPeriodFilter(v || '')}
+            allowClear
+            style={{ width: 220 }}
+            options={periodOptions}
+          />
+        </div>
+      )}
 
       {error && items.length > 0 && (
         <div style={{ marginBottom: 16, color: '#FF4D4F', textAlign: 'center' }}>

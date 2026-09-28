@@ -379,7 +379,8 @@ function FormPositionLinker({ form, editingRecord, allConfigs, allPositionOpts, 
 function WeightSumHint({ data, editingRecord, form }) {
   const watchedWeight = Form.useWatch('weight', form);
   const watchedPosition = Form.useWatch('position', form);
-  const category = editingRecord ? editingRecord.category : Form.useWatch('category', form);
+  const watchedCategory = Form.useWatch('category', form);
+  const category = editingRecord ? editingRecord.category : watchedCategory;
   const position = editingRecord ? editingRecord.position : watchedPosition;
   const weight = watchedWeight;
   if (weight == null || !category || !position) return null;

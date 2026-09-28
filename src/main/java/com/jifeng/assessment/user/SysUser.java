@@ -14,6 +14,7 @@ public class SysUser {
     private String passwordHash;
     private String employeeId;
     private Boolean enabled;
+    private Boolean mustChangePassword;
     private Integer deleted;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

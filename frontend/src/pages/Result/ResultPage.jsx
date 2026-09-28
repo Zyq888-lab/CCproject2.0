@@ -60,6 +60,10 @@ function ResultPage() {
       render: (v) => (
         <Tag color={KPI_TYPE_COLOR[v] || 'default'}>{KPI_TYPE_LABEL[v] || v || '-'}</Tag>
       ) },
+    { title: '项目', dataIndex: 'projectName', key: 'projectName', width: 140,
+      render: (v) => v || '-' },
+    { title: '阶段', dataIndex: 'projectStage', key: 'projectStage', width: 90,
+      render: (v) => v || '-' },
     { title: '指标名称', dataIndex: 'kpiName', key: 'kpiName',
       render: (v) => v || '-' },
     { title: '权重', dataIndex: 'weight', key: 'weight', width: 90, align: 'center',
@@ -130,6 +134,9 @@ function ResultPage() {
         <div style={{ fontSize: 56, fontWeight: 700, color: '#1890FF', lineHeight: 1.1 }}>
           {fmt(data.adjustedScore)}
         </div>
+        <div style={{ color: '#595959', fontSize: 13, marginTop: 4 }}>
+          项目 {data.projectName || '—'} · 考核周期 {data.periodName || periodId} · 校准人 {data.adjustedBy || '—'}
+        </div>
         {data.adjusted ? (
           <Space size={8} wrap style={{ justifyContent: 'center', marginTop: 12 }}>
             <span style={{ color: '#8C8C8C', textDecoration: 'line-through' }}>原始分 {fmt(data.originalScore)}</span>
@@ -158,7 +165,7 @@ function ResultPage() {
           loading={loading}
           size="middle"
           pagination={false}
-          scroll={{ x: 720 }}
+          scroll={{ x: 920 }}
           locale={{ emptyText: '暂无 KPI 明细' }}
         />
       </Card>

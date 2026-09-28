@@ -11,6 +11,7 @@ import com.jifeng.assessment.common.PageQuery;
 import com.jifeng.assessment.common.PageResult;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
+import com.jifeng.assessment.security.ProjectAccessService;
 import com.jifeng.assessment.user.SysUser;
 import com.jifeng.assessment.user.SysUserMapper;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
 
     private final ProjectRoleAssignmentMapper roleAssignmentMapper;
     private final SysUserMapper sysUserMapper;
+    private final ProjectAccessService projectAccessService;
 
     // 功能：分页查询项目列表，支持按 projectStage/status 筛选。
     //   数据隔离按项目级 project_role_assignment 记录判定（而非全局 user_role）：
@@ -58,6 +60,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         //   项目管理（默认，scope 为空）：仅见自己为主 PM/主 PD 的项目。
         //   scope=assigned：见自己被分配了任意项目角色的项目阶段（参与录入用）。
         boolean isAdmin = hasRole("ADMIN");
+        boolean isPresident = hasRole("总裁");
         Map<String, Boolean> pmByProject = new HashMap<>();
         if (!isAdmin) {
             String employeeId = getCurrentEmployeeId();
@@ -69,8 +72,14 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
                             .eq(ProjectRoleAssignment::getEmployeeId, employeeId)
                             .eq(ProjectRoleAssignment::getDeleted, 0);
             if (!"assigned".equals(scope)) {
-                assignWrapper.in(ProjectRoleAssignment::getProjectRoleCode, "PM", "PD")
-                        .eq(ProjectRoleAssignment::getIsPrimary, true);
+                if (isPresident) {
+                    // 总裁：只读入口，仅返回自己作为主总裁（PRESIDENT）的项目，与 PD 分支同类
+                    assignWrapper.eq(ProjectRoleAssignment::getProjectRoleCode, "PRESIDENT")
+                            .eq(ProjectRoleAssignment::getIsPrimary, true);
+                } else {
+                    assignWrapper.in(ProjectRoleAssignment::getProjectRoleCode, "PM", "PD")
+                            .eq(ProjectRoleAssignment::getIsPrimary, true);
+                }
             }
             List<ProjectRoleAssignment> assignments = roleAssignmentMapper.selectList(assignWrapper);
             if (assignments.isEmpty()) {
@@ -159,6 +168,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         if (existing == null) {
             throw new BusinessException(404, "项目不存在: " + projectCode + " / " + projectStage);
         }
+        projectAccessService.assertPrimaryRole(projectCode, projectStage, "PM");
         if (Boolean.TRUE.equals(existing.getStageConfirmed())) {
             throw new BusinessException(400, "项目阶段已确认，无需重复确认");
         }
@@ -195,6 +205,7 @@ public class ProjectService extends BaseService<ProjectMapper, Project> {
         if (existing == null) {
             throw new BusinessException(404, "项目不存在: " + projectCode + " / " + projectStage);
         }
+        projectAccessService.assertPrimaryRole(projectCode, projectStage, "PM");
         if (!"COMPLETED".equals(existing.getStatus())) {
             throw new BusinessException(400, "只有已完成状态的项目阶段才能归档，当前状态: " + existing.getStatus());
         }

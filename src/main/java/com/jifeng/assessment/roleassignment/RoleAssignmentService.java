@@ -14,6 +14,7 @@ import com.jifeng.assessment.project.Project;
 import com.jifeng.assessment.project.ProjectMapper;
 import com.jifeng.assessment.projectrole.ProjectRole;
 import com.jifeng.assessment.projectrole.ProjectRoleMapper;
+import com.jifeng.assessment.security.ProjectAccessService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
     private final ProjectMapper projectMapper;
     private final EmployeeMapper employeeMapper;
     private final ProjectRoleMapper projectRoleMapper;
+    private final ProjectAccessService projectAccessService;
 
     // 功能：查询项目特定阶段下的所有角色分配——关联查询员工姓名
     public List<ProjectRoleAssignmentDTO> listAssignments(String projectCode, String projectStage) {
@@ -89,6 +91,7 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         if (project == null) {
             throw new BusinessException(404, "项目不存在: " + projectCode + " / " + projectStage);
         }
+        projectAccessService.assertPrimaryRole(projectCode, projectStage, "PM");
         Employee employee = employeeMapper.selectById(employeeId);
         if (employee == null) {
             throw new BusinessException(404, "员工不存在: " + employeeId);
@@ -132,6 +135,7 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         if (assignment == null) {
             throw new BusinessException(404, "分配记录不存在: " + assignmentId);
         }
+        projectAccessService.assertPrimaryRole(assignment.getProjectCode(), assignment.getProjectStage(), "PM");
 
         // 取消同(项目,阶段,角色)内已有的主标记——只清同角色，不误删其它阶段/角色的主
         LambdaQueryWrapper<ProjectRoleAssignment> unmarkWrapper = new LambdaQueryWrapper<>();
@@ -159,6 +163,7 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         if (assignment == null) {
             throw new BusinessException(404, "分配记录不存在: " + assignmentId);
         }
+        projectAccessService.assertPrimaryRole(assignment.getProjectCode(), assignment.getProjectStage(), "PM");
         if (!Boolean.TRUE.equals(assignment.getIsPrimary())) {
             throw new BusinessException(400, "该分配不是主标记，无需取消");
         }
@@ -177,7 +182,93 @@ public class RoleAssignmentService extends BaseService<ProjectRoleAssignmentMapp
         if (assignment == null) {
             throw new BusinessException(404, "分配记录不存在: " + assignmentId);
         }
+        projectAccessService.assertPrimaryRole(assignment.getProjectCode(), assignment.getProjectStage(), "PM");
         baseMapper.deleteById(assignmentId);
+    }
+
+    // 路径里的项目和阶段必须与分配记录一致，防止借别的项目 URL 修改该 ID。
+    public void assertAssignmentPath(String projectCode, String projectStage, Long assignmentId) {
+        ProjectRoleAssignment assignment = baseMapper.selectById(assignmentId);
+        if (assignment == null) {
+            throw new BusinessException(404, "分配记录不存在: " + assignmentId);
+        }
+        if (!projectCode.equals(assignment.getProjectCode())
+                || !projectStage.equals(assignment.getProjectStage())) {
+            throw new BusinessException(404, "分配记录不属于该项目阶段");
+        }
+    }
+
+    // 功能：跨阶段同步主总裁——将 sourceStage 的主总裁分配到同项目其它阶段（PRESIDENT 且 is_primary）
+    //   用于消除「一项目多主总裁」冲突：目标阶段已有其它主总裁时先取消，再置 sourceStage 主总裁为主
+    @Transactional
+    public Map<String, Object> syncPresidentAcrossStages(String projectCode, String sourceStage) {
+        Project sourceProject = projectMapper.selectByCodeAndStage(projectCode, sourceStage);
+        if (sourceProject == null) {
+            throw new BusinessException(404, "项目不存在: " + projectCode + " / " + sourceStage);
+        }
+        projectAccessService.assertPrimaryRole(projectCode, sourceStage, "PM");
+        // 当前阶段主总裁
+        List<ProjectRoleAssignment> sourcePrimary = baseMapper.selectList(
+                new LambdaQueryWrapper<ProjectRoleAssignment>()
+                        .eq(ProjectRoleAssignment::getProjectCode, projectCode)
+                        .eq(ProjectRoleAssignment::getProjectStage, sourceStage)
+                        .eq(ProjectRoleAssignment::getProjectRoleCode, "PRESIDENT")
+                        .eq(ProjectRoleAssignment::getIsPrimary, true)
+                        .eq(ProjectRoleAssignment::getDeleted, 0));
+        if (sourcePrimary.isEmpty()) {
+            throw new BusinessException(400, "当前阶段未分配主总裁，无法跨阶段同步");
+        }
+        String presidentEmployeeId = sourcePrimary.get(0).getEmployeeId();
+
+        // 同项目其它阶段（按阶段排序去重）
+        List<String> otherStages = projectMapper.selectByCode(projectCode).stream()
+                .map(Project::getProjectStage)
+                .filter(stage -> !sourceStage.equals(stage))
+                .distinct()
+                .toList();
+
+        for (String stage : otherStages) {
+            projectAccessService.assertPrimaryRole(projectCode, stage, "PM");
+        }
+
+        int synced = 0;
+        for (String stage : otherStages) {
+            syncPresidentToStage(projectCode, stage, presidentEmployeeId);
+            synced++;
+        }
+        return Map.of("syncedStages", synced, "presidentEmployeeId", presidentEmployeeId);
+    }
+
+    // 功能：将指定员工设为目标阶段的主总裁——先取消该阶段已有主总裁标记，再置目标员工为主（无分配则新建）
+    private void syncPresidentToStage(String projectCode, String stage, String employeeId) {
+        List<ProjectRoleAssignment> existing = baseMapper.selectList(
+                new LambdaQueryWrapper<ProjectRoleAssignment>()
+                        .eq(ProjectRoleAssignment::getProjectCode, projectCode)
+                        .eq(ProjectRoleAssignment::getProjectStage, stage)
+                        .eq(ProjectRoleAssignment::getProjectRoleCode, "PRESIDENT")
+                        .eq(ProjectRoleAssignment::getDeleted, 0));
+        // 先取消该阶段已有的主总裁标记
+        for (ProjectRoleAssignment a : existing) {
+            if (Boolean.TRUE.equals(a.getIsPrimary())) {
+                a.setIsPrimary(false);
+                updateWithOptimisticLock(a);
+            }
+        }
+        ProjectRoleAssignment target = existing.stream()
+                .filter(a -> employeeId.equals(a.getEmployeeId()))
+                .findFirst().orElse(null);
+        if (target == null) {
+            target = new ProjectRoleAssignment();
+            target.setProjectCode(projectCode);
+            target.setProjectStage(stage);
+            target.setProjectRoleCode("PRESIDENT");
+            target.setEmployeeId(employeeId);
+            target.setIsPrimary(true);
+            baseMapper.insert(target);
+        } else {
+            target.setIsPrimary(true);
+            updateWithOptimisticLock(target);
+        }
     }
 
     // 功能：将实体转为DTO，关联员工姓名
