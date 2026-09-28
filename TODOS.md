@@ -2,18 +2,6 @@
 
 ## Phase 2.1
 
-### 参与录入审批由谁批（主PM）
-
-**What:** 定「谁批参与录入审批」——是否走「主 PM」。（`notifyPrimaryPds` 通知语义已另定：通知 role=PD 的主，见 eng-plan AD13。）
-
-**Why:** Phase 2.1 角色主标记把 `is_primary_pd` 泛化成 `is_primary`（每角色一主），但 `ParticipationService.approve`（非 ADMIN「被分配即可」审批）的路由没跟着定。用户明确「主 PM 这个说法先放弃，后面再说」，所以这条是 follow-up，不在本次角色主标记的范围内。
-
-**Context:** 见 `docs/phase2/eng-plan-绩效考核系统-phase2.1-20260917.md` 第四章 NOT in Scope。`notifyPrimaryPds` 的语义漂移已于 2026-09-17 锁定（通知 role=PD 的主），本条只余「谁批参与」一路由待定。
-
-**Effort:** M
-**Priority:** P2
-**Depends on:** Phase 2.1 角色主标记上线
-
 ### 凭证迁移到对象存储
 
 **What:** 将当前本地磁盘保存的评分凭证迁移到对象存储（MinIO/S3），并规划已有文件迁移与备份。
@@ -52,6 +40,18 @@
 
 ## Phase 2.2
 
+### 总裁已通过人员的 KPI 仍可修改
+
+**What:** 在改分与总裁确认共享的周期锁内拒绝修改该项目已通过人员的 KPI，界面同步只读，并补批准 A 后改 A、再批准 B 及并发回归。
+
+**Why:** 周期还在等待其他人员确认时，PD 可修改已通过人员的覆盖分；最后确认会采用新分，原已通过人员无需重新确认，确认意见与最终分数可能不一致。
+
+**Context:** 2026-09-28 ship 审查确认 `CalibrationService.adjustKpi` 缺少人员确认状态检查，`CalibrationMatrixPage` 无退回时仍显示改分。用户明确选择“接受该风险，继续更新 PR”，本次未修复。后续优先采用锁定已通过评分方案；若业务要允许修改，需另外设计撤销确认与重确认。
+
+**Effort:** S
+**Priority:** P1
+**Depends on:** None
+
 ### averageTaskScores 空分任务按 0 计（P3-3）
 
 **What:** `ResultService.averageTaskScores` 对没有评分行的任务（`scoresByTask.getOrDefault(..., List.of())`）仍 `count++`，且 `weightedSum([],[])` 贡献 0 分，导致 SUBMITTED 但无评分行的任务把均值往下拉。
@@ -89,6 +89,19 @@
 **Depends on:** 前端强制关闭按钮上线
 
 ## Completed
+
+### 参与录入审批按项目、阶段主 PM 收敛
+
+**What:** 非 ADMIN 的审批权限和 `scope=approval` 待审批查询均按当前员工主负责的项目、阶段过滤，其他 PM 的申请不进入列表。
+
+**Why:** 全局 PM 角色不能代表所有项目的审批范围；列表与实际审批权限需一致，避免显示后才报无权限。
+
+**Context:** 历史 Phase2.1 计划曾将此路由列为待定；当前 `ParticipationService.approve` 已校验实际阶段主 PM，提交 `c0287a3` 收窄待审批查询，后续代码保留该规则。2026-09-28 一条现有申请的跨 PM 对照通过；两个项目的新申报与审批闭环仍列在 [发布验收清单](docs/phase2/release/ACCEPTANCE.md)，本条“完成”指代码实现，不代表完整业务验收。
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** Phase2 主角色配置
+**Completed:** v2.14.0.0（2026-09-28 文档核对）
 
 ### 校准矩阵离群分组键与标签不一致（P3-2）
 
