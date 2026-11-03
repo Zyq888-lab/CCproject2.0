@@ -9,11 +9,15 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Data
 public class PeriodMonitorItem {
 
     private Long taskId;
+
+    /** 考核周期名称，用于指标明细导出 */
+    private String periodName;
 
     /** 被考核人 */
     private String employeeId;
@@ -42,6 +46,9 @@ public class PeriodMonitorItem {
 
     /** KPI 指标列表（含单项得分回填） */
     private List<KpiIndicatorDTO> indicators;
+
+    /** KPI 配置 ID → PD 校准分；未校准不返回该键，原始分仍在 indicators.score */
+    private Map<Long, BigDecimal> calibratedScores = Map.of();
 
     /** 加权总分 = Σ(score × weight) */
     private BigDecimal totalScore;
