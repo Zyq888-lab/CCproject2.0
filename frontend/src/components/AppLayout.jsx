@@ -24,6 +24,7 @@ import {
   AuditOutlined,
 } from '@ant-design/icons';
 import client from '../api/client';
+import CompanyLogo from './CompanyLogo';
 
 const { Sider, Header, Content } = Layout;
 
@@ -129,21 +130,44 @@ function AppLayout() {
         breakpoint="lg"
         collapsedWidth={60}
       >
-        <div id="sidebar-logo-area" style={{
-          height: 64,
+        <button id="sidebar-logo-area" type="button" title="继峰座椅强项目绩效考核系统" style={{
+          width: '100%',
+          height: collapsed ? 64 : 132,
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
+          gap: collapsed ? 0 : 8,
+          padding: 8,
+          boxSizing: 'border-box',
+          background: 'transparent',
           color: '#fff',
-          fontSize: collapsed ? 14 : 16,
+          fontFamily: 'inherit',
           fontWeight: 500,
+          border: 0,
           borderBottom: '1px solid rgba(255,255,255,0.1)',
           cursor: 'pointer',
         }}
           onClick={() => navigate('/dashboard')}
         >
-          {collapsed ? '🏠' : '🏠 继峰考核'}
-        </div>
+          <span style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: collapsed ? 4 : '6px 8px',
+            background: 'transparent',
+            borderRadius: 6,
+            flexShrink: 0,
+          }}>
+            <CompanyLogo compact={collapsed} style={{ filter: 'brightness(0) invert(1)' }} />
+          </span>
+          {!collapsed && (
+            <span style={{ display: 'flex', flexDirection: 'column', lineHeight: '20px', textAlign: 'center' }}>
+              <span style={{ fontSize: 15, fontWeight: 600 }}>继峰座椅</span>
+              <span style={{ fontSize: 13 }}>强项目绩效考核系统</span>
+            </span>
+          )}
+        </button>
 
         {/* 功能：导航菜单——配置中心组+系统设置组，当前页高亮 */}
         <Menu

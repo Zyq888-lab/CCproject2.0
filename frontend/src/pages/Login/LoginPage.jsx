@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Alert, Card, Typography } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import client from '../../api/client';
+import CompanyLogo from '../../components/CompanyLogo';
 
 const { Title, Text } = Typography;
 
@@ -62,8 +63,9 @@ function LoginPage() {
         boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
       }}>
         <div id="login-header" style={{ textAlign: 'center', marginBottom: 32 }}>
+          <CompanyLogo style={{ width: 240, height: 78, maxWidth: '100%', margin: '0 auto 20px' }} />
           <Title level={3} style={{ marginBottom: 4, fontSize: 20, fontWeight: 500 }}>
-            继峰座椅绩效考核系统
+            继峰座椅强项目绩效考核系统
           </Title>
           <Text type="secondary" style={{ fontSize: 14 }}>请使用系统账号登录</Text>
         </div>

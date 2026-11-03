@@ -34,6 +34,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -181,12 +182,14 @@ public class PeriodMonitorService {
                     ? projectNames.get(t.getProjectCode() + "|" + t.getProjectStage())
                     : null);
             item.setTaskType(t.getTaskType());
+            List<String> projectRoles = resolveProjectRoles(t);
+            item.setProjectRoles(projectRoles);
             item.setStatus(mapTaskStatusLabel(t.getStatus()));
             item.setNodeLabel(mapTaskNodeLabel(t.getStatus()));
 
             // 指标 + 分数：反查 KPI 并回填单项得分，计算加权总分与评分进度
             List<KpiIndicatorDTO> indicators = resolveIndicators(t,
-                    scoresByTask.getOrDefault(t.getId(), Map.of()));
+                    scoresByTask.getOrDefault(t.getId(), Map.of()), projectRoles);
             item.setIndicators(indicators);
             item.setKpiCount(indicators.size());
             BigDecimal total = BigDecimal.ZERO;
@@ -303,21 +306,31 @@ public class PeriodMonitorService {
         return (code == null ? "" : code) + "|" + (assesseeId == null ? "" : assesseeId);
     }
 
+    // 功能：按被考核人、项目和阶段匹配角色；展示与 KPI 查询复用同一结果，不增加逐任务查表次数
+    private List<String> resolveProjectRoles(AssessmentTask task) {
+        if (!"PROJECT".equals(task.getTaskType()) || !StringUtils.hasText(task.getProjectCode())
+                || !StringUtils.hasText(task.getProjectStage())) {
+            return List.of();
+        }
+        return roleAssignmentMapper.selectList(new LambdaQueryWrapper<ProjectRoleAssignment>()
+                        .eq(ProjectRoleAssignment::getProjectCode, task.getProjectCode())
+                        .eq(ProjectRoleAssignment::getProjectStage, task.getProjectStage())
+                        .eq(ProjectRoleAssignment::getEmployeeId, task.getAssesseeId())
+                        .eq(ProjectRoleAssignment::getDeleted, 0))
+                .stream()
+                .map(ProjectRoleAssignment::getProjectRoleCode)
+                .filter(StringUtils::hasText)
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
     // 功能：反查任务的 KPI 指标并回填已有评分——与 TaskService.getTaskDetail 同口径（按被考核人角色/岗位）
-    private List<KpiIndicatorDTO> resolveIndicators(AssessmentTask task, Map<Long, AssessmentScore> scoreMap) {
+    private List<KpiIndicatorDTO> resolveIndicators(AssessmentTask task, Map<Long, AssessmentScore> scoreMap,
+                                                  List<String> roleCodes) {
         List<KpiIndicatorDTO> indicators = new ArrayList<>();
         if ("PROJECT".equals(task.getTaskType())) {
             // PROJECT 任务：按被考核人(assesseeId)在项目中的角色确定 roleCode，再按 roleCode+stage 查项目 KPI
-            String roleEmployeeId = task.getAssesseeId();
-            List<ProjectRoleAssignment> assignments = roleAssignmentMapper.selectList(
-                    new LambdaQueryWrapper<ProjectRoleAssignment>()
-                            .eq(ProjectRoleAssignment::getProjectCode, task.getProjectCode())
-                            .eq(ProjectRoleAssignment::getProjectStage, task.getProjectStage())
-                            .eq(ProjectRoleAssignment::getEmployeeId, roleEmployeeId));
-            List<String> roleCodes = assignments.stream()
-                    .map(ProjectRoleAssignment::getProjectRoleCode)
-                    .distinct()
-                    .toList();
             if (!roleCodes.isEmpty()) {
                 List<ProjectKpiConfig> kpis = projectKpiMapper.selectList(
                         new LambdaQueryWrapper<ProjectKpiConfig>()
