@@ -38,6 +38,7 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -172,6 +173,7 @@ public class PeriodMonitorService {
         return tasks.stream().map(t -> {
             PeriodMonitorItem item = new PeriodMonitorItem();
             item.setTaskId(t.getId());
+            item.setPeriodName(period.getPeriodName());
             item.setEmployeeId(t.getAssesseeId());
             item.setEmployeeName(employeeNames.get(t.getAssesseeId()));
             item.setAssessorId(t.getAssessorId());
@@ -188,13 +190,18 @@ public class PeriodMonitorService {
             item.setNodeLabel(mapTaskNodeLabel(t.getStatus()));
 
             // 指标 + 分数：反查 KPI 并回填单项得分，计算加权总分与评分进度
-            List<KpiIndicatorDTO> indicators = resolveIndicators(t,
-                    scoresByTask.getOrDefault(t.getId(), Map.of()), projectRoles);
+            Map<Long, AssessmentScore> taskScores = scoresByTask.getOrDefault(t.getId(), Map.of());
+            List<KpiIndicatorDTO> indicators = resolveIndicators(t, taskScores, projectRoles);
             item.setIndicators(indicators);
             item.setKpiCount(indicators.size());
             BigDecimal total = BigDecimal.ZERO;
             int scored = 0;
+            Map<Long, BigDecimal> calibratedScores = new LinkedHashMap<>();
             for (KpiIndicatorDTO kpi : indicators) {
+                AssessmentScore score = taskScores.get(kpi.kpiConfigId());
+                if (score != null && score.getCalibratedScore() != null) {
+                    calibratedScores.put(kpi.kpiConfigId(), score.getCalibratedScore());
+                }
                 if (kpi.weight() != null && kpi.score() != null) {
                     total = total.add(kpi.score().multiply(kpi.weight()));
                 }
@@ -204,6 +211,7 @@ public class PeriodMonitorService {
             }
             item.setTotalScore(total);
             item.setScoredCount(scored);
+            item.setCalibratedScores(calibratedScores);
 
             // 当前审批人：优先周期状态（PeriodStatusPolicy 六态映射）——CALIBRATING 按项目级确认状态分叉：
             //   APPROVED=无（待发布）；RETURNED=主PD待校准；PENDING/无确认行=按校准提交（未提交主PD待校准/已提交主总裁待确认）；

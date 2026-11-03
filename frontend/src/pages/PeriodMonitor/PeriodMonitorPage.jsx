@@ -1,4 +1,4 @@
-{/* 模块用途：PeriodMonitorPage——周期监控页，展示某周期下所有考核任务的员工/项目/类型/状态/审批节点，支持筛选与CSV导出 */}
+{/* 模块用途：PeriodMonitorPage——周期监控页，支持筛选、CSV汇总和Excel指标明细导出 */}
 {/* 依赖组件：PageHeader, EmptyState, client.js, xlsx, Ant Design Table/Select/Tag/Button/Modal/Descriptions */}
 {/* 修改注意：ADMIN 全见、PM 仅见自己项目由后端过滤；当前审批节点由 task.status 推导 */}
 import { useState, useEffect, useRef } from 'react';
@@ -118,6 +118,10 @@ function PeriodMonitorPage() {
     return true;
   });
 
+  const indicatorTasks = filteredData.filter((row) => Array.isArray(row.indicators) && row.indicators.length > 0);
+  const missingCalibrationScores = indicatorTasks.some((row) => !row.calibratedScores
+    || typeof row.calibratedScores !== 'object' || Array.isArray(row.calibratedScores));
+
   // 功能：导出CSV——UTF-8 BOM 保证 Excel 中文不乱码
   const handleExport = () => {
     const rows = filteredData.map((r) => ({
@@ -140,6 +144,63 @@ function PeriodMonitorPage() {
     link.download = `周期监控_${periodId}.csv`;
     link.click();
     URL.revokeObjectURL(link.href);
+  };
+
+  // 每个指标一行；校准分只作读取，最终采用分与结果页使用相同的空值回落口径。
+  const handleIndicatorExport = () => {
+    if (loading || error || !indicatorTasks.length || missingCalibrationScores) return;
+    const rows = indicatorTasks.flatMap((row) => row.indicators.map((indicator) => {
+      const calibratedScore = row.calibratedScores[indicator.kpiConfigId];
+      const effectiveScore = calibratedScore ?? indicator.score;
+      return {
+        周期编码: periodId,
+        考核周期: row.periodName || periodId,
+        任务编号: String(row.taskId ?? ''),
+        员工工号: String(row.employeeId ?? ''),
+        员工姓名: row.employeeName || row.employeeId || '',
+        项目编码: row.projectCode || '',
+        项目名称: row.projectName || '',
+        项目阶段: row.projectStage || '',
+        项目角色: (row.projectRoles || []).join('\n') || '—',
+        考核类型: TASK_TYPE_LABEL[row.taskType] || row.taskType || '',
+        指标编号: String(indicator.kpiConfigId ?? ''),
+        指标名称: indicator.indicatorName || '',
+        评价标准: indicator.evaluationCriteria || '',
+        权重: indicator.weight == null ? '' : Number(indicator.weight),
+        原始评分: indicator.score == null ? '' : Number(indicator.score),
+        PD校准分: calibratedScore == null ? '' : Number(calibratedScore),
+        最终采用分: effectiveScore == null ? '' : Number(effectiveScore),
+        评估人工号: String(row.assessorId ?? ''),
+        评估人: row.assessorName || row.assessorId || '',
+        任务状态: resolveStatusLabel(row),
+      };
+    }));
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const headers = Object.keys(rows[0]);
+    sheet['!cols'] = headers.map((header) => ({ wch: ['指标名称', '评价标准', '项目名称', '考核周期'].includes(header) ? 28 : 16 }));
+    sheet['!autofilter'] = { ref: sheet['!ref'] };
+    const weightColumn = headers.indexOf('权重');
+    for (let index = 1; index <= rows.length; index += 1) {
+      const cell = sheet[XLSX.utils.encode_cell({ r: index, c: weightColumn })];
+      if (cell?.t === 'n') cell.z = '0.00%';
+    }
+    const notes = XLSX.utils.aoa_to_sheet([
+      ['项目', '说明'],
+      ['考核周期', indicatorTasks[0].periodName || periodId],
+      ['导出范围', '当前周期、当前筛选结果中的全部指标；无指标任务不生成明细行。'],
+      ['原始评分', '评估人原始单项得分，与监控“查看”明细一致。'],
+      ['PD校准分', 'PD填写的单项校准分；未校准留空。'],
+      ['最终采用分', '有PD校准分时优先采用，否则采用原始评分；未评分留空，零分保留。'],
+      ['结果口径', '最终采用分是单项分数，不是员工综合总分；确认、发布状态以系统页面为准。'],
+      ['指标与角色', '沿用监控页的当前有效指标配置和项目阶段角色，不是历史快照；多角色在同一单元格换行。'],
+      ['权重', '以百分比显示并保留原始数值；项目考核与职能考核分别列明。'],
+    ]);
+    notes['!cols'] = [{ wch: 18 }, { wch: 100 }];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, '指标明细');
+    XLSX.utils.book_append_sheet(workbook, notes, '导出说明');
+    const filePeriod = String(periodId).replace(/[\\/:*?"<>|]/g, '_');
+    XLSX.writeFile(workbook, `周期指标明细_${filePeriod}.xlsx`);
   };
 
   const columns = [
@@ -201,6 +262,7 @@ function PeriodMonitorPage() {
         breadcrumb={[{ title: '首页', path: '/dashboard' }, { title: '考核周期', path: '/period-config' }]}
         actions={[
           { label: '导出CSV', icon: <DownloadOutlined />, onClick: handleExport, disabled: filteredData.length === 0 },
+          { label: '导出指标明细', icon: <DownloadOutlined />, onClick: handleIndicatorExport, disabled: loading || !!error || !indicatorTasks.length || missingCalibrationScores },
         ]}
       />
 
@@ -209,6 +271,10 @@ function PeriodMonitorPage() {
           {error}
           <Button type="link" onClick={fetchData}>重试</Button>
         </div>
+      )}
+
+      {missingCalibrationScores && (
+        <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="校准分明细加载不完整，请刷新后重试。" />
       )}
 
       {/* 功能：项目级确认汇总提示——仅 CALIBRATING 阶段展示，按已确认项目数/需确认项目数计算 */}

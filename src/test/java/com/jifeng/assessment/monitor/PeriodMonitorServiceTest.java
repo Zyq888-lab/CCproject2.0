@@ -13,6 +13,8 @@ import com.jifeng.assessment.employee.Employee;
 import com.jifeng.assessment.employee.EmployeeMapper;
 import com.jifeng.assessment.kpi.FuncKpiConfig;
 import com.jifeng.assessment.kpi.FuncKpiMapper;
+import com.jifeng.assessment.kpi.ProjectKpiConfig;
+import com.jifeng.assessment.kpi.ProjectKpiMapper;
 import com.jifeng.assessment.period.AssessmentPeriod;
 import com.jifeng.assessment.period.PeriodMapper;
 import com.jifeng.assessment.project.Project;
@@ -21,6 +23,8 @@ import com.jifeng.assessment.projectrole.ProjectRole;
 import com.jifeng.assessment.projectrole.ProjectRoleMapper;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignment;
 import com.jifeng.assessment.roleassignment.ProjectRoleAssignmentMapper;
+import com.jifeng.assessment.score.AssessmentScore;
+import com.jifeng.assessment.score.ScoreMapper;
 import com.jifeng.assessment.task.AssessmentTask;
 import com.jifeng.assessment.task.TaskMapper;
 import org.junit.jupiter.api.Test;
@@ -52,6 +56,118 @@ class PeriodMonitorServiceTest {
     @Autowired private ProjectConfirmationMapper projectConfirmationMapper;
     @Autowired private FuncKpiMapper funcKpiMapper;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private ProjectKpiMapper projectKpiMapper;
+    @Autowired private ScoreMapper scoreMapper;
+
+    @Test
+    void shouldExportOriginalAndCalibratedScoresWithoutCrossingTaskOrPeriod() {
+        seedPeriod("PERIOD-MON-EXPORT", "CALIBRATING");
+        seedPeriod("PERIOD-MON-OTHER", "ONGOING");
+        seedEmployee("EMP-EX-ASR");
+        seedEmployee("EMP-EX-A");
+        seedEmployee("EMP-EX-B");
+        seedProject("PROJ-MON-EXPORT", "P2");
+        seedProject("PROJ-MON-EXPORT", "P3");
+        seedRole("MON-EX");
+        seedAssignment("PROJ-MON-EXPORT", "P2", "EMP-EX-A", "MON-EX", 0);
+        seedAssignment("PROJ-MON-EXPORT", "P3", "EMP-EX-A", "MON-EX", 0);
+        seedAssignment("PROJ-MON-EXPORT", "P2", "EMP-EX-B", "MON-EX", 0);
+        ProjectKpiConfig first = seedExportProjectKpi("P2", "0.6", 1);
+        ProjectKpiConfig second = seedExportProjectKpi("P2", "0.4", 2);
+        ProjectKpiConfig nextStage = seedExportProjectKpi("P3", "1.0", 1);
+        AssessmentTask a = seedExportTask("PERIOD-MON-EXPORT", "EMP-EX-A", "P2", "PROJECT");
+        AssessmentTask b = seedExportTask("PERIOD-MON-EXPORT", "EMP-EX-B", "P2", "PROJECT");
+        AssessmentTask later = seedExportTask("PERIOD-MON-EXPORT", "EMP-EX-A", "P3", "PROJECT");
+        AssessmentTask other = seedExportTask("PERIOD-MON-OTHER", "EMP-EX-A", "P2", "PROJECT");
+        seedExportScore(a, first.getId(), "3.0", "4.5", 0);
+        seedExportScore(a, second.getId(), "1.0", null, 0);
+        seedExportScore(b, first.getId(), "2.0", "3.5", 0);
+        seedExportScore(later, nextStage.getId(), "4.0", "2.5", 0);
+        seedExportScore(other, first.getId(), "1.0", "1.5", 0);
+
+        List<PeriodMonitorItem> items = periodMonitorService.monitor("PERIOD-MON-EXPORT");
+        assertEquals(3, items.size());
+        PeriodMonitorItem item = items.stream().filter(i -> i.getTaskId().equals(a.getId())).findFirst().orElseThrow();
+        var json = objectMapper.valueToTree(item);
+        assertEquals("监控测试周期PERIOD-MON-EXPORT", json.path("periodName").asText());
+        assertTrue(json.path("calibratedScores").isObject());
+        assertEquals(0, new BigDecimal("4.5").compareTo(json.path("calibratedScores").path(first.getId().toString()).decimalValue()));
+        assertFalse(json.path("calibratedScores").has(second.getId().toString()), "Uncalibrated scores remain absent, not zero");
+        assertEquals(0, new BigDecimal("3.0").compareTo(item.getIndicators().stream().filter(k -> k.kpiConfigId().equals(first.getId())).findFirst().orElseThrow().score()));
+        assertEquals(0, new BigDecimal("2.2").compareTo(item.getTotalScore()), "Existing monitoring total keeps its original-score meaning");
+        for (PeriodMonitorItem row : items) {
+            var scores = objectMapper.valueToTree(row).path("calibratedScores");
+            if (row.getTaskId().equals(b.getId())) assertEquals(0, new BigDecimal("3.5").compareTo(scores.path(first.getId().toString()).decimalValue()));
+            if (row.getTaskId().equals(later.getId())) assertEquals(0, new BigDecimal("2.5").compareTo(scores.path(nextStage.getId().toString()).decimalValue()));
+        }
+        AssessmentScore persisted = scoreMapper.selectList(null).stream()
+                .filter(s -> s.getTaskId().equals(a.getId()) && s.getKpiConfigId().equals(first.getId()))
+                .findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("3.0").compareTo(persisted.getScore()), "Read-only monitor must not overwrite original scores");
+    }
+
+    @Test
+    void shouldKeepFunctionalCalibrationAndExcludeDeletedScoreOverrides() {
+        seedPeriod("PERIOD-MON-FUNC-EX", "ONGOING");
+        seedEmployee("EMP-EX-ASR");
+        seedEmployee("EMP-EX-A");
+        seedEmployee("EMP-EX-B");
+        seedFuncKpi();
+        FuncKpiConfig kpi = funcKpiMapper.selectList(null).stream().filter(k -> "职能KPI".equals(k.getKpiName())).findFirst().orElseThrow();
+        AssessmentTask scored = seedExportTask("PERIOD-MON-FUNC-EX", "EMP-EX-A", null, "FUNCTIONAL");
+        AssessmentTask unscored = seedExportTask("PERIOD-MON-FUNC-EX", "EMP-EX-B", null, "FUNCTIONAL");
+        seedExportScore(scored, kpi.getId(), "2.0", "4.0", 0);
+        seedExportScore(unscored, kpi.getId(), "3.0", "5.0", 1);
+
+        List<PeriodMonitorItem> items = periodMonitorService.monitor("PERIOD-MON-FUNC-EX");
+        PeriodMonitorItem scoredItem = items.stream().filter(i -> i.getTaskId().equals(scored.getId())).findFirst().orElseThrow();
+        PeriodMonitorItem unscoredItem = items.stream().filter(i -> i.getTaskId().equals(unscored.getId())).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("4.0").compareTo(objectMapper.valueToTree(scoredItem).path("calibratedScores").path(kpi.getId().toString()).decimalValue()));
+        var calibration = objectMapper.valueToTree(unscoredItem).path("calibratedScores");
+        assertTrue(calibration.isObject());
+        assertEquals(0, calibration.size());
+        assertNull(unscoredItem.getIndicators().stream().filter(k -> k.kpiConfigId().equals(kpi.getId())).findFirst().orElseThrow().score());
+    }
+
+    private ProjectKpiConfig seedExportProjectKpi(String stage, String weight, int order) {
+        ProjectKpiConfig kpi = new ProjectKpiConfig();
+        kpi.setProjectRoleCode("MON-EX");
+        kpi.setProjectStage(stage);
+        kpi.setKpiName("导出指标" + stage + order);
+        kpi.setEvaluationCriteria("导出评价标准");
+        kpi.setWeight(new BigDecimal(weight));
+        kpi.setSortOrder(order);
+        kpi.setIsActive(true);
+        projectKpiMapper.insert(kpi);
+        return kpi;
+    }
+
+    private AssessmentTask seedExportTask(String periodId, String assessee, String stage, String type) {
+        AssessmentTask task = new AssessmentTask();
+        task.setPeriodId(periodId);
+        task.setAssessorId("EMP-EX-ASR");
+        task.setAssesseeId(assessee);
+        task.setTaskType(type);
+        if ("PROJECT".equals(type)) {
+            task.setProjectCode("PROJ-MON-EXPORT");
+            task.setProjectStage(stage);
+        }
+        task.setStatus("SUBMITTED");
+        taskMapper.insert(task);
+        return task;
+    }
+
+    private void seedExportScore(AssessmentTask task, Long kpiId, String original, String calibrated, int deleted) {
+        AssessmentScore score = new AssessmentScore();
+        score.setTaskId(task.getId());
+        score.setKpiConfigId(kpiId);
+        score.setKpiType(task.getTaskType());
+        score.setScore(new BigDecimal(original));
+        score.setCalibratedScore(calibrated == null ? null : new BigDecimal(calibrated));
+        score.setStatus("SUBMITTED");
+        score.setDeleted(deleted);
+        scoreMapper.insert(score);
+    }
 
     @Test
     void shouldScopeProjectRolesToAssesseeProjectAndStage() {
