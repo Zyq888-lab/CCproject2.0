@@ -4,6 +4,7 @@
 //   无鉴权上下文 → getPrimaryRole() 返回空串，不走 PM 项目过滤，聚合全周期任务
 package com.jifeng.assessment.monitor;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jifeng.assessment.calibration.CalibrationSubmission;
 import com.jifeng.assessment.calibration.CalibrationSubmissionMapper;
 import com.jifeng.assessment.confirmation.ProjectConfirmation;
@@ -50,6 +51,62 @@ class PeriodMonitorServiceTest {
     @Autowired private CalibrationSubmissionMapper calibrationSubmissionMapper;
     @Autowired private ProjectConfirmationMapper projectConfirmationMapper;
     @Autowired private FuncKpiMapper funcKpiMapper;
+    @Autowired private ObjectMapper objectMapper;
+
+    @Test
+    void shouldScopeProjectRolesToAssesseeProjectAndStage() {
+        seedPeriod("PERIOD-MON-ROLES", "ONGOING");
+        seedEmployee("EMP-MON-ROLE-ASR");
+        seedEmployee("EMP-MON-ROLE-ASE");
+        seedProject("PROJ-MON-ROLE-A", "P2");
+        seedProject("PROJ-MON-ROLE-A", "P3");
+        seedProject("PROJ-MON-ROLE-B", "P2");
+        for (String code : List.of("MON-PQL", "MON-PDL", "MON-AME", "MON-PUR", "MON-PM", "MON-OLD")) {
+            seedRole(code);
+        }
+        seedAssignment("PROJ-MON-ROLE-A", "P2", "EMP-MON-ROLE-ASE", "MON-PQL", 0);
+        seedAssignment("PROJ-MON-ROLE-A", "P2", "EMP-MON-ROLE-ASE", "MON-PDL", 0);
+        seedAssignment("PROJ-MON-ROLE-A", "P2", "EMP-MON-ROLE-ASE", "MON-OLD", 1);
+        seedAssignment("PROJ-MON-ROLE-A", "P2", "EMP-MON-ROLE-ASR", "MON-PM", 0);
+        seedAssignment("PROJ-MON-ROLE-A", "P3", "EMP-MON-ROLE-ASE", "MON-AME", 0);
+        seedAssignment("PROJ-MON-ROLE-B", "P2", "EMP-MON-ROLE-ASE", "MON-PUR", 0);
+        seedProjectTask("PERIOD-MON-ROLES", "EMP-MON-ROLE-ASR", "EMP-MON-ROLE-ASE", "PROJ-MON-ROLE-A", "P2");
+        seedProjectTask("PERIOD-MON-ROLES", "EMP-MON-ROLE-ASR", "EMP-MON-ROLE-ASE", "PROJ-MON-ROLE-A", "P3");
+        seedProjectTask("PERIOD-MON-ROLES", "EMP-MON-ROLE-ASR", "EMP-MON-ROLE-ASE", "PROJ-MON-ROLE-B", "P2");
+
+        List<PeriodMonitorItem> items = periodMonitorService.monitor("PERIOD-MON-ROLES");
+
+        assertEquals(3, items.size(), "Multiple roles must not duplicate task rows");
+        PeriodMonitorItem first = items.stream().filter(i -> "PROJ-MON-ROLE-A".equals(i.getProjectCode())
+                && "P2".equals(i.getProjectStage())).findFirst().orElseThrow();
+        PeriodMonitorItem nextStage = items.stream().filter(i -> "P3".equals(i.getProjectStage())).findFirst().orElseThrow();
+        PeriodMonitorItem otherProject = items.stream().filter(i -> "PROJ-MON-ROLE-B".equals(i.getProjectCode())).findFirst().orElseThrow();
+        assertEquals(objectMapper.valueToTree(List.of("MON-PDL", "MON-PQL")), objectMapper.valueToTree(first).get("projectRoles"));
+        assertEquals(objectMapper.valueToTree(List.of("MON-AME")), objectMapper.valueToTree(nextStage).get("projectRoles"));
+        assertEquals(objectMapper.valueToTree(List.of("MON-PUR")), objectMapper.valueToTree(otherProject).get("projectRoles"));
+        assertEquals("已提交", first.getStatus());
+    }
+
+    @Test
+    void shouldReturnEmptyRolesForFunctionalAndUnassignedTasks() {
+        seedPeriod("PERIOD-MON-NOROLES", "ONGOING");
+        seedEmployee("EMP-MON-NOROLE-ASR");
+        seedEmployee("EMP-MON-NOROLE-ASE");
+        seedProject("PROJ-MON-NOROLE", "P2");
+        seedProject("PROJ-MON-ELSEWHERE", "P2");
+        seedRole("MON-ELSEWHERE");
+        seedAssignment("PROJ-MON-ELSEWHERE", "P2", "EMP-MON-NOROLE-ASE", "MON-ELSEWHERE", 0);
+        seedFuncKpi();
+        seedTask("PERIOD-MON-NOROLES", "EMP-MON-NOROLE-ASR", "EMP-MON-NOROLE-ASE");
+        seedProjectTask("PERIOD-MON-NOROLES", "EMP-MON-NOROLE-ASR", "EMP-MON-NOROLE-ASE", "PROJ-MON-NOROLE", "P2");
+
+        List<PeriodMonitorItem> items = periodMonitorService.monitor("PERIOD-MON-NOROLES");
+
+        assertEquals(2, items.size());
+        for (PeriodMonitorItem item : items) {
+            assertEquals(objectMapper.valueToTree(List.of()), objectMapper.valueToTree(item).get("projectRoles"));
+        }
+    }
 
     // 功能：CALIBRATING 且 PD 尚未提交校准(calibrationSubmittedAt 为空)时「当前审批人」应为「PD（待校准）」——
     //   旧映射在进入校准后立即显示「总裁（待确认）」，误判了提交状态
@@ -425,6 +482,17 @@ class PeriodMonitorServiceTest {
         a.setIsPrimary(true);
         a.setDeleted(0);
         projectRoleAssignmentMapper.insert(a);
+    }
+
+    private void seedAssignment(String projectCode, String projectStage, String employeeId, String roleCode, int deleted) {
+        ProjectRoleAssignment assignment = new ProjectRoleAssignment();
+        assignment.setProjectCode(projectCode);
+        assignment.setProjectStage(projectStage);
+        assignment.setEmployeeId(employeeId);
+        assignment.setProjectRoleCode(roleCode);
+        assignment.setIsPrimary(false);
+        assignment.setDeleted(deleted);
+        projectRoleAssignmentMapper.insert(assignment);
     }
 
     private void seedPrimaryPresident(String projectCode, String projectStage, String employeeId) {

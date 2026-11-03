@@ -28,6 +28,9 @@ public class PeriodMonitorItem {
     private String projectName;
     private String projectStage;
 
+    /** 被考核员工在该项目、阶段的有效项目角色编码；职能任务或未分配时为空列表 */
+    private List<String> projectRoles = List.of();
+
     /** PROJECT / FUNCTIONAL */
     private String taskType;
 

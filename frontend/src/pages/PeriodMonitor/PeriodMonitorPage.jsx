@@ -123,6 +123,7 @@ function PeriodMonitorPage() {
     const rows = filteredData.map((r) => ({
       员工: r.employeeName || r.employeeId || '-',
       项目: r.projectName || r.projectCode || '-',
+      项目角色: (r.projectRoles || []).join('\n') || '—',
       任务类型: TASK_TYPE_LABEL[r.taskType] || r.taskType || '-',
       状态: resolveStatusLabel(r),
       当前审批节点: resolveNodeLabel(r),
@@ -133,7 +134,7 @@ function PeriodMonitorPage() {
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const csv = XLSX.utils.sheet_to_csv(ws);
-    const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `周期监控_${periodId}.csv`;
@@ -146,6 +147,12 @@ function PeriodMonitorPage() {
       render: (v, r) => v || r.employeeId || '-' },
     { title: '项目', dataIndex: 'projectName', key: 'projectName', width: 180,
       render: (v, r) => v ? `${v}（${r.projectStage || '-'}）` : '-' },
+    { title: '项目角色', dataIndex: 'projectRoles', key: 'projectRoles', width: 160,
+      render: (roles) => (roles?.length ? (
+        <Space size={[0, 4]} wrap>
+          {roles.map((role) => <Tag key={role}>{role}</Tag>)}
+        </Space>
+      ) : '—') },
     { title: '任务类型', dataIndex: 'taskType', key: 'taskType', width: 100,
       render: (t) => TASK_TYPE_LABEL[t] || t || '-' },
     { title: '状态', dataIndex: 'status', key: 'status', width: 100,
@@ -281,7 +288,7 @@ function PeriodMonitorPage() {
             size="middle"
             rowClassName={(_, index) => index % 2 === 1 ? 'table-row-striped' : ''}
             pagination={{ pageSize: 20, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (t) => `共 ${t} 条` }}
-            scroll={{ x: 800 }}
+            scroll={{ x: 1240 }}
             locale={{ emptyText: '当前筛选条件下无匹配任务' }}
           />
         </Card>
